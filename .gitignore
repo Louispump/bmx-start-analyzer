@@ -1,0 +1,29 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Modèles ML
+*.pt
+*.onnx
+
+# Vidéos et sorties
+videos/
+output/
+*.mp4
+*.mov
+*.avi
+*.MOV
+
+# Données
+*.csv
+
+# Système
+.DS_Store
+.vscode/
+.idea/
+
+# Environnement
+.env
