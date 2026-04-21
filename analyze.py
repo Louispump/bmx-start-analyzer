@@ -117,45 +117,56 @@ def detect_first_movement(df, gate_drop_time, threshold_deg=5.0, search_window_s
     return gate_idx
 
 
-def detect_crank_events(df, first_move_idx, n_cranks=2):
+def detect_crank_events(df, first_move_idx, ankle_col, n_cranks=3):
     """
-    Détecte les points morts haut/bas du pédalage en cherchant les pics et
-    creux de l'angle du genou après le premier mouvement.
-    Retourne une liste d'indices de frames [push1_end, pull1_end, push2_end].
+    Détecte les points morts haut/bas de la pédale du pied analysé en 
+    cherchant les pics et creux de la POSITION Y de la cheville.
+    
+    Signal: y_ankle (cheville du pied analysé)
+    - y MINIMUM = cheville au plus haut = pédale à 12h (point mort haut)
+    - y MAXIMUM = cheville au plus bas = pédale à 6h (point mort bas)
+    
+    Séquence typique en BMX départ (pied avant sur pédale haute):
+    - Début: pédale avant vers 12h (y_ankle petit) 
+    - Push 1: pédale descend vers 6h (y_ankle augmente → MAX)
+    - Pull 1: pédale remonte vers 12h (y_ankle diminue → MIN)
+    - Push 2: redescend (y_ankle augmente → MAX)
+    
+    Retourne la liste d'indices: [fin_push1, fin_pull1, fin_push2]
     """
-    # On travaille sur la portion après first_move_idx
     sub = df.iloc[first_move_idx:].copy().reset_index(drop=False)
-    knee = sub["knee_angle"].values
+    y_ankle = sub[ankle_col].values
 
-    # On cherche minima (compression = point mort bas pour le pied avant)
-    # et maxima (extension = point mort haut pour le pied avant)
-    # Distance minimale entre événements: ~0.15s (un cycle de pédalage rapide)
-    fps_approx = 1 / np.median(np.diff(sub["time"].dropna().values))
-    min_dist = max(3, int(0.15 * fps_approx))
+    # Estimation fps
+    valid_times = sub["time"].dropna().values
+    if len(valid_times) < 2:
+        return []
+    fps_approx = 1 / np.median(np.diff(valid_times))
+    min_dist = max(3, int(0.12 * fps_approx))  # min 120ms entre événements
 
-    # Minima (inversion pour find_peaks)
-    minima, _ = find_peaks(-knee, distance=min_dist, prominence=5)
-    maxima, _ = find_peaks(knee, distance=min_dist, prominence=5)
+    # Maxima de y (point mort bas de la pédale) 
+    maxima, _ = find_peaks(y_ankle, distance=min_dist, prominence=10)
+    # Minima de y (point mort haut de la pédale)
+    minima, _ = find_peaks(-y_ankle, distance=min_dist, prominence=10)
 
-    events = []
-    # Cherche alternance: premier minimum (fin Push 1), puis max (fin Pull 1), puis min (fin Push 2)
+    # Séquence attendue: max → min → max (push-pull-push)
     all_events = sorted(
-        [(i, "min") for i in minima] + [(i, "max") for i in maxima],
+        [(i, "max") for i in maxima] + [(i, "min") for i in minima],
         key=lambda x: x[0]
     )
 
-    # Prend les 3 premiers dans l'ordre logique min → max → min
-    expected = ["min", "max", "min"]
+    expected = ["max", "min", "max"]
+    events = []
     for e_idx, e_type in all_events:
-        if events and len(events) >= len(expected):
+        if len(events) >= len(expected):
             break
-        if len(events) < len(expected) and e_type == expected[len(events)]:
-            events.append(sub.loc[e_idx, "index"])  # index dans df original
+        if e_type == expected[len(events)]:
+            events.append(sub.loc[e_idx, "index"])
 
     return events
 
 
-def segment_phases(df, gate_drop_time):
+def segment_phases(df, gate_drop_time, ankle_col):
     """
     Segmente la vidéo en phases selon Kalichová.
     Retourne un dict {phase_name: (start_idx, end_idx)}
@@ -167,8 +178,7 @@ def segment_phases(df, gate_drop_time):
     first_move_idx = detect_first_movement(df, gate_drop_time)
     phases["Reaction"] = (gate_idx, first_move_idx)
 
-    crank_events = detect_crank_events(df, first_move_idx)
-
+    crank_events = detect_crank_events(df, first_move_idx, ankle_col)
     if len(crank_events) >= 1:
         phases["Push 1"] = (first_move_idx, crank_events[0])
     if len(crank_events) >= 2:
@@ -380,7 +390,8 @@ def main(video_path, front_foot=None, gate_drop=None):
 
     # === Segmentation en phases ===
     print("Segmenting phases (Kalichová)...")
-    phases, first_move_idx = segment_phases(df, gate_drop)
+    ankle_col = f"{ankle_k}_y"  # ex: "R_ankle_y" ou "L_ankle_y"
+    phases, first_move_idx = segment_phases(df, gate_drop, ankle_col)
     
     # Étiquette de phase pour chaque frame dans le CSV
     df["phase"] = "Unknown"
