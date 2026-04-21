@@ -195,17 +195,13 @@ def segment_phases(df, gate_drop_time, ankle_col):
 
 def detect_front_foot(all_tracks, main_tid, n_frames=30):
     """
-    Détecte le pied avant du rider en comparant la hauteur des chevilles
-    dans les premières frames (position de set).
-    
-    Le pied avant est sur la pédale haute (12h environ), donc:
-    - Sa cheville a un y plus PETIT (plus haut dans l'image)
-    - La cheville du pied arrière a un y plus GRAND (plus bas dans l'image)
-    
-    Retourne "L" ou "R".
+    Détecte le pied avant en utilisant la direction du vélo (estimée par
+    la position du nez ou des poignets par rapport aux hanches).
+    Le pied avant = celui dont la cheville est la plus avancée dans cette direction.
     """
-    L_ankle_ys = []  # index 15
-    R_ankle_ys = []  # index 16
+    direction_signs = []  # +1 si rider orienté vers droite image, -1 vers gauche
+    L_ankle_xs, R_ankle_xs = [], []
+    hip_xs = []
     
     for frame_idx in sorted(all_tracks.keys())[:n_frames]:
         tracks = all_tracks[frame_idx]
@@ -214,29 +210,55 @@ def detect_front_foot(all_tracks, main_tid, n_frames=30):
         _, kpts = tracks[main_tid]
         if kpts is None:
             continue
-        if kpts[15, 2] > 0.3:
-            L_ankle_ys.append(kpts[15, 1])
-        if kpts[16, 2] > 0.3:
-            R_ankle_ys.append(kpts[16, 1])
+        
+        nose_x, nose_conf = kpts[0, 0], kpts[0, 2]
+        L_hip_x, L_hip_conf = kpts[11, 0], kpts[11, 2]
+        R_hip_x, R_hip_conf = kpts[12, 0], kpts[12, 2]
+        L_ankle_x, L_ankle_conf = kpts[15, 0], kpts[15, 2]
+        R_ankle_x, R_ankle_conf = kpts[16, 0], kpts[16, 2]
+        
+        # Centre des hanches
+        if L_hip_conf > 0.3 and R_hip_conf > 0.3:
+            hip_center_x = (L_hip_x + R_hip_x) / 2
+            hip_xs.append(hip_center_x)
+            
+            # Direction: le nez est-il à gauche ou à droite du centre des hanches?
+            if nose_conf > 0.3:
+                # Si nose_x > hip_center_x : rider regarde vers la droite image (+1)
+                # Si nose_x < hip_center_x : rider regarde vers la gauche image (-1)
+                direction_signs.append(1 if nose_x > hip_center_x else -1)
+        
+        if L_ankle_conf > 0.3:
+            L_ankle_xs.append(L_ankle_x)
+        if R_ankle_conf > 0.3:
+            R_ankle_xs.append(R_ankle_x)
     
-    if not L_ankle_ys or not R_ankle_ys:
+    if not L_ankle_xs or not R_ankle_xs or not direction_signs:
         return None
     
-    L_mean = np.mean(L_ankle_ys)
-    R_mean = np.mean(R_ankle_ys)
+    # Direction moyenne du vélo (+1 = roule vers droite image, -1 = vers gauche)
+    direction = 1 if np.mean(direction_signs) > 0 else -1
     
-    print(f"  Hauteur moyenne cheville gauche: {L_mean:.0f} px")
-    print(f"  Hauteur moyenne cheville droite: {R_mean:.0f} px")
-    print(f"  (y plus petit = plus haut dans l'image = pédale avant)")
+    L_mean_x = np.mean(L_ankle_xs)
+    R_mean_x = np.mean(R_ankle_xs)
     
-    # Le pied avant a y plus petit (plus haut)
-    front = "L" if L_mean < R_mean else "R"
-    diff = abs(L_mean - R_mean)
+    print(f"  Direction du vélo: {'→ droite image' if direction > 0 else '← gauche image'}")
+    print(f"  Position X moyenne cheville gauche: {L_mean_x:.0f} px")
+    print(f"  Position X moyenne cheville droite: {R_mean_x:.0f} px")
+    
+    # Le pied avant est celui qui est dans la direction du mouvement
+    # Si direction = +1 (vélo vers droite), le pied avant a X plus GRAND
+    # Si direction = -1 (vélo vers gauche), le pied avant a X plus PETIT
+    if direction > 0:
+        front = "L" if L_mean_x > R_mean_x else "R"
+    else:
+        front = "L" if L_mean_x < R_mean_x else "R"
+    
+    diff = abs(L_mean_x - R_mean_x)
     print(f"  → Pied avant détecté: {'GAUCHE' if front == 'L' else 'DROIT'} "
           f"(écart: {diff:.0f}px)")
     
-    # Si l'écart est trop petit, on considère que la détection n'est pas fiable
-    if diff < 15:
+    if diff < 20:
         print(f"  ⚠️  Écart faible ({diff:.0f}px), détection peu fiable")
     
     return front
