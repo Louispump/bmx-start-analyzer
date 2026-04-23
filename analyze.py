@@ -3,8 +3,10 @@ BMX Start Analyzer - MVP #2.0
 Pose estimation + tracking + segmentation en phases (Kalichová)
 
 Usage:
-  python analyze.py videos/nom_video.mp4 --gate-drop 1.8
-  python analyze.py videos/nom_video.mp4 --gate-drop 1.8 --front-foot L
+  python analyze.py videos/nom_video.mp4                      # gate drop auto-détecté
+  python analyze.py videos/nom_video.mp4 --gate-drop 1.8     # secondes
+  python analyze.py videos/nom_video.mp4 --gate-frame 55     # numéro de frame
+  python analyze.py videos/nom_video.mp4 --gate-frame 55 --front-foot L
 """
 
 import sys
@@ -100,56 +102,125 @@ def smooth_series(series, window=7, polyorder=3, max_gap=5):
     return arr
 
 
-def detect_first_movement(df, gate_drop_time, threshold_deg=5.0, search_window_s=0.6):
+def detect_first_movement(df, gate_drop_time, threshold_deg=8.0,
+                          pre_gate_s=2.0, post_gate_s=0.6,
+                          bip1_time=None):
     """
-    Détecte la première frame où l'angle du genou change significativement
-    par rapport à la valeur au gate drop.
+    Détecte le premier mouvement significatif du rider.
+
+    Référence = angle médian du genou sur les frames centrales du Set.
+    Cherche depuis bip1 (ou 2s avant gate si pas de bip1) jusqu'à 0.6s après gate.
+
+    Retourne (first_move_idx, reaction_type) où reaction_type est:
+      "false_start"  — mouvement avant bip 1 (illégal)
+      "bip"          — mouvement entre bip 1 et gate drop (stratégie normale)
+      "gate"         — mouvement après gate drop
     """
     gate_idx = (df["time"] - gate_drop_time).abs().idxmin()
-    knee_at_gate = df.loc[gate_idx, "knee_angle"]
-    if np.isnan(knee_at_gate):
-        return gate_idx
-    search_end = df[df["time"] <= gate_drop_time + search_window_s].index.max()
-    for i in range(gate_idx, min(search_end + 1, len(df))):
+    fps_approx = 1.0 / df["time"].diff().median()
+
+    # Référence stable: frames centrales du Set (25%→50% du Set)
+    stable_start = max(0, gate_idx // 4)
+    stable_end   = max(stable_start + 1, gate_idx // 2)
+    knee_stable = df.loc[stable_start:stable_end, "knee_angle"].dropna().median()
+    if np.isnan(knee_stable):
+        knee_stable = df.loc[gate_idx, "knee_angle"]
+    if np.isnan(knee_stable):
+        return gate_idx, "gate"
+
+    # Début du scan: depuis bip 1 si disponible, sinon 2s avant gate
+    if bip1_time is not None:
+        search_start = max(0, (df["time"] - bip1_time).abs().idxmin())
+    else:
+        search_start = max(0, gate_idx - int(pre_gate_s * fps_approx))
+    search_end = min(len(df) - 1, gate_idx + int(post_gate_s * fps_approx))
+
+    # Exiger 2 frames consécutives au-dessus du seuil (robustesse bruit YOLO)
+    consecutive = 0
+    first_candidate = None
+    for i in range(search_start, search_end + 1):
         if not np.isnan(df.loc[i, "knee_angle"]):
-            if abs(df.loc[i, "knee_angle"] - knee_at_gate) > threshold_deg:
-                return i
-    return gate_idx
+            if abs(df.loc[i, "knee_angle"] - knee_stable) > threshold_deg:
+                if first_candidate is None:
+                    first_candidate = i
+                consecutive += 1
+                if consecutive >= 2:
+                    t_move = df.loc[first_candidate, "time"]
+                    if bip1_time is not None and t_move < bip1_time:
+                        return first_candidate, "false_start"
+                    elif t_move < gate_drop_time:
+                        return first_candidate, "bip"
+                    else:
+                        return first_candidate, "gate"
+            else:
+                consecutive = 0
+                first_candidate = None
+    return gate_idx, "gate"
 
 
 def detect_crank_events(df, first_move_idx, ankle_col, n_cranks=3):
     """
-    Détecte les points morts haut/bas de la pédale du pied analysé en 
-    cherchant les pics et creux de la POSITION Y de la cheville.
-    
-    Signal: y_ankle (cheville du pied analysé)
-    - y MINIMUM = cheville au plus haut = pédale à 12h (point mort haut)
-    - y MAXIMUM = cheville au plus bas = pédale à 6h (point mort bas)
-    
-    Séquence typique en BMX départ (pied avant sur pédale haute):
-    - Début: pédale avant vers 12h (y_ankle petit) 
-    - Push 1: pédale descend vers 6h (y_ankle augmente → MAX)
-    - Pull 1: pédale remonte vers 12h (y_ankle diminue → MIN)
-    - Push 2: redescend (y_ankle augmente → MAX)
-    
-    Retourne la liste d'indices: [fin_push1, fin_pull1, fin_push2]
+    Détecte les points morts haut/bas de la pédale (séquence push-pull-push).
+
+    Utilise la position Y de la cheville RELATIVE à la hanche pour supprimer
+    la dérive de posture (corps qui descend lors de l'accélération).
+
+    Signal relatif (ankle_y - hip_y):
+    - relatif MIN = cheville haute par rapport hanche = pédale à 12h (fin Pull)
+    - relatif MAX = cheville basse par rapport hanche = pédale à 6h  (fin Push)
+
+    Séquence attendue: MAX → MIN → MAX (fin Push1, fin Pull1, fin Push2)
     """
     sub = df.iloc[first_move_idx:].copy().reset_index(drop=False)
+
+    # Dériver le nom de la hanche depuis le nom de la cheville (ex: L_ankle_y → L_hip_y)
     y_ankle = sub[ankle_col].values
 
-    # Estimation fps
     valid_times = sub["time"].dropna().values
     if len(valid_times) < 2:
         return []
     fps_approx = 1 / np.median(np.diff(valid_times))
-    min_dist = max(3, int(0.12 * fps_approx))  # min 120ms entre événements
 
-    # Maxima de y (point mort bas de la pédale) 
-    maxima, _ = find_peaks(y_ankle, distance=min_dist, prominence=10)
-    # Minima de y (point mort haut de la pédale)
-    minima, _ = find_peaks(-y_ankle, distance=min_dist, prominence=10)
+    # Ignorer les 150ms après le premier mouvement (zone transitoire bruitée)
+    skip_frames = max(2, int(0.15 * fps_approx))
+    # Distance minimale entre deux événements: 180ms
+    min_dist = max(3, int(0.18 * fps_approx))
 
-    # Séquence attendue: max → min → max (push-pull-push)
+    # Interpoler pour que find_peaks fonctionne sur les NaN
+    y_interp = pd.Series(y_ankle).interpolate(method='linear', limit_area='inside').values
+
+    # Détrendre le signal: soustraire un polynôme quadratique pour supprimer la
+    # dérive de posture (corps qui monte/avance lors de l'accélération), ne garder
+    # que l'oscillation du crank.
+    x = np.arange(len(y_interp))
+    valid_mask = ~np.isnan(y_ankle)
+    if valid_mask.sum() > 6:
+        coeffs = np.polyfit(x[valid_mask], y_interp[valid_mask], deg=2)
+        trend = np.polyval(coeffs, x)
+        y_detrended = y_interp - trend
+    else:
+        y_detrended = y_interp
+
+    # Prominence adaptative sur le signal détrendé: 15% de l'amplitude (plancher 5px)
+    amplitude = float(np.nanmax(y_detrended) - np.nanmin(y_detrended))
+    if amplitude < 5:
+        print("  [cranks] signal trop plat après détrend, abandon")
+        return []
+    prominence = max(5.0, 0.15 * amplitude)
+
+    maxima, _ = find_peaks(y_detrended, distance=min_dist, prominence=prominence)
+    minima, _ = find_peaks(-y_detrended, distance=min_dist, prominence=prominence)
+
+    # Supprimer les événements dans la zone transitoire
+    maxima = maxima[maxima >= skip_frames]
+    minima = minima[minima >= skip_frames]
+
+    print(f"  [cranks] signal=ankle_y détrendé (polynôme deg2)")
+    print(f"  [cranks] amplitude={amplitude:.0f}px  prominence={prominence:.0f}px  "
+          f"skip={skip_frames}f  min_dist={min_dist}f")
+    print(f"  [cranks] maxima bruts: {list(maxima[:6])} | minima bruts: {list(minima[:6])}")
+
+    # Séquence attendue: max → min → max
     all_events = sorted(
         [(i, "max") for i in maxima] + [(i, "min") for i in minima],
         key=lambda x: x[0]
@@ -163,35 +234,52 @@ def detect_crank_events(df, first_move_idx, ankle_col, n_cranks=3):
         if e_type == expected[len(events)]:
             events.append(sub.loc[e_idx, "index"])
 
+    print(f"  [cranks] événements retenus: {events} "
+          f"({len(events)}/3 phases détectées)")
     return events
 
 
-def segment_phases(df, gate_drop_time, ankle_col):
+def segment_phases(df, gate_drop_time, ankle_col, bip1_time=None):
     """
     Segmente la vidéo en phases selon Kalichová.
-    Retourne un dict {phase_name: (start_idx, end_idx)}
+
+    Set toujours ancré sur gate_drop (définition Kalichová).
+    reaction_type:
+      "gate"        → rider réagit après gate drop → Reaction = gate→first_move
+      "bip"         → rider démarre entre bip1 et gate (stratégie normale) → Reaction = 0ms
+      "false_start" → rider bouge avant bip1 (illégal) → Reaction = 0ms
     """
     phases = {}
     gate_idx = (df["time"] - gate_drop_time).abs().idxmin()
+
+    first_move_idx, reaction_type = detect_first_movement(
+        df, gate_drop_time, bip1_time=bip1_time
+    )
+
+    # Set = toujours 0 → gate_drop
     phases["Set"] = (0, gate_idx)
 
-    first_move_idx = detect_first_movement(df, gate_drop_time)
-    phases["Reaction"] = (gate_idx, first_move_idx)
+    if reaction_type == "gate":
+        phases["Reaction"] = (gate_idx, first_move_idx)
+        crank_start = first_move_idx
+    else:
+        # Bip ou faux départ: rider déjà en mouvement au gate drop
+        phases["Reaction"] = (gate_idx, gate_idx)  # 0ms
+        crank_start = gate_idx
 
-    crank_events = detect_crank_events(df, first_move_idx, ankle_col)
+    crank_events = detect_crank_events(df, crank_start, ankle_col)
     if len(crank_events) >= 1:
-        phases["Push 1"] = (first_move_idx, crank_events[0])
+        phases["Push 1"] = (crank_start, crank_events[0])
     if len(crank_events) >= 2:
         phases["Pull 1"] = (crank_events[0], crank_events[1])
     if len(crank_events) >= 3:
         phases["Push 2"] = (crank_events[1], crank_events[2])
         phases["Post"] = (crank_events[2], len(df) - 1)
     else:
-        # Si on n'a pas détecté tous les cranks, la dernière zone est "Post"
-        last_idx = crank_events[-1] if crank_events else first_move_idx
+        last_idx = crank_events[-1] if crank_events else crank_start
         phases["Post"] = (last_idx, len(df) - 1)
 
-    return phases, first_move_idx
+    return phases, first_move_idx, reaction_type
 
 def detect_front_foot(all_tracks, main_tid, n_frames=30):
     """
@@ -234,8 +322,8 @@ def detect_front_foot(all_tracks, main_tid, n_frames=30):
             R_ankle_xs.append(R_ankle_x)
     
     if not L_ankle_xs or not R_ankle_xs or not direction_signs:
-        return None
-    
+        return None, 0
+
     # Direction moyenne du vélo (+1 = roule vers droite image, -1 = vers gauche)
     direction = 1 if np.mean(direction_signs) > 0 else -1
     
@@ -260,10 +348,55 @@ def detect_front_foot(all_tracks, main_tid, n_frames=30):
     
     if diff < 20:
         print(f"  ⚠️  Écart faible ({diff:.0f}px), détection peu fiable")
-    
-    return front
 
-def main(video_path, front_foot=None, gate_drop=None):
+    return front, direction
+
+
+def classify_set_position(df, gate_idx, side, direction):
+    """
+    Classifie la position de set selon Grigg: Upright / Angled / Back.
+
+    Angle du tronc = vecteur hanche→épaule par rapport à la verticale,
+    signé selon la direction du vélo (+ = penché vers l'avant).
+
+    Thresholds Grigg:
+      Back    : angle < 0°    (penché vers l'arrière)
+      Upright : 0° à 20°     (quasi vertical)
+      Angled  : > 20°         (penché vers l'avant)
+    """
+    # Frames stables du Set: 25%→75% de la phase (évite début bruité et fin avec bips)
+    stable_start = max(0, gate_idx // 4)
+    stable_end   = max(stable_start + 1, 3 * gate_idx // 4)
+    sub = df.loc[stable_start:stable_end]
+
+    sh_x = sub[f"{side}_shoulder_x"].dropna()
+    sh_y = sub[f"{side}_shoulder_y"].dropna()
+    hi_x = sub[f"{side}_hip_x"].dropna()
+    hi_y = sub[f"{side}_hip_y"].dropna()
+
+    common = sh_x.index & sh_y.index & hi_x.index & hi_y.index
+    if len(common) < 3:
+        return None, None
+
+    dx = (sh_x[common] - hi_x[common]).values  # déplacement horizontal épaule vs hanche
+    dy = (sh_y[common] - hi_y[common]).values  # négatif car épaule au-dessus hanche (coords image)
+
+    # Composante "avant" selon direction du vélo
+    forward_dx = dx * direction
+    # Angle depuis la verticale: + = penché avant, - = penché arrière
+    angles = np.degrees(np.arctan2(forward_dx, -dy))
+    trunk_angle = float(np.median(angles))
+
+    if trunk_angle < 0:
+        label = "Back"
+    elif trunk_angle <= 20:
+        label = "Upright"
+    else:
+        label = "Angled"
+
+    return trunk_angle, label
+
+def main(video_path, front_foot=None, gate_drop=None, bip1_time=None):
     video_path = Path(video_path)
     if not video_path.exists():
         print(f"ERREUR: fichier introuvable: {video_path}")
@@ -329,7 +462,7 @@ def main(video_path, front_foot=None, gate_drop=None):
     print(f"  → Côté filmé: {camera_side_name}")
 
     print("Detecting front foot...")
-    detected_front = detect_front_foot(all_tracks, main_tid)
+    detected_front, direction = detect_front_foot(all_tracks, main_tid)
 
     # Déterminer le pied avant à analyser (priorité à --front-foot si fourni)
     if front_foot is not None:
@@ -410,16 +543,23 @@ def main(video_path, front_foot=None, gate_drop=None):
     df["hip_angle"] = hip_angles
     df["elbow_angle"] = elbow_angles
 
+    # === Position de set (Grigg) ===
+    gate_idx_for_set = (df["time"] - gate_drop).abs().idxmin()
+    trunk_angle, set_label = classify_set_position(df, gate_idx_for_set, side, direction)
+
     # === Segmentation en phases ===
     print("Segmenting phases (Kalichová)...")
     ankle_col = f"{ankle_k}_y"  # ex: "R_ankle_y" ou "L_ankle_y"
-    phases, first_move_idx = segment_phases(df, gate_drop, ankle_col)
+    phases, first_move_idx, reaction_type = segment_phases(df, gate_drop, ankle_col,
+                                                             bip1_time=bip1_time)
     
     # Étiquette de phase pour chaque frame dans le CSV
     df["phase"] = "Unknown"
     for phase_name, (start, end) in phases.items():
         df.loc[start:end, "phase"] = phase_name
 
+    df["set_trunk_angle"] = trunk_angle if trunk_angle is not None else np.nan
+    df["set_position"]    = set_label   if set_label   is not None else "Unknown"
     df.to_csv(OUTPUT_DIR / f"{video_name}_landmarks.csv", index=False)
 
     # === Rendu vidéo annotée ===
@@ -496,6 +636,16 @@ def main(video_path, front_foot=None, gate_drop=None):
     plt.savefig(OUTPUT_DIR / f"{video_name}_angles.png", dpi=120)
     plt.close()
 
+    # === Position de set ===
+    print(f"\n=== POSITION DE SET (Grigg) ===")
+    if trunk_angle is not None:
+        print(f"  Angle du tronc: {trunk_angle:+.1f}° depuis la verticale "
+              f"({'avant' if trunk_angle >= 0 else 'arrière'})")
+        print(f"  Classification: {set_label}")
+        print(f"  Référence Grigg: Upright (0-20°) | Angled (>20° avant) | Back (<0°)")
+    else:
+        print(f"  ⚠️  Données insuffisantes pour classifier la position de set")
+
     # === Stats par phase ===
     print(f"\n=== PHASES pour {video_name} ===")
     for phase_name, (start, end) in phases.items():
@@ -522,14 +672,295 @@ def main(video_path, front_foot=None, gate_drop=None):
                       f"(benchmark élite Grigg: {benchmark[col]})")
 
     # Stat de réaction
-    react_time = df.loc[first_move_idx, "time"] - gate_drop
+    t_move = df.loc[first_move_idx, "time"]
+    react_from_gate = t_move - gate_drop
     print(f"\n=== TEMPS DE RÉACTION ===")
-    print(f"  Premier mouvement détecté à t={df.loc[first_move_idx, 'time']:.2f}s")
-    print(f"  Temps de réaction (depuis gate drop): {react_time*1000:.0f}ms")
-    if react_time < 0:
-        print(f"  ⚠️  Temps de réaction négatif = rider anticipait sur les bips (normal en BMX pro)")
+    print(f"  Premier mouvement détecté à t={t_move:.3f}s")
+    if reaction_type == "false_start":
+        print(f"  ⚠️  FAUX DÉPART — mouvement {abs(react_from_gate)*1000:.0f}ms "
+              f"AVANT le bip 1 (t={bip1_time:.3f}s)")
+    elif reaction_type == "bip":
+        react_from_bip1 = t_move - bip1_time if bip1_time is not None else None
+        if react_from_bip1 is not None:
+            print(f"  Réaction aux bips: {react_from_bip1*1000:.0f}ms après bip 1")
+        print(f"  Avance sur le gate: {abs(react_from_gate)*1000:.0f}ms "
+              f"(gate drop = bip 4, t={gate_drop:.3f}s)")
+        print(f"  → Stratégie bips: normal en BMX compétitif")
+    else:
+        print(f"  Temps de réaction depuis gate drop: {react_from_gate*1000:.0f}ms")
 
     print(f"\nFichiers: output/{video_name}_annotated.mp4 + _landmarks.csv + _angles.png")
+
+
+def detect_beeps_audio(video_path):
+    """
+    Détecte les 4 bips de départ BMX dans la piste audio.
+
+    Séquence réelle:
+      "Riders ready watch the gate" → silence (0.1-2.9s) → 4 bips rapides (<1s) → gate drop
+
+    Les 4 bips sont régulièrement espacés (même intervalle ~60ms), tous en <1s.
+    Le gate tombe au 4ème bip.
+
+    Stratégie:
+      1. Filtre 400-800Hz (meilleure plage pour les bips BMX ~630-680Hz dans le bruit)
+      2. Détecter le silence entre l'annonce et les bips → calibrer le noise floor
+      3. Chercher 3 ou 4 pics réguliers (40-120ms) juste après le silence
+      4. Si seulement 3 détectés, extrapoler le 4ème par l'intervalle médian
+
+    Retourne (beep_times, gate_time, confidence) ou (None, None, 0) si pas d'audio.
+    """
+    import subprocess, tempfile, os
+    from scipy.signal import butter, filtfilt
+
+    # 1. Extraire l'audio en WAV mono 44100Hz
+    wav_path = tempfile.mktemp(suffix='.wav')
+    result = subprocess.run(
+        ['ffmpeg', '-i', str(video_path), '-vn', '-acodec', 'pcm_s16le',
+         '-ar', '44100', '-ac', '1', wav_path, '-y', '-loglevel', 'quiet'],
+        capture_output=True
+    )
+    if result.returncode != 0 or not Path(wav_path).exists():
+        return None, None, 0.0
+
+    try:
+        import scipy.io.wavfile as wavfile
+        sr, audio = wavfile.read(wav_path)
+    except Exception:
+        return None, None, 0.0
+    finally:
+        try:
+            os.unlink(wav_path)
+        except Exception:
+            pass
+
+    if audio is None or len(audio) == 0:
+        return None, None, 0.0
+
+    audio = audio.astype(float) / (2**15)
+
+    # 2. Filtre passe-bande 400-800Hz
+    #    (ratio bip/bruit: 5.1× vs 1.9× pour la bande étroite 580-750Hz)
+    nyq = sr / 2
+    b, a = butter(4, [400 / nyq, 800 / nyq], btype='band')
+    filtered = filtfilt(b, a, audio)
+
+    # 3. Énergie RMS haute résolution: fenêtre 20ms, hop 5ms
+    hop = int(0.005 * sr)   # 5ms
+    win = int(0.020 * sr)   # 20ms — résolution pour bips courts
+    energy = np.array([
+        np.sqrt(np.mean(filtered[i:i + win] ** 2))
+        for i in range(0, len(filtered) - win, hop)
+    ])
+    t_e = np.arange(len(energy)) * hop / sr
+
+    # 4. Détecter le silence (annonce → silence → bips) sur signal large bande
+    hop_lo = int(0.050 * sr)
+    win_lo = int(0.200 * sr)
+    energy_broad = np.array([
+        np.sqrt(np.mean(audio[i:i + win_lo] ** 2))
+        for i in range(0, len(audio) - win_lo, hop_lo)
+    ])
+    t_broad = np.arange(len(energy_broad)) * hop_lo / sr
+
+    # Trouver le dernier bloc de silence ≥ 0.4s
+    sil_threshold = max(np.percentile(energy_broad, 10) * 4,
+                        np.percentile(energy_broad, 30))
+    silence_mask  = energy_broad < sil_threshold
+
+    last_silence_start_t = None
+    last_silence_end_t   = None
+    run_start = None
+    for i, is_sil in enumerate(silence_mask):
+        if is_sil:
+            if run_start is None:
+                run_start = i
+        else:
+            if run_start is not None:
+                run_len_s = (i - run_start) * hop_lo / sr
+                if run_len_s >= 0.4:
+                    last_silence_start_t = t_broad[run_start]
+                    last_silence_end_t   = t_broad[min(i, len(t_broad) - 1)]
+                run_start = None
+    if run_start is not None and (len(silence_mask) - run_start) * hop_lo / sr >= 0.4:
+        last_silence_start_t = t_broad[run_start]
+        last_silence_end_t   = t_broad[min(len(t_broad) - 1, run_start)]
+
+    # 5. Calibrer le seuil sur le noise floor pendant le silence
+    #    Les bips BMX sont 20-80× le bruit de fond → seuil = 5× noise floor
+    if last_silence_start_t is not None and last_silence_end_t is not None:
+        mask_sil = (t_e >= last_silence_start_t) & (t_e <= last_silence_end_t)
+        if mask_sil.sum() > 5:
+            # Utiliser le 50e percentile (médiane) pour éviter que le début
+            # bruité de la fenêtre ne gonfle le plancher de bruit
+            noise_floor = float(np.percentile(energy[mask_sil], 50))
+        else:
+            noise_floor = float(np.percentile(energy, 10))
+        search_start_t = max(0.0, last_silence_end_t - 0.3)
+        search_end_t   = last_silence_end_t + 1.5
+        print(f"  [Audio] Silence [{last_silence_start_t:.2f}s→{last_silence_end_t:.2f}s] "
+              f"→ recherche bips [{search_start_t:.2f}s, {search_end_t:.2f}s]")
+    else:
+        noise_floor    = float(np.percentile(energy, 10))
+        search_start_t = 0.0
+        search_end_t   = t_e[-1]
+
+    threshold = max(0.0005, 5.0 * noise_floor)
+
+    # 6. Extraire la fenêtre de recherche
+    si = max(0, int(search_start_t / (hop / sr)))
+    ei = min(len(energy), int(search_end_t / (hop / sr)))
+    energy_s = energy[si:ei]
+    t_s      = t_e[si:ei]
+
+    if len(energy_s) < 20:
+        return None, None, 0.0
+
+    # 7. Détecter les pics de bips (50ms min entre pics, ignorer les gros crashs >50× noise)
+    min_dist_f   = max(1, int(0.05 / (hop / sr)))
+    crash_thresh = 50.0 * noise_floor
+    peaks_all, _ = find_peaks(energy_s, distance=min_dist_f, height=threshold)
+    # Garder uniquement les pics < crash_thresh (exclure gate drop + foule)
+    peaks = peaks_all[energy_s[peaks_all] < crash_thresh]
+
+    if len(peaks) < 3:
+        print(f"  [Audio] Pas assez de pics bips ({len(peaks)}<3) — pas de bips trouvés")
+        return None, None, 0.0
+
+    # 8. Chercher la séquence la plus régulière: 4 ou 3 bips, intervalles 40-120ms
+    best_seq   = None
+    best_score = np.inf
+    best_n     = 0
+
+    for n in [4, 3]:
+        if len(peaks) < n:
+            continue
+        for start in range(len(peaks) - n + 1):
+            seq       = peaks[start:start + n]
+            intervals = np.diff(t_s[seq])
+            total_dur = t_s[seq[-1]] - t_s[seq[0]]
+            if (np.all((intervals >= 0.04) & (intervals <= 0.12))
+                    and total_dur < 1.0):
+                score = np.std(intervals)
+                if score < best_score:
+                    best_score = score
+                    best_seq   = seq
+                    best_n     = n
+        if best_seq is not None:
+            break
+
+    if best_seq is None:
+        print(f"  [Audio] Aucune séquence de bips réguliers (40-120ms) trouvée")
+        return None, None, 0.0
+
+    beep_times    = [float(t_s[p]) for p in best_seq]
+    mean_interval = float(np.mean(np.diff(beep_times)))
+
+    # 9. Extrapoler le 4ème bip si seulement 3 détectés
+    n_missing = 4 - best_n
+    for _ in range(n_missing):
+        beep_times.append(beep_times[-1] + mean_interval)
+
+    intervals = np.diff(beep_times)
+    gate_time  = beep_times[3]   # gate drop = 4ème bip
+
+    # 10. Confiance: régularité (std) × couverture (n détectés / 4)
+    reg_conf  = float(np.clip(1.0 - best_score / 0.015, 0.0, 1.0))
+    n_conf    = best_n / 4.0
+    confidence = reg_conf * n_conf
+
+    tag = "extrapolé" if n_missing > 0 else "détecté"
+    print(f"  [Audio] {best_n}/4 bips détectés → gate {tag}")
+    print(f"  [Audio] Bips: {[f'{t:.3f}s' for t in beep_times]}")
+    print(f"  [Audio] Intervalles: {[f'{i*1000:.0f}ms' for i in intervals]} "
+          f"(moy={mean_interval*1000:.0f}ms, std={best_score*1000:.1f}ms)")
+    print(f"  [Audio] Gate drop (4ème bip): {gate_time:.3f}s | confiance: {confidence:.0%}")
+
+    return beep_times, gate_time, confidence
+
+
+def detect_gate_drop(video_path, gate_zone_frac=0.30):
+    """
+    Détecte automatiquement le gate drop par différence de frames dans la zone
+    haute de l'image (top 30%), où le gate et l'activité pré-départ créent
+    un spike de mouvement distinct.
+
+    Stratégie:
+    - Trouver la fenêtre la plus calme de la vidéo (phase Set)
+    - Baseline = mouvement médian pendant le Set
+    - Gate drop = premier franchissement de 2× baseline confirmé sur 3 frames
+
+    Nécessite au moins 3s de vidéo avec une phase Set calme identifiable.
+    Pour les vidéos courtes (<3s), utiliser --gate-frame.
+
+    Retourne (gate_frame, gate_time_s, confidence_0_to_1, motion_signal)
+    """
+    cap     = cv2.VideoCapture(str(video_path))
+    fps     = cap.get(cv2.CAP_PROP_FPS)
+    height  = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    n_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    gate_h  = int(height * gate_zone_frac)
+    skip    = int(fps * 1.0)   # ignorer la 1ère seconde (bruit init caméra)
+
+    upper_scores = []
+    prev_upper   = None
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        gray  = cv2.GaussianBlur(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+        upper = gray[:gate_h, :]
+        if prev_upper is not None:
+            upper_scores.append(float(np.mean(cv2.absdiff(upper, prev_upper))))
+        else:
+            upper_scores.append(0.0)
+        prev_upper = upper
+    cap.release()
+
+    motion = np.array(upper_scores)
+
+    # Vidéo trop courte : impossible d'établir une baseline fiable
+    min_frames_needed = skip + int(fps * 1.5) + 5
+    if len(motion) < min_frames_needed:
+        return None, None, 0.0, motion
+
+    # Fenêtre la plus calme = phase Set (grille immobile)
+    win_frames  = max(3, int(fps * 1.5))
+    roll_med    = pd.Series(motion).rolling(win_frames, center=True).median().values
+    roll_med    = np.where(np.isnan(roll_med), np.nanmedian(roll_med), roll_med)
+    calm_center = int(np.argmin(roll_med[skip:])) + skip
+    calm_start  = max(skip, calm_center - win_frames // 2)
+    calm_end    = min(len(motion) - 5, calm_center + win_frames // 2)
+
+    if calm_end <= calm_start:
+        return None, None, 0.0, motion
+
+    baseline  = float(np.median(motion[calm_start:calm_end]))
+    noise     = float(np.std(motion[calm_start:calm_end])) + 1e-8
+    threshold = 2.0 * baseline
+    confirm_n = 3
+
+    gate_frame = None
+    for i in range(calm_end, len(motion) - confirm_n):
+        if motion[i] >= threshold:
+            if all(motion[i + k] >= threshold for k in range(1, confirm_n)):
+                gate_frame = i
+                break
+
+    if gate_frame is None:
+        remaining = motion[calm_end:]
+        if len(remaining) > 0:
+            gate_frame = int(np.argmax(remaining)) + calm_end
+        else:
+            return None, None, 0.0, motion
+
+    gate_time  = gate_frame / fps
+    peak_val   = float(np.max(motion[gate_frame:min(gate_frame + int(fps), len(motion))]))
+    snr        = (peak_val - baseline) / noise
+    confidence = float(np.clip(snr / 8.0, 0.0, 1.0))
+
+    return gate_frame, gate_time, confidence, motion
 
 
 if __name__ == "__main__":
@@ -537,22 +968,68 @@ if __name__ == "__main__":
     parser.add_argument("video", help="Chemin vers la vidéo")
     parser.add_argument("--front-foot", choices=["L", "R"], default=None,
                         help="Pied avant du rider (L ou R)")
-    group = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument("--gate-drop", type=float,
                        help="Temps (en secondes) où la grille commence à tomber")
     group.add_argument("--gate-frame", type=int,
                        help="Numéro de frame où la grille commence à tomber (plus précis)")
     args = parser.parse_args()
 
-    # Si --gate-frame est utilisé, on convertit en temps
+    _cap = cv2.VideoCapture(args.video)
+    _fps = _cap.get(cv2.CAP_PROP_FPS)
+    _cap.release()
+
+    bip1_time     = None   # temps du 1er bip (si détecté par audio)
+
     if args.gate_frame is not None:
-        import cv2 as _cv2
-        _cap = _cv2.VideoCapture(args.video)
-        _fps = _cap.get(_cv2.CAP_PROP_FPS)
-        _cap.release()
         gate_drop_time = args.gate_frame / _fps
         print(f"Gate frame {args.gate_frame} → t={gate_drop_time:.3f}s (fps={_fps:.2f})")
-    else:
+
+    elif args.gate_drop is not None:
         gate_drop_time = args.gate_drop
 
-    main(args.video, front_foot=args.front_foot, gate_drop=gate_drop_time)
+    else:
+        # Détection automatique — audio en priorité, visuel en fallback
+        print("Gate drop non spécifié — détection automatique...")
+
+        # --- Tentative audio ---
+        print("  [1/2] Analyse audio (bips 580-750Hz)...")
+        beep_times, gate_time_audio, audio_conf = detect_beeps_audio(args.video)
+
+        if beep_times is not None and audio_conf >= 0.40:
+            conf_bar = "★" * int(audio_conf * 5) + "☆" * (5 - int(audio_conf * 5))
+            print(f"  ✓ Audio — {len(beep_times)} bips détectés:")
+            for i, bt in enumerate(beep_times, 1):
+                print(f"     Bip {i}: t={bt:.3f}s")
+            print(f"  → Gate drop (bip 4): t={gate_time_audio:.3f}s | {conf_bar} ({audio_conf:.0%})")
+            gate_drop_time = gate_time_audio
+            bip1_time      = beep_times[0]
+
+        else:
+            # --- Fallback visuel ---
+            if beep_times is None:
+                print(f"  ✗ Pas de piste audio")
+            else:
+                print(f"  ✗ Audio: confiance faible ({audio_conf:.0%})")
+
+            print("  [2/2] Détection visuelle (mouvement zone haute)...")
+            gate_frame, gate_time_visual, visual_conf, signal = detect_gate_drop(args.video)
+
+            if gate_frame is None:
+                print(f"  ✗ Vidéo trop courte pour baseline visuelle.")
+                print(f"\n  ⚠️  Impossible de détecter le gate automatiquement.")
+                print(f"     --gate-frame <numéro>   ou   --gate-drop <secondes>")
+                raise SystemExit(1)
+
+            conf_bar = "★" * int(visual_conf * 5) + "☆" * (5 - int(visual_conf * 5))
+            print(f"  → Visuel: frame {gate_frame} | t={gate_time_visual:.3f}s | {conf_bar} ({visual_conf:.0%})")
+
+            if visual_conf >= 0.50:
+                gate_drop_time = gate_time_visual
+                print(f"  ✓ Gate drop visuel utilisé")
+            else:
+                print(f"  ⚠️  Confiance faible. Utilise --gate-frame ou --gate-drop")
+                raise SystemExit(1)
+
+    main(args.video, front_foot=args.front_foot, gate_drop=gate_drop_time,
+         bip1_time=bip1_time)
