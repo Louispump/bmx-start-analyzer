@@ -8,7 +8,7 @@
 </head>
 <body class="compare-body">
 
-  <!-- Barre de sélection du pro -->
+  <!-- Barre du haut -->
   <div class="compare-topbar">
     <a href="/result/{{ job_id }}" class="back-link-white">← Retour</a>
     <span class="compare-title">Comparaison</span>
@@ -29,90 +29,133 @@
   <div class="side-by-side">
 
     <!-- Panneau RIDER -->
-    <div class="video-panel" id="panel-rider" onclick="setActive('rider')">
-      <div class="panel-label">
+    <div class="video-panel active-panel" id="panel-rider">
+      <div class="panel-label" onclick="setActive('rider')">
         <span class="panel-tag rider-tag">RIDER</span>
         {{ rider.video_name }}
       </div>
       <div class="panel-video-wrap">
-        <video id="video-rider" playsinline preload="metadata"
+        <video id="video-rider" playsinline preload="auto"
                src="/output/{{ rider.files.annotated_video }}">
         </video>
       </div>
-      <div class="panel-controls">
-        <button class="btn-frame" onclick="step('rider', -1)">&#9664;</button>
-        <span class="frame-counter" id="counter-rider">Frame —</span>
-        <button class="btn-frame" onclick="step('rider', +1)">&#9654;</button>
+      <!-- Scrubber -->
+      <div class="panel-scrubber-wrap" onclick="event.stopPropagation()">
+        <input type="range" class="scrubber" id="scrub-rider" min="0" max="1000" value="0" step="1">
+      </div>
+      <!-- Contrôles frame par frame -->
+      <div class="panel-controls" onclick="event.stopPropagation()">
+        <button class="btn-frame" onclick="step('rider',-1)">&#9664;</button>
+        <span class="frame-counter" id="counter-rider">Frame 0</span>
+        <button class="btn-frame" onclick="step('rider',+1)">&#9654;</button>
       </div>
     </div>
 
     <!-- Panneau PRO -->
-    <div class="video-panel" id="panel-pro" onclick="setActive('pro')">
-      <div class="panel-label">
+    <div class="video-panel" id="panel-pro">
+      <div class="panel-label" onclick="setActive('pro')">
         <span class="panel-tag pro-tag">PRO</span>
         <span id="pro-name">Sélectionne un pro</span>
       </div>
       <div class="panel-video-wrap" id="pro-video-wrap">
-        <div class="panel-empty">
+        <div class="panel-empty" id="pro-empty">
           Sélectionne un pro<br>dans le menu ci-dessus
         </div>
-        <video id="video-pro" playsinline preload="metadata" style="display:none"></video>
+        <video id="video-pro" playsinline preload="auto" style="display:none"></video>
       </div>
-      <div class="panel-controls">
-        <button class="btn-frame" onclick="step('pro', -1)">&#9664;</button>
+      <!-- Scrubber -->
+      <div class="panel-scrubber-wrap" onclick="event.stopPropagation()">
+        <input type="range" class="scrubber" id="scrub-pro" min="0" max="1000" value="0" step="1" disabled>
+      </div>
+      <!-- Contrôles frame par frame -->
+      <div class="panel-controls" onclick="event.stopPropagation()">
+        <button class="btn-frame" onclick="step('pro',-1)">&#9664;</button>
         <span class="frame-counter" id="counter-pro">Frame —</span>
-        <button class="btn-frame" onclick="step('pro', +1)">&#9654;</button>
+        <button class="btn-frame" onclick="step('pro',+1)">&#9654;</button>
       </div>
     </div>
 
-  </div><!-- /side-by-side -->
+  </div>
 
   <!-- Aide clavier -->
   <div class="compare-footer">
-    <span>Clic sur un panneau pour le sélectionner</span>
+    <span>Clic sur le titre du panneau pour le sélectionner (bordure bleue = actif)</span>
     <span>← → frame par frame &nbsp;·&nbsp; Espace play/pause &nbsp;·&nbsp; Tab changer de panneau</span>
   </div>
 
   <script>
     const riderFps = {{ rider.fps }};
-    let proFps     = riderFps;
-    let active     = 'rider';   // panneau actif pour les touches clavier
+    let   proFps   = riderFps;
+    let   active   = 'rider';
+    let   scrubbing = { rider: false, pro: false };
 
-    const videos  = { rider: document.getElementById('video-rider'),
-                      pro:   document.getElementById('video-pro') };
+    const vRider = document.getElementById('video-rider');
+    const vPro   = document.getElementById('video-pro');
+    const videos = { rider: vRider, pro: vPro };
+
+    const scrubs   = { rider: document.getElementById('scrub-rider'),
+                       pro:   document.getElementById('scrub-pro') };
     const counters = { rider: document.getElementById('counter-rider'),
                        pro:   document.getElementById('counter-pro') };
     const panels   = { rider: document.getElementById('panel-rider'),
                        pro:   document.getElementById('panel-pro') };
 
-    // ── Sélection panneau actif ───────────────────────────────────────
+    // ── Panneau actif ─────────────────────────────────────────────────
     function setActive(which) {
       active = which;
-      Object.keys(panels).forEach(k => panels[k].classList.toggle('active-panel', k === which));
+      Object.keys(panels).forEach(k =>
+        panels[k].classList.toggle('active-panel', k === which));
     }
-    setActive('rider');
 
     // ── Frame par frame ───────────────────────────────────────────────
     function step(which, dir) {
       const v   = videos[which];
       const fps = which === 'rider' ? riderFps : proFps;
-      if (!v.src) return;
+      if (v.readyState < 1) return;   // métadonnées pas encore chargées
       v.pause();
-      v.currentTime = Math.max(0, Math.min(v.duration || 9999, v.currentTime + dir / fps));
+      v.currentTime = Math.max(0,
+        Math.min(v.duration, v.currentTime + dir / fps));
     }
 
-    // Mise à jour compteur
-    function updateCounter(which) {
+    // ── Sync UI (compteur + scrubber) ─────────────────────────────────
+    function syncUI(which) {
       const v   = videos[which];
       const fps = which === 'rider' ? riderFps : proFps;
-      const f   = Math.round(v.currentTime * fps);
-      counters[which].textContent = `Frame ${f}`;
+      if (v.readyState < 1 || !isFinite(v.duration) || v.duration === 0) return;
+
+      const frame = Math.round(v.currentTime * fps);
+      counters[which].textContent = `Frame ${frame}`;
+
+      // Ne pas bouger le scrubber si l'utilisateur est en train de le tirer
+      if (!scrubbing[which]) {
+        scrubs[which].value = Math.round(v.currentTime / v.duration * 1000);
+      }
     }
 
-    videos.rider.addEventListener('timeupdate', () => updateCounter('rider'));
-    videos.rider.addEventListener('seeked',     () => updateCounter('rider'));
-    videos.pro.addEventListener('timeupdate',   () => updateCounter('pro'));
-    videos.pro.addEventListener('seeked',       () => updateCounter('pro'));
+    ['timeupdate','seeked','loadedmetadata'].forEach(ev => {
+      vRider.addEventListener(ev, () => syncUI('rider'));
+      vPro.addEventListener(ev,   () => syncUI('pro'));
+    });
+
+    // ── Scrubber input ────────────────────────────────────────────────
+    function initScrubber(which) {
+      const s = scrubs[which];
+      const v = videos[which];
+
+      s.addEventListener('mousedown',  () => { scrubbing[which] = true; });
+      s.addEventListener('touchstart', () => { scrubbing[which] = true; }, {passive:true});
+
+      s.addEventListener('input', () => {
+        if (v.readyState < 1 || !isFinite(v.duration)) return;
+        v.currentTime = (s.value / 1000) * v.duration;
+        syncUI(which);
+      });
+
+      s.addEventListener('mouseup',  () => { scrubbing[which] = false; });
+      s.addEventListener('touchend', () => { scrubbing[which] = false; });
+    }
+    initScrubber('rider');
+    initScrubber('pro');
 
     // ── Clavier ───────────────────────────────────────────────────────
     document.addEventListener('keydown', e => {
@@ -122,7 +165,7 @@
       if (e.key === ' ') {
         e.preventDefault();
         const v = videos[active];
-        if (v.src) v.paused ? v.play() : v.pause();
+        if (v.readyState >= 1) v.paused ? v.play() : v.pause();
       }
       if (e.key === 'Tab') {
         e.preventDefault();
@@ -134,26 +177,35 @@
     function changePro(videoFile) {
       const select = document.getElementById('pro-select');
       const opt    = select.options[select.selectedIndex];
-      const vPro   = videos.pro;
-      const wrap   = document.getElementById('pro-video-wrap');
-      const empty  = wrap.querySelector('.panel-empty');
+      const empty  = document.getElementById('pro-empty');
 
       if (!videoFile) {
-        vPro.style.display = 'none';
-        empty && (empty.style.display = 'flex');
-        document.getElementById('pro-name').textContent = 'Sélectionne un pro';
+        vPro.style.display      = 'none';
+        vPro.src                = '';
+        empty.style.display     = 'flex';
+        scrubs.pro.disabled     = true;
+        scrubs.pro.value        = 0;
         counters.pro.textContent = 'Frame —';
+        document.getElementById('pro-name').textContent = 'Sélectionne un pro';
         return;
       }
 
       proFps = parseFloat(opt.dataset.fps) || riderFps;
       document.getElementById('pro-name').textContent = opt.dataset.name;
 
-      vPro.src           = '/output/' + videoFile;
-      vPro.style.display = 'block';
-      if (empty) empty.style.display = 'none';
+      empty.style.display  = 'none';
+      vPro.style.display   = 'block';
+      scrubs.pro.disabled  = true;   // désactivé jusqu'au chargement
+      counters.pro.textContent = 'Chargement…';
+
+      vPro.src = '/output/' + videoFile;
       vPro.load();
-      counters.pro.textContent = 'Frame 0';
+
+      vPro.addEventListener('loadedmetadata', () => {
+        scrubs.pro.disabled = false;
+        scrubs.pro.value    = 0;
+        counters.pro.textContent = 'Frame 0';
+      }, { once: true });
     }
   </script>
 </body>
