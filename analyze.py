@@ -11,11 +11,13 @@ Usage:
 
 import sys
 import argparse
+import matplotlib
+matplotlib.use("agg")   # backend non-interactif — requis pour les threads (web app)
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import cv2
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
 from scipy.signal import savgol_filter, find_peaks
 from ultralytics import YOLO
 from pathlib import Path
