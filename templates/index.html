@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BMX Start Analyzer</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>BMX Start Analyzer</h1>
+      <p class="subtitle">Dépose une vidéo de départ pour l'analyser</p>
+    </header>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <!-- Zone d'upload -->
+    <div class="upload-zone" id="dropzone">
+      <div class="upload-icon">🎬</div>
+      <p class="upload-label">Glisse ta vidéo ici</p>
+      <p class="upload-hint">ou</p>
+      <label class="btn btn-primary" for="file-input">Choisir un fichier</label>
+      <input type="file" id="file-input" accept="video/*" style="display:none">
+      <p class="upload-formats">MP4 · MOV · AVI</p>
+    </div>
+
+    <!-- Progression (caché au départ) -->
+    <div class="progress-block" id="progress-block" style="display:none">
+      <div class="spinner"></div>
+      <p class="progress-label" id="progress-label">En attente...</p>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const dropzone    = document.getElementById('dropzone');
+    const fileInput   = document.getElementById('file-input');
+    const progressBlock = document.getElementById('progress-block');
+    const progressLabel = document.getElementById('progress-label');
+    const progressBar   = document.getElementById('progress-bar');
+
+    // Drag & drop
+    dropzone.addEventListener('dragover',  e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+    dropzone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropzone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) startUpload(file);
+    });
+
+    fileInput.addEventListener('change', e => {
+      if (e.target.files[0]) startUpload(e.target.files[0]);
+    });
+
+    async function startUpload(file) {
+      // Afficher la progression
+      dropzone.style.display = 'none';
+      progressBlock.style.display = 'flex';
+      progressLabel.textContent = `Upload de ${file.name}...`;
+      animateBar(10);
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res  = await fetch('/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      const jobId = data.job_id;
+
+      animateBar(25);
+      progressLabel.textContent = 'Détection du gate...';
+      pollStatus(jobId);
+    }
+
+    let barWidth = 0;
+    function animateBar(target) {
+      barWidth = target;
+      progressBar.style.width = barWidth + '%';
+    }
+
+    function pollStatus(jobId) {
+      const steps = {
+        'queued':     { label: 'En attente...',               bar: 25 },
+        'processing': { label: null,                           bar: null },
+        'done':       { label: 'Analyse terminée ! Chargement...', bar: 100 },
+        'error':      { label: null,                           bar: null },
+      };
+
+      const interval = setInterval(async () => {
+        const res  = await fetch(`/status/${jobId}`);
+        const data = await res.json();
+
+        if (data.status === 'done') {
+          clearInterval(interval);
+          animateBar(100);
+          progressLabel.textContent = 'Terminé !';
+          setTimeout(() => window.location.href = `/result/${jobId}`, 400);
+
+        } else if (data.status === 'error') {
+          clearInterval(interval);
+          progressBlock.style.display = 'none';
+          dropzone.style.display      = 'flex';
+          alert('Erreur : ' + data.error);
+
+        } else {
+          // processing ou queued: afficher le message de progression
+          if (data.progress) progressLabel.textContent = data.progress;
+          // Avancer la barre lentement (simulation)
+          if (barWidth < 90) animateBar(barWidth + 1);
+        }
+      }, 1500);
+    }
+  </script>
+</body>
+</html>

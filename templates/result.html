@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ results.video_name }} — Analyse</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="page">
+
+    <!-- Header -->
+    <header>
+      <a href="/" class="back-link">← Nouvelle vidéo</a>
+      <h1>{{ results.video_name }}</h1>
+      <p class="subtitle">
+        {{ results.fps }} fps · {{ results.total_frames }} frames ·
+        {{ results.duration_s }}s
+        <span class="gate-badge gate-{{ results.gate_method }}">
+          {{ "🔊 Audio" if results.gate_method == "audio" else "👁 Visuel" }}
+        </span>
+      </p>
+    </header>
+
+    <!-- Métriques clés -->
+    <section class="metrics-grid">
+
+      <!-- Temps de réaction -->
+      <div class="metric-card
+        {% if results.reaction.type == 'false_start' %} card-red
+        {% elif results.reaction.type == 'bip' %}       card-orange
+        {% else %}                                       card-green
+        {% endif %}">
+        <div class="metric-label">Temps de réaction</div>
+        <div class="metric-value">
+          {% if results.reaction.type == 'false_start' %}
+            ⚠️ FAUX DÉPART
+          {% elif results.reaction.type == 'bip' %}
+            {{ results.reaction.from_bip1_ms }} ms
+          {% else %}
+            {{ results.reaction.from_gate_ms }} ms
+          {% endif %}
+        </div>
+        <div class="metric-sub">
+          {% if results.reaction.type == 'false_start' %}
+            Mouvement avant le bip 1
+          {% elif results.reaction.type == 'bip' %}
+            Réaction aux bips · {{ results.reaction.from_gate_ms | abs }} ms avant le gate
+          {% else %}
+            Depuis le gate drop
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Position de set -->
+      <div class="metric-card
+        {% if results.set_position.label == 'Back' %}    card-green
+        {% elif results.set_position.label == 'Upright' %}card-orange
+        {% else %}                                        card-yellow
+        {% endif %}">
+        <div class="metric-label">Position de set</div>
+        <div class="metric-value">{{ results.set_position.label }}</div>
+        <div class="metric-sub">
+          {% if results.set_position.angle_deg is not none %}
+            {{ results.set_position.angle_deg }}° du tronc ·
+          {% endif %}
+          {% if results.set_position.label == 'Back' %}
+            Optimal (Grigg)
+          {% elif results.set_position.label == 'Upright' %}
+            Sous-optimal
+          {% else %}
+            Acceptable
+          {% endif %}
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Timeline des phases -->
+    <section class="section">
+      <h2>Phases (Kalichová)</h2>
+      <div class="timeline-wrap">
+        <div class="timeline" id="timeline">
+          {% set total = results.duration_s %}
+          {% for phase in results.phases %}
+            {% set pct_start = (phase.start_t / total * 100) | round(2) %}
+            {% set pct_width = ((phase.end_t - phase.start_t) / total * 100) | round(2) %}
+            <div class="tl-phase"
+                 style="left:{{ pct_start }}%; width:{{ pct_width }}%; background:{{ phase.color }};"
+                 data-time="{{ phase.start_t }}"
+                 title="{{ phase.name }} — {{ phase.duration_ms }}ms"
+                 onclick="seekVideo({{ phase.start_t }})">
+              <span class="tl-label">{{ phase.name }}</span>
+            </div>
+          {% endfor %}
+          <div class="tl-cursor" id="tl-cursor"></div>
+        </div>
+        <div class="timeline-legend">
+          {% for phase in results.phases %}
+          <span class="legend-item">
+            <span class="legend-dot" style="background:{{ phase.color }}"></span>
+            {{ phase.name }} <em>{{ phase.duration_ms }}ms</em>
+          </span>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <!-- Lecteur vidéo annoté -->
+    <section class="section">
+      <h2>Vidéo annotée</h2>
+      <div class="video-wrap">
+        <video id="main-video" controls playsinline preload="metadata"
+               src="/output/{{ results.files.annotated_video }}">
+          Ton navigateur ne supporte pas la balise vidéo.
+        </video>
+      </div>
+      <p class="video-hint">Scrub pour voir le squelette frame par frame</p>
+    </section>
+
+    <!-- Métriques par phase -->
+    {% if results.angle_metrics %}
+    <section class="section">
+      <h2>Amplitudes articulaires</h2>
+      <p class="section-note">Amplitude de mouvement par phase (en cours de calibration vs benchmarks Grigg)</p>
+      <div class="angle-table-wrap">
+        <table class="angle-table">
+          <thead>
+            <tr>
+              <th>Phase</th>
+              <th>Genou</th>
+              <th>Hanche</th>
+              <th>Coude</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for phase_name, angles in results.angle_metrics.items() %}
+            <tr>
+              <td>{{ phase_name }}</td>
+              <td>{{ angles.knee | default('—') }}{% if angles.knee is defined %}°{% endif %}</td>
+              <td>{{ angles.hip  | default('—') }}{% if angles.hip  is defined %}°{% endif %}</td>
+              <td>{{ angles.elbow| default('—') }}{% if angles.elbow is defined %}°{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- Graphique angles -->
+    <section class="section">
+      <h2>Courbe des angles</h2>
+      <img class="angles-img" src="/output/{{ results.files.angles_png }}" alt="Angles par phase">
+    </section>
+
+  </div><!-- /page -->
+
+  <script>
+    const video  = document.getElementById('main-video');
+    const cursor = document.getElementById('tl-cursor');
+
+    // Déplacer le curseur sur la timeline en sync avec la vidéo
+    video.addEventListener('timeupdate', () => {
+      if (!video.duration) return;
+      const pct = video.currentTime / video.duration * 100;
+      cursor.style.left = pct + '%';
+    });
+
+    // Cliquer sur une phase pour sauter à ce moment
+    function seekVideo(time) {
+      video.currentTime = time;
+      video.play();
+    }
+  </script>
+</body>
+</html>

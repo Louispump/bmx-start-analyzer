@@ -942,6 +942,64 @@ def main(video_path, front_foot=None, gate_drop=None, bip1_time=None):
 
     print(f"\nFichiers: output/{video_name}_annotated.mp4 + _landmarks.csv + _angles.png")
 
+    # === Résultats structurés (pour l'app web) ===
+    t_move = df.loc[first_move_idx, "time"]
+    react_from_gate = t_move - gate_drop
+
+    phases_list = []
+    for phase_name, (start, end) in phases.items():
+        t_start = df.loc[start, "time"]
+        t_end   = df.loc[end,   "time"]
+        phases_list.append({
+            "name":        phase_name,
+            "start_t":     round(float(t_start), 3),
+            "end_t":       round(float(t_end),   3),
+            "duration_ms": round((t_end - t_start) * 1000),
+            "color":       PHASE_COLORS.get(phase_name, "#eeeeee"),
+        })
+
+    angle_metrics = {}
+    for phase_name in ["Push 1", "Pull 1", "Push 2"]:
+        if phase_name not in phases:
+            continue
+        start, end = phases[phase_name]
+        sub = df.loc[start:end]
+        m = {}
+        for col, label in [("knee_angle","knee"), ("hip_angle","hip"), ("elbow_angle","elbow")]:
+            vals = sub[col].dropna()
+            if len(vals) > 0:
+                m[label] = round(float(vals.max() - vals.min()), 1)
+        angle_metrics[phase_name] = m
+
+    results = {
+        "video_name":    video_name,
+        "fps":           round(fps, 2),
+        "total_frames":  n_frames,
+        "duration_s":    round(n_frames / fps, 2),
+        "set_position":  {
+            "angle_deg":    round(float(trunk_angle), 1) if trunk_angle is not None else None,
+            "label":        set_label or "Unknown",
+        },
+        "reaction": {
+            "type":              reaction_type,
+            "first_move_t":      round(float(t_move), 3),
+            "from_gate_ms":      round(react_from_gate * 1000),
+            "from_bip1_ms":      round((t_move - bip1_time) * 1000) if bip1_time else None,
+        },
+        "phases":          phases_list,
+        "angle_metrics":   angle_metrics,
+        "hub_trajectory":  {
+            "type":        hub_type,
+            "backward_px": round(float(hub_backward_px)),
+        },
+        "files": {
+            "annotated_video": f"{video_name}_annotated.mp4",
+            "angles_png":      f"{video_name}_angles.png",
+            "landmarks_csv":   f"{video_name}_landmarks.csv",
+        },
+    }
+    return results
+
 
 def detect_beeps_audio(video_path):
     """
