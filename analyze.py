@@ -979,6 +979,7 @@ def main(video_path, front_foot=None, gate_drop=None, bip1_time=None):
         "fps":           round(fps, 2),
         "total_frames":  n_frames,
         "duration_s":    round(n_frames / fps, 2),
+        "gate_drop_t":   round(float(gate_drop), 3),
         "set_position":  {
             "angle_deg":    round(float(trunk_angle), 1) if trunk_angle is not None else None,
             "label":        set_label or "Unknown",

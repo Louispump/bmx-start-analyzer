@@ -10,108 +10,170 @@
   <div class="page">
     <header>
       <h1>BMX Start Analyzer</h1>
-      <p class="subtitle">Dépose une vidéo de départ pour l'analyser</p>
+      <p class="subtitle">Analyse biomécanique du départ BMX</p>
     </header>
 
     {% if error %}
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
 
-    <!-- Zone d'upload -->
-    <div class="upload-zone" id="dropzone">
-      <div class="upload-icon">🎬</div>
-      <p class="upload-label">Glisse ta vidéo ici</p>
-      <p class="upload-hint">ou</p>
-      <label class="btn btn-primary" for="file-input">Choisir un fichier</label>
-      <input type="file" id="file-input" accept="video/*" style="display:none">
-      <p class="upload-formats">MP4 · MOV · AVI</p>
-    </div>
-
-    <!-- Progression (caché au départ) -->
-    <div class="progress-block" id="progress-block" style="display:none">
-      <div class="spinner"></div>
-      <p class="progress-label" id="progress-label">En attente...</p>
-      <div class="progress-bar-wrap">
-        <div class="progress-bar" id="progress-bar"></div>
+    <!-- ÉTAPE 1 : Upload -->
+    <div id="step-upload">
+      <div class="upload-zone" id="dropzone">
+        <div class="upload-icon">🎬</div>
+        <p class="upload-label">Glisse ta vidéo ici</p>
+        <p class="upload-hint">ou</p>
+        <label class="btn btn-primary" for="file-input">Choisir un fichier</label>
+        <input type="file" id="file-input" accept="video/*" style="display:none">
+        <p class="upload-formats">MP4 · MOV · AVI</p>
       </div>
     </div>
+
+    <!-- ÉTAPE 2 : Sélection du gate drop -->
+    <div id="step-gate" style="display:none">
+      <div class="gate-select-box">
+        <h2>📍 Identifie le gate drop</h2>
+        <p class="section-note">
+          Scrub jusqu'au moment où la grille commence à tomber, puis clique sur
+          <strong>Marquer</strong>.
+        </p>
+        <div class="gate-video-wrap">
+          <video id="gate-video" playsinline preload="auto" controls></video>
+        </div>
+        <div class="gate-scrubber-wrap">
+          <input type="range" class="scrubber scrubber-light" id="gate-scrub"
+                 min="0" max="1000" value="0" step="1">
+        </div>
+        <div class="gate-controls">
+          <button class="btn-frame btn-frame-dark" onclick="gateStep(-1)">&#9664;</button>
+          <span class="frame-counter-dark" id="gate-counter">Frame 0</span>
+          <button class="btn-frame btn-frame-dark" onclick="gateStep(+1)">&#9654;</button>
+        </div>
+        <div class="gate-marker" id="gate-marker">
+          Gate drop : <strong id="gate-marker-val">non défini</strong>
+        </div>
+        <div class="gate-actions">
+          <button class="btn btn-gate-mark" onclick="markGate()">📌 Marquer le gate ici</button>
+          <button class="btn btn-primary" id="btn-confirm-gate"
+                  onclick="confirmGate()" disabled>
+            ✓ Confirmer et analyser
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ÉTAPE 3 : Progression -->
+    <div id="step-progress" style="display:none">
+      <div class="progress-block" style="display:flex">
+        <div class="spinner"></div>
+        <p class="progress-label" id="progress-label">En cours...</p>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script>
-    const dropzone    = document.getElementById('dropzone');
-    const fileInput   = document.getElementById('file-input');
-    const progressBlock = document.getElementById('progress-block');
-    const progressLabel = document.getElementById('progress-label');
-    const progressBar   = document.getElementById('progress-bar');
+    let jobId     = null;
+    let videoFps  = 30;
+    let gateFrame = null;
+    let scrubbing = false;
 
-    // Drag & drop
+    const gateVideo   = document.getElementById('gate-video');
+    const gateScrub   = document.getElementById('gate-scrub');
+    const gateCounter = document.getElementById('gate-counter');
+
+    // ── Upload ────────────────────────────────────────────────────────
+    const dropzone  = document.getElementById('dropzone');
+    const fileInput = document.getElementById('file-input');
     dropzone.addEventListener('dragover',  e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
     dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
     dropzone.addEventListener('drop', e => {
-      e.preventDefault();
-      dropzone.classList.remove('drag-over');
-      const file = e.dataTransfer.files[0];
-      if (file) startUpload(file);
+      e.preventDefault(); dropzone.classList.remove('drag-over');
+      if (e.dataTransfer.files[0]) startUpload(e.dataTransfer.files[0]);
     });
-
-    fileInput.addEventListener('change', e => {
-      if (e.target.files[0]) startUpload(e.target.files[0]);
-    });
+    fileInput.addEventListener('change', e => { if (e.target.files[0]) startUpload(e.target.files[0]); });
 
     async function startUpload(file) {
-      // Afficher la progression
-      dropzone.style.display = 'none';
-      progressBlock.style.display = 'flex';
-      progressLabel.textContent = `Upload de ${file.name}...`;
-      animateBar(10);
-
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const res  = await fetch('/upload', { method: 'POST', body: formData });
+      const form = new FormData();
+      form.append('file', file);
+      const res  = await fetch('/upload', { method: 'POST', body: form });
       const data = await res.json();
-      const jobId = data.job_id;
-
-      animateBar(25);
-      progressLabel.textContent = 'Détection du gate...';
-      pollStatus(jobId);
+      jobId    = data.job_id;
+      videoFps = data.fps;
+      gateVideo.src = data.video_url;
+      gateVideo.load();
+      gateScrub.max = Math.max(1, data.n_frames - 1);
+      document.getElementById('step-upload').style.display = 'none';
+      document.getElementById('step-gate').style.display   = 'block';
     }
 
-    let barWidth = 0;
-    function animateBar(target) {
-      barWidth = target;
-      progressBar.style.width = barWidth + '%';
+    // ── Sync scrubber ↔ vidéo ─────────────────────────────────────────
+    gateVideo.addEventListener('timeupdate', () => {
+      if (!scrubbing) gateScrub.value = Math.round(gateVideo.currentTime * videoFps);
+      gateCounter.textContent = `Frame ${Math.round(gateVideo.currentTime * videoFps)}`;
+    });
+    gateScrub.addEventListener('mousedown',  () => { scrubbing = true; });
+    gateScrub.addEventListener('touchstart', () => { scrubbing = true; }, {passive:true});
+    gateScrub.addEventListener('input', () => {
+      gateVideo.currentTime   = gateScrub.value / videoFps;
+      gateCounter.textContent = `Frame ${gateScrub.value}`;
+    });
+    gateScrub.addEventListener('mouseup',  () => { scrubbing = false; });
+    gateScrub.addEventListener('touchend', () => { scrubbing = false; });
+
+    document.addEventListener('keydown', e => {
+      if (document.getElementById('step-gate').style.display === 'none') return;
+      if (e.target.tagName === 'INPUT') return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); gateStep(+1); }
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); gateStep(-1); }
+      if (e.key === ' ')          { e.preventDefault(); gateVideo.paused ? gateVideo.play() : gateVideo.pause(); }
+    });
+
+    function gateStep(dir) {
+      gateVideo.pause();
+      const f = Math.max(0, Math.round(gateVideo.currentTime * videoFps) + dir);
+      gateVideo.currentTime   = f / videoFps;
+      gateScrub.value         = f;
+      gateCounter.textContent = `Frame ${f}`;
     }
 
-    function pollStatus(jobId) {
-      const steps = {
-        'queued':     { label: 'En attente...',               bar: 25 },
-        'processing': { label: null,                           bar: null },
-        'done':       { label: 'Analyse terminée ! Chargement...', bar: 100 },
-        'error':      { label: null,                           bar: null },
-      };
+    // ── Marquer + confirmer ───────────────────────────────────────────
+    function markGate() {
+      gateFrame = Math.round(gateVideo.currentTime * videoFps);
+      document.getElementById('gate-marker-val').textContent =
+        `Frame ${gateFrame}  (t = ${(gateFrame / videoFps).toFixed(3)}s)`;
+      document.getElementById('btn-confirm-gate').disabled = false;
+    }
 
-      const interval = setInterval(async () => {
+    async function confirmGate() {
+      if (gateFrame === null) return;
+      document.getElementById('step-gate').style.display     = 'none';
+      document.getElementById('step-progress').style.display = 'block';
+      const form = new FormData();
+      form.append('gate_frame', gateFrame);
+      await fetch(`/start/${jobId}`, { method: 'POST', body: form });
+      pollStatus();
+    }
+
+    // ── Polling ───────────────────────────────────────────────────────
+    function pollStatus() {
+      const bar = document.getElementById('progress-bar');
+      const lbl = document.getElementById('progress-label');
+      let w = 10;
+      const iv = setInterval(async () => {
         const res  = await fetch(`/status/${jobId}`);
         const data = await res.json();
-
+        if (data.progress) lbl.textContent = data.progress;
+        if (w < 90) { w += 0.5; bar.style.width = w + '%'; }
         if (data.status === 'done') {
-          clearInterval(interval);
-          animateBar(100);
-          progressLabel.textContent = 'Terminé !';
+          clearInterval(iv); bar.style.width = '100%';
           setTimeout(() => window.location.href = `/result/${jobId}`, 400);
-
         } else if (data.status === 'error') {
-          clearInterval(interval);
-          progressBlock.style.display = 'none';
-          dropzone.style.display      = 'flex';
-          alert('Erreur : ' + data.error);
-
-        } else {
-          // processing ou queued: afficher le message de progression
-          if (data.progress) progressLabel.textContent = data.progress;
-          // Avancer la barre lentement (simulation)
-          if (barWidth < 90) animateBar(barWidth + 1);
+          clearInterval(iv);
+          lbl.textContent = '❌ ' + data.error;
         }
       }, 1500);
     }
