@@ -1130,13 +1130,15 @@ def detect_beeps_audio(video_path):
     return beep_times, gate_time, confidence
 
 
-def detect_gate_drop(video_path, gate_zone_frac=0.30):
+def detect_gate_drop(video_path, gate_zone_frac=0.50):
     """
     Détecte automatiquement le gate drop par différence de frames.
 
-    Fonctionne sur toute longueur de vidéo:
-    - Vidéos longues (>2s Set): baseline sur la fenêtre la plus calme
-    - Vidéos courtes (<2s Set): baseline sur les N premières frames disponibles
+    Principe: les PREMIÈRES frames sont toujours la phase Set (rider immobile,
+    grille levée). On les utilise comme baseline pure, puis on cherche le premier
+    franchissement de seuil = gate drop.
+
+    Zone analysée = top 50% de la frame (capture gate quelle que soit l'angle caméra).
 
     Retourne (gate_frame, gate_time_s, confidence_0_to_1, motion_signal)
     """
@@ -1146,70 +1148,62 @@ def detect_gate_drop(video_path, gate_zone_frac=0.30):
     n_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     gate_h  = int(height * gate_zone_frac)
 
-    upper_scores = []
-    prev_upper   = None
+    scores    = []
+    prev_crop = None
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
-        gray  = cv2.GaussianBlur(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (5, 5), 0)
-        upper = gray[:gate_h, :]
-        if prev_upper is not None:
-            upper_scores.append(float(np.mean(cv2.absdiff(upper, prev_upper))))
+        gray = cv2.GaussianBlur(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+        crop = gray[:gate_h, :]
+        if prev_crop is not None:
+            scores.append(float(np.mean(cv2.absdiff(crop, prev_crop))))
         else:
-            upper_scores.append(0.0)
-        prev_upper = upper
+            scores.append(0.0)
+        prev_crop = crop
     cap.release()
 
-    motion = np.array(upper_scores)
+    motion = np.array(scores)
     if len(motion) < 8:
         return None, None, 0.0, motion
 
-    # Taille de la fenêtre de baseline: 1.5s ou au moins 5 frames
-    win_frames = max(5, int(fps * 1.5))
-    skip       = min(int(fps * 0.5), len(motion) // 4)  # ignorer début (0.5s max)
+    # Baseline = premières frames (TOUJOURS phase Set = statique)
+    # Max: 2s mais jamais plus de 15% de la vidéo ni plus de 40 frames
+    n_baseline = int(min(fps * 2.0, n_total * 0.15, 40))
+    n_baseline = max(5, min(n_baseline, len(motion) // 3))
 
-    if len(motion) - skip < win_frames + 5:
-        # Vidéo très courte: baseline = premiers frames seulement
-        win_frames = max(3, len(motion) // 4)
-        skip       = 0
+    # frame 0 vaut toujours 0.0 (diff vs None), on le saute
+    baseline_arr = motion[1:n_baseline]
+    if len(baseline_arr) < 2:
+        return None, None, 0.0, motion
 
-    # Trouver la fenêtre la plus calme (phase Set = grille immobile)
-    roll_med    = pd.Series(motion).rolling(win_frames, center=True).median().values
-    roll_med    = np.where(np.isnan(roll_med), np.nanmedian(roll_med), roll_med)
-    search_from = skip
-    calm_center = int(np.argmin(roll_med[search_from:])) + search_from
-    calm_start  = max(skip, calm_center - win_frames // 2)
-    calm_end    = min(len(motion) - 4, calm_center + win_frames // 2)
+    baseline  = float(np.median(baseline_arr))
+    noise     = float(np.std(baseline_arr)) + 1e-8
 
-    if calm_end <= calm_start:
-        calm_start = 0
-        calm_end   = min(win_frames, len(motion) // 3)
+    # Seuil adaptatif: au moins 3× baseline ET baseline + 2σ
+    threshold = max(3.0 * baseline, baseline + 2.0 * noise)
+    if threshold < 1e-3:
+        # Fallback si la vidéo est très sombre / peu contrastée
+        threshold = float(np.percentile(motion[1:], 65))
 
-    baseline  = float(np.median(motion[calm_start:calm_end]))
-    noise     = float(np.std(motion[calm_start:calm_end])) + 1e-8
-    threshold = 2.0 * baseline
-    confirm_n = max(2, int(fps * 0.05))  # ~50ms de confirmation
+    confirm_n = max(2, int(fps * 0.05))  # ~50ms de frames consécutives au-dessus
 
-    # Gate drop = premier franchissement de threshold après la baseline
+    # Premier franchissement soutenu du seuil = gate drop
     gate_frame = None
-    for i in range(calm_end, len(motion) - confirm_n):
+    for i in range(1, len(motion) - confirm_n):
         if motion[i] >= threshold:
-            if all(motion[i + k] >= threshold for k in range(1, confirm_n)):
+            if all(motion[i + k] >= threshold * 0.7 for k in range(1, confirm_n)):
                 gate_frame = i
                 break
 
     if gate_frame is None:
-        remaining = motion[calm_end:]
-        if len(remaining) > 0:
-            gate_frame = int(np.argmax(remaining)) + calm_end
-        else:
-            return None, None, 0.0, motion
+        # Fallback: frame de mouvement maximal
+        gate_frame = int(np.argmax(motion[1:])) + 1
 
     gate_time  = gate_frame / fps
     peak_val   = float(np.max(motion[gate_frame:min(gate_frame + int(fps), len(motion))]))
-    snr        = (peak_val - baseline) / noise
+    snr        = (peak_val - baseline) / (noise + 1e-8)
     confidence = float(np.clip(snr / 8.0, 0.0, 1.0))
 
     return gate_frame, gate_time, confidence, motion
