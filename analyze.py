@@ -12,8 +12,9 @@ Usage:
 import sys
 import argparse
 import matplotlib
-matplotlib.use("agg")   # backend non-interactif — requis pour les threads (web app)
+matplotlib.use("agg")          # non-interactif (requis pour threads web app)
 import matplotlib.pyplot as plt
+plt.switch_backend("agg")      # force même si déjà initialisé
 from matplotlib.patches import Patch
 import cv2
 import numpy as np

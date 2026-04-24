@@ -7,6 +7,9 @@ Usage:
   Ouvrir http://localhost:8000 dans le navigateur
 """
 
+import os
+os.environ["MPLBACKEND"] = "agg"  # DOIT être avant tout import matplotlib/ultralytics
+
 import uuid
 import json
 import shutil
