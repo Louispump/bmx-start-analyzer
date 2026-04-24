@@ -15,11 +15,12 @@ import json
 import shutil
 import traceback
 from pathlib import Path
+from datetime import datetime
 
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader
 
 # Importer les fonctions d'analyse
@@ -42,9 +43,13 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 _jinja_env = Environment(loader=FileSystemLoader("templates"), cache_size=0)
 templates  = Jinja2Templates(env=_jinja_env)
 
-# ── Job store (in-memory, suffit pour le dev) ─────────────────────────────────
-# Structure: { job_id: { status, filename, progress, results, error } }
+# ── Stores in-memory ──────────────────────────────────────────────────────────
+# Jobs d'analyse en cours / terminés
 jobs: dict = {}
+
+# Riders sauvegardés pour comparaison
+# Structure: { rider_id: { name, saved_at, results } }
+riders: dict = {}
 
 
 # ── Traitement en arrière-plan ────────────────────────────────────────────────
@@ -153,4 +158,39 @@ async def result(request: Request, job_id: str):
     return templates.TemplateResponse(request, "result.html", {
         "job_id":  job_id,
         "results": job["results"],
+    })
+
+
+# ── Riders (sauvegarde + comparaison) ────────────────────────────────────────
+@app.post("/riders/save")
+async def save_rider(job_id: str = Form(...), name: str = Form(...)):
+    """Sauvegarde un rider depuis un job terminé."""
+    job = jobs.get(job_id)
+    if not job or job["status"] != "done":
+        return JSONResponse({"error": "Job introuvable ou pas terminé."}, status_code=400)
+
+    rider_id = str(uuid.uuid4())[:8]
+    riders[rider_id] = {
+        "id":       rider_id,
+        "name":     name.strip() or job["results"]["video_name"],
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "results":  job["results"],
+    }
+    return {"rider_id": rider_id, "name": riders[rider_id]["name"]}
+
+
+@app.delete("/riders/{rider_id}")
+async def delete_rider(rider_id: str):
+    """Supprime un rider de la comparaison."""
+    if rider_id in riders:
+        del riders[rider_id]
+        return {"ok": True}
+    return JSONResponse({"error": "Rider introuvable."}, status_code=404)
+
+
+@app.get("/compare")
+async def compare(request: Request):
+    """Page de comparaison des riders sauvegardés."""
+    return templates.TemplateResponse(request, "compare.html", {
+        "riders": list(riders.values()),
     })

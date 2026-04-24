@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Comparaison des riders</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="page">
+
+    <header>
+      <div class="header-row">
+        <a href="/" class="back-link">← Nouvelle vidéo</a>
+      </div>
+      <h1>Comparaison</h1>
+      <p class="subtitle">{{ riders | length }} rider(s) sauvegardé(s)</p>
+    </header>
+
+    {% if not riders %}
+    <div class="empty-state">
+      <p>Aucun rider sauvegardé pour l'instant.</p>
+      <p>Analyse une vidéo et clique sur <strong>Sauvegarder ce rider</strong>.</p>
+      <a href="/" class="btn btn-primary" style="margin-top:16px; display:inline-block">
+        Analyser une vidéo
+      </a>
+    </div>
+
+    {% else %}
+
+    <!-- Grille de comparaison -->
+    <div class="compare-grid">
+      {% for rider in riders %}
+      <div class="compare-card">
+
+        <!-- Entête rider -->
+        <div class="compare-header">
+          <div>
+            <div class="compare-name">{{ rider.name }}</div>
+            <div class="compare-meta">{{ rider.saved_at }} · {{ rider.results.video_name }}</div>
+          </div>
+          <button class="btn-delete" onclick="deleteRider('{{ rider.id }}')" title="Retirer">✕</button>
+        </div>
+
+        <!-- Métriques clés -->
+        <div class="compare-metrics">
+
+          <div class="cmp-metric
+            {% if rider.results.reaction.type == 'false_start' %}cmp-red
+            {% elif rider.results.reaction.type == 'bip' %}cmp-orange
+            {% else %}cmp-green{% endif %}">
+            <span class="cmp-label">Réaction</span>
+            <span class="cmp-value">
+              {% if rider.results.reaction.type == 'false_start' %}⚠️ FAUX
+              {% elif rider.results.reaction.type == 'bip' %}{{ rider.results.reaction.from_bip1_ms }} ms
+              {% else %}{{ rider.results.reaction.from_gate_ms }} ms{% endif %}
+            </span>
+          </div>
+
+          <div class="cmp-metric
+            {% if rider.results.set_position.label == 'Back' %}cmp-green
+            {% elif rider.results.set_position.label == 'Upright' %}cmp-orange
+            {% else %}cmp-yellow{% endif %}">
+            <span class="cmp-label">Set</span>
+            <span class="cmp-value">{{ rider.results.set_position.label }}</span>
+          </div>
+
+        </div>
+
+        <!-- Timeline des phases -->
+        <div class="cmp-timeline-label">Phases</div>
+        <div class="cmp-timeline">
+          {% set total = rider.results.duration_s %}
+          {% for phase in rider.results.phases %}
+            {% set pct_start = (phase.start_t / total * 100) | round(2) %}
+            {% set pct_width = ((phase.end_t - phase.start_t) / total * 100) | round(2) %}
+            <div class="cmp-phase"
+                 style="left:{{ pct_start }}%; width:{{ pct_width }}%; background:{{ phase.color }};"
+                 title="{{ phase.name }} — {{ phase.duration_ms }}ms">
+              <span class="cmp-phase-label">{{ phase.name }}</span>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="cmp-phase-legend">
+          {% for phase in rider.results.phases %}
+          <span class="cmp-legend-item">
+            <span style="background:{{ phase.color }}" class="legend-dot"></span>
+            {{ phase.name }} <em>{{ phase.duration_ms }}ms</em>
+          </span>
+          {% endfor %}
+        </div>
+
+      </div><!-- /compare-card -->
+      {% endfor %}
+    </div>
+
+    {% endif %}
+
+  </div><!-- /page -->
+
+  <script>
+    async function deleteRider(id) {
+      await fetch(`/riders/${id}`, { method: 'DELETE' });
+      location.reload();
+    }
+  </script>
+</body>
+</html>

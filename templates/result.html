@@ -11,11 +11,13 @@
 
     <!-- Header -->
     <header>
-      <a href="/" class="back-link">← Nouvelle vidéo</a>
+      <div class="header-row">
+        <a href="/" class="back-link">← Nouvelle vidéo</a>
+        <a href="/compare" class="compare-link">Comparer les riders →</a>
+      </div>
       <h1>{{ results.video_name }}</h1>
       <p class="subtitle">
-        {{ results.fps }} fps · {{ results.total_frames }} frames ·
-        {{ results.duration_s }}s
+        {{ results.fps }} fps · {{ results.total_frames }} frames · {{ results.duration_s }}s
         <span class="gate-badge gate-{{ results.gate_method }}">
           {{ "🔊 Audio" if results.gate_method == "audio" else "👁 Visuel" }}
         </span>
@@ -25,7 +27,6 @@
     <!-- Métriques clés -->
     <section class="metrics-grid">
 
-      <!-- Temps de réaction -->
       <div class="metric-card
         {% if results.reaction.type == 'false_start' %} card-red
         {% elif results.reaction.type == 'bip' %}       card-orange
@@ -52,7 +53,6 @@
         </div>
       </div>
 
-      <!-- Position de set -->
       <div class="metric-card
         {% if results.set_position.label == 'Back' %}    card-green
         {% elif results.set_position.label == 'Upright' %}card-orange
@@ -61,16 +61,10 @@
         <div class="metric-label">Position de set</div>
         <div class="metric-value">{{ results.set_position.label }}</div>
         <div class="metric-sub">
-          {% if results.set_position.angle_deg is not none %}
-            {{ results.set_position.angle_deg }}° du tronc ·
-          {% endif %}
-          {% if results.set_position.label == 'Back' %}
-            Optimal (Grigg)
-          {% elif results.set_position.label == 'Upright' %}
-            Sous-optimal
-          {% else %}
-            Acceptable
-          {% endif %}
+          {% if results.set_position.angle_deg is not none %}{{ results.set_position.angle_deg }}° · {% endif %}
+          {% if results.set_position.label == 'Back' %}Optimal (Grigg)
+          {% elif results.set_position.label == 'Upright' %}Sous-optimal
+          {% else %}Acceptable{% endif %}
         </div>
       </div>
 
@@ -112,26 +106,25 @@
       <div class="video-wrap">
         <video id="main-video" controls playsinline preload="metadata"
                src="/output/{{ results.files.annotated_video }}">
-          Ton navigateur ne supporte pas la balise vidéo.
         </video>
       </div>
-      <p class="video-hint">Scrub pour voir le squelette frame par frame</p>
+      <div class="video-controls">
+        <button class="btn-frame" id="btn-prev" title="Frame précédente (←)">&#9664;</button>
+        <span class="frame-counter" id="frame-counter">Frame —</span>
+        <button class="btn-frame" id="btn-next" title="Frame suivante (→)">&#9654;</button>
+      </div>
+      <p class="video-hint">← → pour avancer frame par frame · Espace pour play/pause</p>
     </section>
 
     <!-- Métriques par phase -->
     {% if results.angle_metrics %}
     <section class="section">
       <h2>Amplitudes articulaires</h2>
-      <p class="section-note">Amplitude de mouvement par phase (en cours de calibration vs benchmarks Grigg)</p>
+      <p class="section-note">Amplitude de mouvement par phase</p>
       <div class="angle-table-wrap">
         <table class="angle-table">
           <thead>
-            <tr>
-              <th>Phase</th>
-              <th>Genou</th>
-              <th>Hanche</th>
-              <th>Coude</th>
-            </tr>
+            <tr><th>Phase</th><th>Genou</th><th>Hanche</th><th>Coude</th></tr>
           </thead>
           <tbody>
             {% for phase_name, angles in results.angle_metrics.items() %}
@@ -154,23 +147,82 @@
       <img class="angles-img" src="/output/{{ results.files.angles_png }}" alt="Angles par phase">
     </section>
 
+    <!-- Sauvegarder le rider -->
+    <section class="section">
+      <div class="save-rider-box">
+        <h2>Sauvegarder ce rider</h2>
+        <p class="section-note">Pour le comparer avec d'autres riders</p>
+        <div class="save-form" id="save-form">
+          <input type="text" id="rider-name" class="rider-name-input"
+                 placeholder="Nom du rider (ex: Antoine, Run 1…)"
+                 maxlength="40">
+          <button class="btn btn-primary" onclick="saveRider()">Sauvegarder</button>
+        </div>
+        <div class="save-confirm" id="save-confirm" style="display:none">
+          ✅ Rider sauvegardé ! <a href="/compare">Voir la comparaison →</a>
+        </div>
+      </div>
+    </section>
+
   </div><!-- /page -->
 
   <script>
-    const video  = document.getElementById('main-video');
-    const cursor = document.getElementById('tl-cursor');
+    const video    = document.getElementById('main-video');
+    const cursor   = document.getElementById('tl-cursor');
+    const counter  = document.getElementById('frame-counter');
+    const fps      = {{ results.fps }};
+    const frameDur = 1 / fps;
 
-    // Déplacer le curseur sur la timeline en sync avec la vidéo
-    video.addEventListener('timeupdate', () => {
+    // ── Timeline cursor ───────────────────────────────────────────────
+    video.addEventListener('timeupdate', updateUI);
+    video.addEventListener('seeked',     updateUI);
+
+    function updateUI() {
       if (!video.duration) return;
-      const pct = video.currentTime / video.duration * 100;
-      cursor.style.left = pct + '%';
-    });
+      const pct   = video.currentTime / video.duration * 100;
+      const frame = Math.round(video.currentTime * fps);
+      cursor.style.left   = pct + '%';
+      counter.textContent = `Frame ${frame}`;
+    }
 
-    // Cliquer sur une phase pour sauter à ce moment
     function seekVideo(time) {
       video.currentTime = time;
-      video.play();
+      video.pause();
+    }
+
+    // ── Frame par frame ───────────────────────────────────────────────
+    function stepFrame(dir) {
+      video.pause();
+      video.currentTime = Math.max(0,
+        Math.min(video.duration || 9999, video.currentTime + dir * frameDur));
+    }
+
+    document.getElementById('btn-prev').addEventListener('click', () => stepFrame(-1));
+    document.getElementById('btn-next').addEventListener('click', () => stepFrame(+1));
+
+    document.addEventListener('keydown', e => {
+      if (e.target.tagName === 'INPUT') return; // ne pas intercepter dans les champs texte
+      if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(+1); }
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); stepFrame(-1); }
+      if (e.key === ' ')          { e.preventDefault(); video.paused ? video.play() : video.pause(); }
+    });
+
+    // ── Sauvegarder le rider ──────────────────────────────────────────
+    async function saveRider() {
+      const name = document.getElementById('rider-name').value.trim();
+      const form = new FormData();
+      form.append('job_id', '{{ job_id }}');
+      form.append('name',   name || '{{ results.video_name }}');
+
+      const res  = await fetch('/riders/save', { method: 'POST', body: form });
+      const data = await res.json();
+
+      if (data.rider_id) {
+        document.getElementById('save-form').style.display    = 'none';
+        document.getElementById('save-confirm').style.display = 'block';
+      } else {
+        alert('Erreur : ' + (data.error || 'inconnue'));
+      }
     }
   </script>
 </body>

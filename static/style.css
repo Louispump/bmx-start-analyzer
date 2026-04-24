@@ -378,3 +378,222 @@ header h1 {
   box-shadow: var(--shadow);
   display: block;
 }
+
+/* ── Header row ───────────────────────────────────────────────────── */
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.compare-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: .9rem;
+  font-weight: 500;
+}
+
+/* ── Contrôles vidéo frame par frame ──────────────────────────────── */
+.video-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.btn-frame {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+}
+.btn-frame:hover  { background: var(--bg); }
+.btn-frame:active { background: var(--border); }
+
+.frame-counter {
+  font-size: .9rem;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 80px;
+  text-align: center;
+}
+
+/* ── Sauvegarder rider ────────────────────────────────────────────── */
+.save-rider-box {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+
+.save-form {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.rider-name-input {
+  flex: 1;
+  min-width: 180px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 50px;
+  font-size: .95rem;
+  outline: none;
+  transition: border-color .2s;
+}
+.rider-name-input:focus { border-color: var(--accent); }
+
+.save-confirm {
+  margin-top: 12px;
+  font-size: .95rem;
+  color: #2e7d32;
+}
+.save-confirm a { color: var(--accent); }
+
+/* ── Page comparaison ─────────────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--muted);
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.compare-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
+.compare-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.compare-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.compare-meta {
+  font-size: .78rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.btn-delete {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background .15s, color .15s;
+}
+.btn-delete:hover { background: #fff0ef; color: var(--red); }
+
+.compare-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.cmp-metric {
+  border-radius: 10px;
+  padding: 10px 12px;
+  border-left: 4px solid transparent;
+}
+.cmp-green  { background: #f0fff4; border-left-color: var(--green); }
+.cmp-orange { background: #fff8f0; border-left-color: var(--orange); }
+.cmp-yellow { background: #fffde7; border-left-color: var(--yellow); }
+.cmp-red    { background: #fff0ef; border-left-color: var(--red); }
+
+.cmp-label {
+  display: block;
+  font-size: .72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+
+.cmp-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.cmp-timeline-label {
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 6px;
+}
+
+.cmp-timeline {
+  position: relative;
+  height: 36px;
+  background: var(--bg);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.cmp-phase {
+  position: absolute;
+  top: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-right: 1px solid rgba(0,0,0,.07);
+  min-width: 2px;
+}
+
+.cmp-phase-label {
+  font-size: .6rem;
+  font-weight: 700;
+  color: rgba(0,0,0,.5);
+  white-space: nowrap;
+  overflow: hidden;
+  padding: 0 3px;
+  pointer-events: none;
+}
+
+.cmp-phase-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+}
+
+.cmp-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .72rem;
+  color: var(--muted);
+}
+.cmp-legend-item em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text);
+}
