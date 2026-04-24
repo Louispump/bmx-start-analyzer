@@ -3,105 +3,157 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Comparaison des riders</title>
+  <title>Comparaison — {{ rider.video_name }}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-  <div class="page">
+<body class="compare-body">
 
-    <header>
-      <div class="header-row">
-        <a href="/" class="back-link">← Nouvelle vidéo</a>
+  <!-- Barre de sélection du pro -->
+  <div class="compare-topbar">
+    <a href="/result/{{ job_id }}" class="back-link-white">← Retour</a>
+    <span class="compare-title">Comparaison</span>
+    <div class="pro-selector">
+      <select id="pro-select" onchange="changePro(this.value)">
+        <option value="">— Choisir un pro —</option>
+        {% for pro in pros_list %}
+        <option value="{{ pro.video_file }}" data-fps="{{ pro.fps }}" data-name="{{ pro.name }}">
+          {{ pro.name }}
+        </option>
+        {% endfor %}
+      </select>
+      <a href="/pros" class="btn-manage-pros" target="_blank">Gérer les pros</a>
+    </div>
+  </div>
+
+  <!-- Vue côte à côte -->
+  <div class="side-by-side">
+
+    <!-- Panneau RIDER -->
+    <div class="video-panel" id="panel-rider" onclick="setActive('rider')">
+      <div class="panel-label">
+        <span class="panel-tag rider-tag">RIDER</span>
+        {{ rider.video_name }}
       </div>
-      <h1>Comparaison</h1>
-      <p class="subtitle">{{ riders | length }} rider(s) sauvegardé(s)</p>
-    </header>
-
-    {% if not riders %}
-    <div class="empty-state">
-      <p>Aucun rider sauvegardé pour l'instant.</p>
-      <p>Analyse une vidéo et clique sur <strong>Sauvegarder ce rider</strong>.</p>
-      <a href="/" class="btn btn-primary" style="margin-top:16px; display:inline-block">
-        Analyser une vidéo
-      </a>
+      <div class="panel-video-wrap">
+        <video id="video-rider" playsinline preload="metadata"
+               src="/output/{{ rider.files.annotated_video }}">
+        </video>
+      </div>
+      <div class="panel-controls">
+        <button class="btn-frame" onclick="step('rider', -1)">&#9664;</button>
+        <span class="frame-counter" id="counter-rider">Frame —</span>
+        <button class="btn-frame" onclick="step('rider', +1)">&#9654;</button>
+      </div>
     </div>
 
-    {% else %}
-
-    <!-- Grille de comparaison -->
-    <div class="compare-grid">
-      {% for rider in riders %}
-      <div class="compare-card">
-
-        <!-- Entête rider -->
-        <div class="compare-header">
-          <div>
-            <div class="compare-name">{{ rider.name }}</div>
-            <div class="compare-meta">{{ rider.saved_at }} · {{ rider.results.video_name }}</div>
-          </div>
-          <button class="btn-delete" onclick="deleteRider('{{ rider.id }}')" title="Retirer">✕</button>
+    <!-- Panneau PRO -->
+    <div class="video-panel" id="panel-pro" onclick="setActive('pro')">
+      <div class="panel-label">
+        <span class="panel-tag pro-tag">PRO</span>
+        <span id="pro-name">Sélectionne un pro</span>
+      </div>
+      <div class="panel-video-wrap" id="pro-video-wrap">
+        <div class="panel-empty">
+          Sélectionne un pro<br>dans le menu ci-dessus
         </div>
-
-        <!-- Métriques clés -->
-        <div class="compare-metrics">
-
-          <div class="cmp-metric
-            {% if rider.results.reaction.type == 'false_start' %}cmp-red
-            {% elif rider.results.reaction.type == 'bip' %}cmp-orange
-            {% else %}cmp-green{% endif %}">
-            <span class="cmp-label">Réaction</span>
-            <span class="cmp-value">
-              {% if rider.results.reaction.type == 'false_start' %}⚠️ FAUX
-              {% elif rider.results.reaction.type == 'bip' %}{{ rider.results.reaction.from_bip1_ms }} ms
-              {% else %}{{ rider.results.reaction.from_gate_ms }} ms{% endif %}
-            </span>
-          </div>
-
-          <div class="cmp-metric
-            {% if rider.results.set_position.label == 'Back' %}cmp-green
-            {% elif rider.results.set_position.label == 'Upright' %}cmp-orange
-            {% else %}cmp-yellow{% endif %}">
-            <span class="cmp-label">Set</span>
-            <span class="cmp-value">{{ rider.results.set_position.label }}</span>
-          </div>
-
-        </div>
-
-        <!-- Timeline des phases -->
-        <div class="cmp-timeline-label">Phases</div>
-        <div class="cmp-timeline">
-          {% set total = rider.results.duration_s %}
-          {% for phase in rider.results.phases %}
-            {% set pct_start = (phase.start_t / total * 100) | round(2) %}
-            {% set pct_width = ((phase.end_t - phase.start_t) / total * 100) | round(2) %}
-            <div class="cmp-phase"
-                 style="left:{{ pct_start }}%; width:{{ pct_width }}%; background:{{ phase.color }};"
-                 title="{{ phase.name }} — {{ phase.duration_ms }}ms">
-              <span class="cmp-phase-label">{{ phase.name }}</span>
-            </div>
-          {% endfor %}
-        </div>
-        <div class="cmp-phase-legend">
-          {% for phase in rider.results.phases %}
-          <span class="cmp-legend-item">
-            <span style="background:{{ phase.color }}" class="legend-dot"></span>
-            {{ phase.name }} <em>{{ phase.duration_ms }}ms</em>
-          </span>
-          {% endfor %}
-        </div>
-
-      </div><!-- /compare-card -->
-      {% endfor %}
+        <video id="video-pro" playsinline preload="metadata" style="display:none"></video>
+      </div>
+      <div class="panel-controls">
+        <button class="btn-frame" onclick="step('pro', -1)">&#9664;</button>
+        <span class="frame-counter" id="counter-pro">Frame —</span>
+        <button class="btn-frame" onclick="step('pro', +1)">&#9654;</button>
+      </div>
     </div>
 
-    {% endif %}
+  </div><!-- /side-by-side -->
 
-  </div><!-- /page -->
+  <!-- Aide clavier -->
+  <div class="compare-footer">
+    <span>Clic sur un panneau pour le sélectionner</span>
+    <span>← → frame par frame &nbsp;·&nbsp; Espace play/pause &nbsp;·&nbsp; Tab changer de panneau</span>
+  </div>
 
   <script>
-    async function deleteRider(id) {
-      await fetch(`/riders/${id}`, { method: 'DELETE' });
-      location.reload();
+    const riderFps = {{ rider.fps }};
+    let proFps     = riderFps;
+    let active     = 'rider';   // panneau actif pour les touches clavier
+
+    const videos  = { rider: document.getElementById('video-rider'),
+                      pro:   document.getElementById('video-pro') };
+    const counters = { rider: document.getElementById('counter-rider'),
+                       pro:   document.getElementById('counter-pro') };
+    const panels   = { rider: document.getElementById('panel-rider'),
+                       pro:   document.getElementById('panel-pro') };
+
+    // ── Sélection panneau actif ───────────────────────────────────────
+    function setActive(which) {
+      active = which;
+      Object.keys(panels).forEach(k => panels[k].classList.toggle('active-panel', k === which));
+    }
+    setActive('rider');
+
+    // ── Frame par frame ───────────────────────────────────────────────
+    function step(which, dir) {
+      const v   = videos[which];
+      const fps = which === 'rider' ? riderFps : proFps;
+      if (!v.src) return;
+      v.pause();
+      v.currentTime = Math.max(0, Math.min(v.duration || 9999, v.currentTime + dir / fps));
+    }
+
+    // Mise à jour compteur
+    function updateCounter(which) {
+      const v   = videos[which];
+      const fps = which === 'rider' ? riderFps : proFps;
+      const f   = Math.round(v.currentTime * fps);
+      counters[which].textContent = `Frame ${f}`;
+    }
+
+    videos.rider.addEventListener('timeupdate', () => updateCounter('rider'));
+    videos.rider.addEventListener('seeked',     () => updateCounter('rider'));
+    videos.pro.addEventListener('timeupdate',   () => updateCounter('pro'));
+    videos.pro.addEventListener('seeked',       () => updateCounter('pro'));
+
+    // ── Clavier ───────────────────────────────────────────────────────
+    document.addEventListener('keydown', e => {
+      if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); step(active, +1); }
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); step(active, -1); }
+      if (e.key === ' ') {
+        e.preventDefault();
+        const v = videos[active];
+        if (v.src) v.paused ? v.play() : v.pause();
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        setActive(active === 'rider' ? 'pro' : 'rider');
+      }
+    });
+
+    // ── Changer de pro ────────────────────────────────────────────────
+    function changePro(videoFile) {
+      const select = document.getElementById('pro-select');
+      const opt    = select.options[select.selectedIndex];
+      const vPro   = videos.pro;
+      const wrap   = document.getElementById('pro-video-wrap');
+      const empty  = wrap.querySelector('.panel-empty');
+
+      if (!videoFile) {
+        vPro.style.display = 'none';
+        empty && (empty.style.display = 'flex');
+        document.getElementById('pro-name').textContent = 'Sélectionne un pro';
+        counters.pro.textContent = 'Frame —';
+        return;
+      }
+
+      proFps = parseFloat(opt.dataset.fps) || riderFps;
+      document.getElementById('pro-name').textContent = opt.dataset.name;
+
+      vPro.src           = '/output/' + videoFile;
+      vPro.style.display = 'block';
+      if (empty) empty.style.display = 'none';
+      vPro.load();
+      counters.pro.textContent = 'Frame 0';
     }
   </script>
 </body>

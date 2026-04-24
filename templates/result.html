@@ -147,21 +147,11 @@
       <img class="angles-img" src="/output/{{ results.files.angles_png }}" alt="Angles par phase">
     </section>
 
-    <!-- Sauvegarder le rider -->
+    <!-- Comparer avec un pro -->
     <section class="section">
-      <div class="save-rider-box">
-        <h2>Sauvegarder ce rider</h2>
-        <p class="section-note">Pour le comparer avec d'autres riders</p>
-        <div class="save-form" id="save-form">
-          <input type="text" id="rider-name" class="rider-name-input"
-                 placeholder="Nom du rider (ex: Antoine, Run 1…)"
-                 maxlength="40">
-          <button class="btn btn-primary" onclick="saveRider()">Sauvegarder</button>
-        </div>
-        <div class="save-confirm" id="save-confirm" style="display:none">
-          ✅ Rider sauvegardé ! <a href="/compare">Voir la comparaison →</a>
-        </div>
-      </div>
+      <a href="/compare/{{ job_id }}" class="btn btn-compare">
+        ⚡ Comparer avec un pro
+      </a>
     </section>
 
   </div><!-- /page -->
@@ -207,23 +197,6 @@
       if (e.key === ' ')          { e.preventDefault(); video.paused ? video.play() : video.pause(); }
     });
 
-    // ── Sauvegarder le rider ──────────────────────────────────────────
-    async function saveRider() {
-      const name = document.getElementById('rider-name').value.trim();
-      const form = new FormData();
-      form.append('job_id', '{{ job_id }}');
-      form.append('name',   name || '{{ results.video_name }}');
-
-      const res  = await fetch('/riders/save', { method: 'POST', body: form });
-      const data = await res.json();
-
-      if (data.rider_id) {
-        document.getElementById('save-form').style.display    = 'none';
-        document.getElementById('save-confirm').style.display = 'block';
-      } else {
-        alert('Erreur : ' + (data.error || 'inconnue'));
-      }
-    }
   </script>
 </body>
 </html>

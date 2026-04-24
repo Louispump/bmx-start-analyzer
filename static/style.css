@@ -597,3 +597,226 @@ header h1 {
   font-weight: 600;
   color: var(--text);
 }
+
+/* ── Bouton comparer ──────────────────────────────────────────────── */
+.btn-compare {
+  display: block;
+  width: 100%;
+  text-align: center;
+  padding: 16px;
+  background: var(--text);
+  color: #fff;
+  border-radius: var(--radius);
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-decoration: none;
+  letter-spacing: .3px;
+  transition: opacity .15s;
+}
+.btn-compare:active { opacity: .8; }
+
+/* ── Page comparaison plein écran ─────────────────────────────────── */
+.compare-body {
+  background: #111;
+  color: #eee;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.compare-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+
+.back-link-white {
+  color: #aaa;
+  text-decoration: none;
+  font-size: .9rem;
+  white-space: nowrap;
+}
+
+.compare-title {
+  font-weight: 700;
+  font-size: 1rem;
+  color: #fff;
+  flex: 1;
+  text-align: center;
+}
+
+.pro-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pro-selector select {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #444;
+  background: #2a2a2a;
+  color: #eee;
+  font-size: .9rem;
+  max-width: 200px;
+}
+
+.btn-manage-pros {
+  color: #888;
+  text-decoration: none;
+  font-size: .8rem;
+  white-space: nowrap;
+}
+.btn-manage-pros:hover { color: #aaa; }
+
+/* ── Côte à côte ──────────────────────────────────────────────────── */
+.side-by-side {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 600px) {
+  .side-by-side { grid-template-columns: 1fr; }
+}
+
+.video-panel {
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color .15s;
+}
+
+.video-panel.active-panel {
+  border-color: var(--accent);
+}
+
+.panel-label {
+  padding: 8px 12px;
+  font-size: .85rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #222;
+  flex-shrink: 0;
+}
+
+.panel-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .5px;
+}
+.rider-tag { background: #0071e3; color: #fff; }
+.pro-tag   { background: #ff9f0a; color: #000; }
+
+.panel-video-wrap {
+  flex: 1;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  position: relative;
+}
+
+.panel-video-wrap video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.panel-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #555;
+  font-size: .9rem;
+  line-height: 1.6;
+  padding: 24px;
+  height: 100%;
+}
+
+.panel-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 8px;
+  background: #222;
+  flex-shrink: 0;
+}
+
+/* ── Bas de page comparaison ──────────────────────────────────────── */
+.compare-footer {
+  padding: 6px 16px;
+  background: #1a1a1a;
+  display: flex;
+  justify-content: space-between;
+  font-size: .75rem;
+  color: #555;
+  flex-shrink: 0;
+}
+
+/* ── Banque de pros (page /pros) ──────────────────────────────────── */
+.add-progress-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: .9rem;
+}
+
+.pros-list {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.pro-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.pro-row:last-child { border-bottom: none; }
+
+.pro-info {
+  flex: 1;
+}
+
+.pro-name-text {
+  font-weight: 600;
+  font-size: .95rem;
+  display: block;
+}
+
+.pro-meta {
+  font-size: .75rem;
+  color: var(--muted);
+}
+
+.status-badge {
+  font-size: .78rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 99px;
+}
+.status-done       { background: #f0fff4; color: #2e7d32; }
+.status-error      { background: #fff0ef; color: var(--red); }
+.status-processing { background: #fff8f0; color: var(--orange); }

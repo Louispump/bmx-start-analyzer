@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Banque de pros — BMX Analyzer</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="page">
+
+    <header>
+      <a href="/" class="back-link">← Accueil</a>
+      <h1>Banque de référence</h1>
+      <p class="subtitle">Vidéos de pros pour la comparaison côte à côte</p>
+    </header>
+
+    <!-- Ajouter un pro -->
+    <section class="section">
+      <div class="save-rider-box">
+        <h2>Ajouter un pro</h2>
+        <p class="section-note">
+          Upload une vidéo → le squelette est généré automatiquement → disponible pour comparaison
+        </p>
+        <div class="save-form" id="add-form">
+          <input type="text" id="pro-name-input" class="rider-name-input"
+                 placeholder="Nom (ex: Sylvain André, Run 2…)" maxlength="40">
+          <label class="btn btn-primary" for="pro-file-input">Choisir une vidéo</label>
+          <input type="file" id="pro-file-input" accept="video/*" style="display:none">
+        </div>
+        <div id="add-progress" style="display:none" class="add-progress-block">
+          <div class="spinner"></div>
+          <span id="add-progress-label">En attente...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Liste des pros -->
+    <section class="section">
+      <h2>Pros enregistrés</h2>
+
+      {% if not pros %}
+      <div class="empty-state">
+        Aucun pro enregistré. Ajoute ta première vidéo de référence ci-dessus.
+      </div>
+      {% else %}
+      <div class="pros-list">
+        {% for pro in pros %}
+        <div class="pro-row" id="pro-row-{{ pro.id }}">
+          <div class="pro-info">
+            <span class="pro-name-text">{{ pro.name }}</span>
+            <span class="pro-meta">{{ pro.added_at }}</span>
+          </div>
+          <div class="pro-status">
+            {% if pro.status == 'done' %}
+              <span class="status-badge status-done">✓ Prêt</span>
+            {% elif pro.status == 'error' %}
+              <span class="status-badge status-error">✗ Erreur</span>
+            {% else %}
+              <span class="status-badge status-processing" id="badge-{{ pro.id }}">
+                ⟳ {{ pro.progress or 'En cours…' }}
+              </span>
+            {% endif %}
+          </div>
+          <button class="btn-delete" onclick="deletePro('{{ pro.id }}')">✕</button>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </section>
+
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('pro-file-input');
+    fileInput.addEventListener('change', e => {
+      if (e.target.files[0]) startAddPro(e.target.files[0]);
+    });
+
+    async function startAddPro(file) {
+      const name = document.getElementById('pro-name-input').value.trim() || file.name;
+      document.getElementById('add-form').style.display     = 'none';
+      document.getElementById('add-progress').style.display = 'flex';
+      document.getElementById('add-progress-label').textContent = `Upload de ${file.name}…`;
+
+      const form = new FormData();
+      form.append('file', file);
+      form.append('name', name);
+
+      const res    = await fetch('/pros/add', { method: 'POST', body: form });
+      const data   = await res.json();
+      const pro_id = data.pro_id;
+
+      document.getElementById('add-progress-label').textContent = 'Génération du squelette…';
+      pollPro(pro_id);
+    }
+
+    function pollPro(proId) {
+      const interval = setInterval(async () => {
+        const res  = await fetch(`/pros/status/${proId}`);
+        const data = await res.json();
+        document.getElementById('add-progress-label').textContent = data.progress || '…';
+
+        if (data.status === 'done' || data.status === 'error') {
+          clearInterval(interval);
+          location.reload();
+        }
+      }, 2000);
+    }
+
+    async function deletePro(id) {
+      if (!confirm('Retirer ce pro de la banque ?')) return;
+      await fetch(`/pros/${id}`, { method: 'DELETE' });
+      location.reload();
+    }
+  </script>
+</body>
+</html>
