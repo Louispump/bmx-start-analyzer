@@ -1132,17 +1132,11 @@ def detect_beeps_audio(video_path):
 
 def detect_gate_drop(video_path, gate_zone_frac=0.30):
     """
-    Détecte automatiquement le gate drop par différence de frames dans la zone
-    haute de l'image (top 30%), où le gate et l'activité pré-départ créent
-    un spike de mouvement distinct.
+    Détecte automatiquement le gate drop par différence de frames.
 
-    Stratégie:
-    - Trouver la fenêtre la plus calme de la vidéo (phase Set)
-    - Baseline = mouvement médian pendant le Set
-    - Gate drop = premier franchissement de 2× baseline confirmé sur 3 frames
-
-    Nécessite au moins 3s de vidéo avec une phase Set calme identifiable.
-    Pour les vidéos courtes (<3s), utiliser --gate-frame.
+    Fonctionne sur toute longueur de vidéo:
+    - Vidéos longues (>2s Set): baseline sur la fenêtre la plus calme
+    - Vidéos courtes (<2s Set): baseline sur les N premières frames disponibles
 
     Retourne (gate_frame, gate_time_s, confidence_0_to_1, motion_signal)
     """
@@ -1151,7 +1145,6 @@ def detect_gate_drop(video_path, gate_zone_frac=0.30):
     height  = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     n_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     gate_h  = int(height * gate_zone_frac)
-    skip    = int(fps * 1.0)   # ignorer la 1ère seconde (bruit init caméra)
 
     upper_scores = []
     prev_upper   = None
@@ -1170,28 +1163,36 @@ def detect_gate_drop(video_path, gate_zone_frac=0.30):
     cap.release()
 
     motion = np.array(upper_scores)
-
-    # Vidéo trop courte : impossible d'établir une baseline fiable
-    min_frames_needed = skip + int(fps * 1.5) + 5
-    if len(motion) < min_frames_needed:
+    if len(motion) < 8:
         return None, None, 0.0, motion
 
-    # Fenêtre la plus calme = phase Set (grille immobile)
-    win_frames  = max(3, int(fps * 1.5))
+    # Taille de la fenêtre de baseline: 1.5s ou au moins 5 frames
+    win_frames = max(5, int(fps * 1.5))
+    skip       = min(int(fps * 0.5), len(motion) // 4)  # ignorer début (0.5s max)
+
+    if len(motion) - skip < win_frames + 5:
+        # Vidéo très courte: baseline = premiers frames seulement
+        win_frames = max(3, len(motion) // 4)
+        skip       = 0
+
+    # Trouver la fenêtre la plus calme (phase Set = grille immobile)
     roll_med    = pd.Series(motion).rolling(win_frames, center=True).median().values
     roll_med    = np.where(np.isnan(roll_med), np.nanmedian(roll_med), roll_med)
-    calm_center = int(np.argmin(roll_med[skip:])) + skip
+    search_from = skip
+    calm_center = int(np.argmin(roll_med[search_from:])) + search_from
     calm_start  = max(skip, calm_center - win_frames // 2)
-    calm_end    = min(len(motion) - 5, calm_center + win_frames // 2)
+    calm_end    = min(len(motion) - 4, calm_center + win_frames // 2)
 
     if calm_end <= calm_start:
-        return None, None, 0.0, motion
+        calm_start = 0
+        calm_end   = min(win_frames, len(motion) // 3)
 
     baseline  = float(np.median(motion[calm_start:calm_end]))
     noise     = float(np.std(motion[calm_start:calm_end])) + 1e-8
     threshold = 2.0 * baseline
-    confirm_n = 3
+    confirm_n = max(2, int(fps * 0.05))  # ~50ms de confirmation
 
+    # Gate drop = premier franchissement de threshold après la baseline
     gate_frame = None
     for i in range(calm_end, len(motion) - confirm_n):
         if motion[i] >= threshold:
@@ -1267,7 +1268,7 @@ if __name__ == "__main__":
             gate_frame, gate_time_visual, visual_conf, signal = detect_gate_drop(args.video)
 
             if gate_frame is None:
-                print(f"  ✗ Vidéo trop courte pour baseline visuelle.")
+                print(f"  ✗ Détection visuelle échouée.")
                 print(f"\n  ⚠️  Impossible de détecter le gate automatiquement.")
                 print(f"     --gate-frame <numéro>   ou   --gate-drop <secondes>")
                 raise SystemExit(1)
@@ -1275,12 +1276,12 @@ if __name__ == "__main__":
             conf_bar = "★" * int(visual_conf * 5) + "☆" * (5 - int(visual_conf * 5))
             print(f"  → Visuel: frame {gate_frame} | t={gate_time_visual:.3f}s | {conf_bar} ({visual_conf:.0%})")
 
+            # Accepter même confiance faible — mieux que planter
+            gate_drop_time = gate_time_visual
             if visual_conf >= 0.50:
-                gate_drop_time = gate_time_visual
                 print(f"  ✓ Gate drop visuel utilisé")
             else:
-                print(f"  ⚠️  Confiance faible. Utilise --gate-frame ou --gate-drop")
-                raise SystemExit(1)
+                print(f"  ⚠️  Confiance faible ({visual_conf:.0%}) — vérifier avec --gate-frame si résultats incorrects")
 
     main(args.video, front_foot=args.front_foot, gate_drop=gate_drop_time,
          bip1_time=bip1_time)
