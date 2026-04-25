@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test détection audio — BMX Analyzer</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .test-page { max-width: 1100px; }
+    .test-row {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 18px;
+      box-shadow: var(--shadow);
+    }
+    .test-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .test-name { font-weight: 600; font-family: ui-monospace, monospace; font-size: .9rem; }
+    .test-meta { color: var(--muted); font-size: .8rem; }
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: .75rem;
+      font-weight: 600;
+    }
+    .badge-ok    { background: #e8f9ee; color: #1d6c34; border: 1px solid #a8e3bb; }
+    .badge-warn  { background: #fff4e5; color: #8a4a00; border: 1px solid #ffd6a5; }
+    .badge-fail  { background: #ffe8e6; color: #8a1a14; border: 1px solid #f0a8a3; }
+    .test-video { width: 100%; max-width: 720px; border-radius: 10px; background: #000; }
+    .beep-row {
+      display: flex; gap: 8px; flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .beep-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: .82rem;
+      cursor: pointer;
+      font-family: ui-monospace, monospace;
+    }
+    .beep-btn:hover { background: #f0f0f5; }
+    .beep-btn.beep-gate {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+      font-weight: 600;
+    }
+    .beep-btn.beep-gate:hover { background: #0066cc; }
+    .test-detail {
+      font-size: .82rem; color: var(--muted);
+      margin-top: 6px; font-family: ui-monospace, monospace;
+    }
+    .test-stats {
+      display: flex; gap: 24px; flex-wrap: wrap;
+      margin: 10px 0;
+      font-size: .85rem;
+    }
+    .test-stats > div strong { color: var(--text); }
+    .summary {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      margin-bottom: 24px;
+      font-size: .9rem;
+    }
+    .frame-row {
+      display: flex; align-items: center; gap: 10px;
+      margin-top: 10px; flex-wrap: wrap;
+      padding: 8px 12px;
+      background: #1a1a2e; color: #fff;
+      border-radius: 8px;
+    }
+    .frame-row button {
+      background: #2a2a4a; color: #fff;
+      border: 1px solid #3a3a5a;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: .85rem;
+      cursor: pointer;
+      font-family: ui-monospace, monospace;
+    }
+    .frame-row button:hover { background: #3a3a5a; }
+    .frame-counter {
+      font-family: ui-monospace, monospace;
+      font-size: .9rem;
+      min-width: 130px;
+      text-align: center;
+    }
+    .frame-counter .delta-ok    { color: #34c759; font-weight: 700; }
+    .frame-counter .delta-near  { color: #ffd60a; font-weight: 600; }
+    .frame-counter .delta-far   { color: #ff3b30; font-weight: 600; }
+    .verdict-row {
+      display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;
+    }
+    .verdict-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 14px;
+      cursor: pointer;
+      font-size: .85rem;
+    }
+    .verdict-btn:hover { background: #f0f0f5; }
+    .verdict-btn.active-ok    { background: #e8f9ee; border-color: #34c759; color: #1d6c34; }
+    .verdict-btn.active-bad   { background: #ffe8e6; border-color: #ff3b30; color: #8a1a14; }
+    .verdict-display { font-size: .85rem; color: var(--muted); margin-left: 8px; }
+    .keyboard-hint {
+      color: var(--muted); font-size: .78rem;
+      margin-top: 4px; text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="page test-page">
+    <header>
+      <a href="/" class="back-link">← Accueil</a>
+      <h1>🔊 Test détection audio gate</h1>
+      <p class="subtitle">Vérification visuelle de la détection sur toutes les vidéos uploadées</p>
+    </header>
+
+    {% set ok_count   = videos | selectattr('detect.detected') | list | length %}
+    {% set fail_count = videos | rejectattr('detect.detected') | list | length %}
+
+    <div class="summary">
+      <strong>{{ videos | length }} vidéos</strong> ·
+      <span style="color:#1d6c34">✓ {{ ok_count }} détectées</span> ·
+      <span style="color:#8a1a14">✗ {{ fail_count }} échouées</span>
+      <p style="margin-top:6px; color:var(--muted); font-size:.85rem;">
+        Pour chaque vidéo : clique sur <strong>GATE</strong> pour sauter à l'instant détecté,
+        ou sur les boutons beep pour vérifier la cadence.
+      </p>
+    </div>
+
+    {% if not videos %}
+    <div class="empty-state">Aucune vidéo dans <code>uploads/</code>.</div>
+    {% endif %}
+
+    {% for v in videos %}
+    <div class="test-row">
+      <div class="test-head">
+        <span class="test-name">{{ v.filename }}</span>
+        <span class="test-meta">
+          {{ v.duration_s }}s · {{ v.fps }} fps · {{ v.n_frames }} frames
+        </span>
+        {% if v.detect.detected %}
+          {% if v.detect.method == '4-beep' %}
+            <span class="badge badge-ok">✓ 4-beep</span>
+          {% else %}
+            <span class="badge badge-warn">≈ 3-beep + extrap.</span>
+          {% endif %}
+        {% else %}
+          <span class="badge badge-fail">✗ {{ v.detect.reason }}</span>
+        {% endif %}
+      </div>
+
+      {% if v.detect.detected %}
+      <div class="test-stats">
+        <div>Gate : <strong>frame {{ v.gate_frame }}</strong> (t = {{ "%.3f"|format(v.detect.gate_t) }}s)</div>
+        <div>Intervalle : <strong>{{ "%.0f"|format(v.detect.mean_interval_ms) }} ms</strong></div>
+        <div>Régularité : <strong>{{ "%.3f"|format(v.detect.regularity) }}</strong></div>
+        <div>Confiance : <strong>{{ "%.2f"|format(v.detect.confidence) }}</strong></div>
+      </div>
+      {% endif %}
+
+      <video class="test-video" id="vid-{{ loop.index }}"
+             src="{{ v.url }}" preload="metadata" playsinline
+             data-fps="{{ v.fps }}"
+             {% if v.gate_frame is not none %}data-gate-frame="{{ v.gate_frame }}"{% endif %}></video>
+
+      <div class="frame-row">
+        <button data-step="-5">⏪ −5</button>
+        <button data-step="-1">◀ −1</button>
+        <button data-play>▶/⏸</button>
+        <button data-step="+1">+1 ▶</button>
+        <button data-step="+5">+5 ⏩</button>
+        <span class="frame-counter">Frame <strong class="cur-frame">0</strong>{% if v.gate_frame is not none %} <span class="delta-frame"></span>{% endif %}</span>
+        {% if v.gate_frame is not none %}
+        <button data-jump-gate>🎯 Aller au gate</button>
+        {% endif %}
+      </div>
+
+      {% if v.detect.detected %}
+      <div class="beep-row">
+        {% for t in v.detect.beeps_t %}
+          {% set is_gate = loop.last %}
+          <button class="beep-btn {% if is_gate %}beep-gate{% endif %}" data-t="{{ t }}">
+            {% if is_gate %}🎯 GATE{% else %}♪ Beep {{ loop.index }}{% endif %}
+            ({{ "%.3f"|format(t) }}s)
+          </button>
+        {% endfor %}
+      </div>
+
+      <div class="verdict-row">
+        <span style="font-size:.85rem; color:var(--muted); align-self:center;">Évaluation :</span>
+        <button class="verdict-btn" data-verdict="ok">✓ Pile bon</button>
+        <button class="verdict-btn" data-verdict="near">≈ ±2 frames</button>
+        <button class="verdict-btn" data-verdict="bad">✗ Mauvais</button>
+        <span class="verdict-display"></span>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    <p class="keyboard-hint">Raccourcis sur la vidéo cliquée : <strong>← / →</strong> ±1 frame · <strong>Shift+← / →</strong> ±5 frames · <strong>Espace</strong> play/pause · <strong>G</strong> aller au gate</p>
+
+  </div>
+
+  <script>
+    let activeVideo = null;
+    const VERDICT_KEY = 'bmx_test_audio_verdicts';
+    const verdicts = JSON.parse(localStorage.getItem(VERDICT_KEY) || '{}');
+
+    function frameOf(vid) {
+      const fps = parseFloat(vid.dataset.fps);
+      return Math.round(vid.currentTime * fps);
+    }
+    function seekFrame(vid, f) {
+      const fps = parseFloat(vid.dataset.fps);
+      vid.pause();
+      vid.currentTime = Math.max(0, f) / fps;
+    }
+    function updateCounter(row) {
+      const vid     = row.querySelector('video');
+      const cur     = row.querySelector('.cur-frame');
+      const delta   = row.querySelector('.delta-frame');
+      const gate    = vid.dataset.gateFrame ? parseInt(vid.dataset.gateFrame, 10) : null;
+      const f       = frameOf(vid);
+      cur.textContent = f;
+      if (gate !== null && delta) {
+        const d = f - gate;
+        const abs = Math.abs(d);
+        let cls = 'delta-far';
+        if (abs <= 1) cls = 'delta-ok';
+        else if (abs <= 3) cls = 'delta-near';
+        delta.className = 'delta-frame ' + cls;
+        delta.textContent = ` (Δ ${d >= 0 ? '+' : ''}${d} vs gate)`;
+      }
+    }
+
+    document.querySelectorAll('.test-row').forEach((row, i) => {
+      const vid = row.querySelector('video');
+      const fileKey = vid.src.split('/').pop();
+
+      vid.addEventListener('click',      () => { activeVideo = vid; });
+      vid.addEventListener('play',       () => { activeVideo = vid; });
+      vid.addEventListener('timeupdate', () => updateCounter(row));
+      vid.addEventListener('seeked',     () => updateCounter(row));
+      vid.addEventListener('loadedmetadata', () => updateCounter(row));
+
+      // Frame controls
+      row.querySelectorAll('[data-step]').forEach(btn => {
+        btn.onclick = () => {
+          activeVideo = vid;
+          const step = parseInt(btn.dataset.step, 10);
+          seekFrame(vid, frameOf(vid) + step);
+        };
+      });
+      const playBtn = row.querySelector('[data-play]');
+      if (playBtn) playBtn.onclick = () => {
+        activeVideo = vid;
+        vid.paused ? vid.play() : vid.pause();
+      };
+      const gateBtn = row.querySelector('[data-jump-gate]');
+      if (gateBtn) gateBtn.onclick = () => {
+        activeVideo = vid;
+        seekFrame(vid, parseInt(vid.dataset.gateFrame, 10));
+      };
+
+      // Beep buttons
+      row.querySelectorAll('.beep-btn').forEach(btn => {
+        btn.onclick = () => {
+          activeVideo = vid;
+          vid.pause();
+          vid.currentTime = parseFloat(btn.dataset.t);
+        };
+      });
+
+      // Verdict (sauvegarde locale dans localStorage)
+      const verdictDisplay = row.querySelector('.verdict-display');
+      function refreshVerdict() {
+        const v = verdicts[fileKey];
+        row.querySelectorAll('.verdict-btn').forEach(b => {
+          b.classList.remove('active-ok', 'active-bad');
+          if (b.dataset.verdict === v) {
+            b.classList.add(v === 'bad' ? 'active-bad' : 'active-ok');
+          }
+        });
+        if (verdictDisplay) {
+          verdictDisplay.textContent = v ? `(noté: ${v})` : '';
+        }
+      }
+      row.querySelectorAll('.verdict-btn').forEach(btn => {
+        btn.onclick = () => {
+          verdicts[fileKey] = btn.dataset.verdict;
+          localStorage.setItem(VERDICT_KEY, JSON.stringify(verdicts));
+          refreshVerdict();
+        };
+      });
+      refreshVerdict();
+    });
+
+    // Raccourcis clavier sur la vidéo active
+    document.addEventListener('keydown', e => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (!activeVideo) return;
+      const big = e.shiftKey ? 5 : 1;
+      if (e.key === 'ArrowRight') { e.preventDefault(); seekFrame(activeVideo, frameOf(activeVideo) + big); }
+      else if (e.key === 'ArrowLeft')  { e.preventDefault(); seekFrame(activeVideo, frameOf(activeVideo) - big); }
+      else if (e.key === ' ')          { e.preventDefault(); activeVideo.paused ? activeVideo.play() : activeVideo.pause(); }
+      else if (e.key === 'g' || e.key === 'G') {
+        const gf = activeVideo.dataset.gateFrame;
+        if (gf) { e.preventDefault(); seekFrame(activeVideo, parseInt(gf, 10)); }
+      }
+    });
+  </script>
+</body>
+</html>

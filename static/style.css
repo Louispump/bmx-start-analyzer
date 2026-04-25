@@ -1012,3 +1012,18 @@ header h1 {
 }
 .scrubber-sync::-webkit-slider-thumb { background: #ff9f0a; }
 .scrubber-sync::-moz-range-thumb     { background: #ff9f0a; border: none; }
+
+
+/* ── Bandeau détection audio gate ───────────────────────────────── */
+.detect-banner {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: .9rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.detect-banner.detect-pending { background: #f0f4ff; border-color: #c7d6ff; color: #1a3680; }
+.detect-banner.detect-success { background: #e8f9ee; border-color: #a8e3bb; color: #1d6c34; }
+.detect-banner.detect-fail    { background: #fff4e5; border-color: #ffd6a5; color: #8a4a00; }
+

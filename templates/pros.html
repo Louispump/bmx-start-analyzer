@@ -38,6 +38,7 @@
         <div class="gate-video-wrap">
           <video id="gate-video" playsinline preload="auto" controls></video>
         </div>
+        <div id="detect-banner" class="detect-banner" style="display:none"></div>
         <div class="gate-scrubber-wrap">
           <input type="range" class="scrubber scrubber-light" id="gate-scrub"
                  min="0" max="1000" value="0" step="1">
@@ -138,6 +139,7 @@
         gateScrub.max = Math.max(1, data.n_frames - 1);
         document.getElementById('step-upload').style.display = 'none';
         document.getElementById('step-gate').style.display   = 'block';
+        autoDetectGate();
       } catch (err) {
         console.error('Upload pro échoué:', err);
         alert('Erreur lors de l\'upload : ' + err.message);
@@ -164,6 +166,37 @@
       if (e.key === 'ArrowLeft')  { e.preventDefault(); gateStep(-1); }
       if (e.key === ' ')          { e.preventDefault(); gateVideo.paused ? gateVideo.play() : gateVideo.pause(); }
     });
+
+    async function autoDetectGate() {
+      const banner = document.getElementById('detect-banner');
+      banner.style.display = 'block';
+      banner.className     = 'detect-banner detect-pending';
+      banner.textContent   = '🔊 Détection audio en cours…';
+      try {
+        const res  = await fetch(`/pros/detect_gate/${proId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.detected) {
+          const f = data.gate_frame;
+          gateVideo.currentTime   = f / videoFps;
+          gateScrub.value         = f;
+          gateCounter.textContent = `Frame ${f}`;
+          gateFrame = f;
+          document.getElementById('gate-marker-val').textContent =
+            `Frame ${f}  (t = ${(f / videoFps).toFixed(3)}s)`;
+          document.getElementById('btn-confirm-gate').disabled = false;
+          banner.className = 'detect-banner detect-success';
+          banner.innerHTML =
+            `🎯 Gate auto-détecté (4 beeps audio) à <strong>frame ${f}</strong> ` +
+            `(t = ${(f / videoFps).toFixed(3)}s). Confirme ou ajuste si besoin.`;
+        } else {
+          banner.className   = 'detect-banner detect-fail';
+          banner.textContent = '🔇 Détection audio impossible — identifie manuellement.';
+        }
+      } catch (e) {
+        banner.className   = 'detect-banner detect-fail';
+        banner.textContent = '⚠️ Erreur lors de la détection audio — identifie manuellement.';
+      }
+    }
 
     function gateStep(dir) {
       gateVideo.pause();

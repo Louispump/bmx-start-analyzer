@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from jinja2 import Environment, FileSystemLoader
 
 from analyze import main as analyze_main
+from audio_gate import detect_gate_drop
 
 # ── Dossiers ──────────────────────────────────────────────────────────────────
 UPLOAD_DIR = Path("uploads")
@@ -168,6 +169,27 @@ async def upload(file: UploadFile = File(...)):
     }
 
 
+@app.post("/detect_gate/{job_id}")
+async def detect_gate(job_id: str):
+    """Tente de détecter le gate drop via la cadence audio UCI (4 beeps)."""
+    job = jobs.get(job_id)
+    if not job:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    res = detect_gate_drop(Path(job["video_path"]))
+    if res.get("detected"):
+        gate_frame = int(round(res["gate_t"] * job["fps"]))
+        gate_frame = max(0, min(gate_frame, job["n_frames"] - 1))
+        return {
+            "detected":         True,
+            "gate_frame":       gate_frame,
+            "gate_time":        res["gate_t"],
+            "beeps_t":          res["beeps_t"],
+            "mean_interval_ms": res["mean_interval_ms"],
+            "confidence":       res["confidence"],
+        }
+    return {"detected": False, "reason": res.get("reason", "unknown")}
+
+
 @app.post("/start/{job_id}")
 async def start_analysis(background_tasks: BackgroundTasks,
                          job_id: str,
@@ -264,6 +286,27 @@ async def pros_upload(file: UploadFile = File(...), name: str = Form(...)):
     }
 
 
+@app.post("/pros/detect_gate/{pro_id}")
+async def pros_detect_gate(pro_id: str):
+    """Tente de détecter le gate drop via la cadence audio UCI (4 beeps)."""
+    p = pros.get(pro_id)
+    if not p:
+        return JSONResponse({"error": "Pro introuvable."}, status_code=404)
+    res = detect_gate_drop(Path(p["video_path"]))
+    if res.get("detected"):
+        gate_frame = int(round(res["gate_t"] * p["fps"]))
+        gate_frame = max(0, min(gate_frame, p["n_frames"] - 1))
+        return {
+            "detected":         True,
+            "gate_frame":       gate_frame,
+            "gate_time":        res["gate_t"],
+            "beeps_t":          res["beeps_t"],
+            "mean_interval_ms": res["mean_interval_ms"],
+            "confidence":       res["confidence"],
+        }
+    return {"detected": False, "reason": res.get("reason", "unknown")}
+
+
 @app.post("/pros/start/{pro_id}")
 async def pros_start(background_tasks: BackgroundTasks,
                      pro_id: str,
@@ -301,6 +344,34 @@ async def delete_pro(pro_id: str):
         save_pros(pros)
         return {"ok": True}
     return JSONResponse({"error": "Pro introuvable."}, status_code=404)
+
+
+# ── Plateforme de test détection audio ────────────────────────────────────────
+@app.get("/test/audio")
+async def test_audio(request: Request):
+    """Page de vérification visuelle de la détection audio sur toutes les vidéos
+    du dossier uploads/."""
+    videos = []
+    for p in sorted(UPLOAD_DIR.iterdir()):
+        if not p.is_file() or p.suffix.lower() not in (".mp4", ".mov", ".avi", ".mkv"):
+            continue
+        info     = get_video_info(p)
+        detect   = detect_gate_drop(p)
+        gate_frame = None
+        if detect.get("detected"):
+            gate_frame = int(round(detect["gate_t"] * info["fps"]))
+            gate_frame = max(0, min(gate_frame, info["n_frames"] - 1))
+        videos.append({
+            "filename":   p.name,
+            "url":        f"/uploads/{p.name}",
+            "fps":        info["fps"],
+            "duration_s": info["duration_s"],
+            "n_frames":   info["n_frames"],
+            "detect":     detect,
+            "gate_frame": gate_frame,
+        })
+    return templates.TemplateResponse(request, "test_audio.html",
+                                      {"videos": videos})
 
 
 # ── Comparaison ───────────────────────────────────────────────────────────────
