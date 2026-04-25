@@ -139,11 +139,36 @@ sur équipements labo (motion capture, plate-forme de force).
 
 ## État actuel du projet (avril 2026)
 
-✓ Pipeline complet de pose estimation opérationnel
+### Pipeline analyse
+✓ Pipeline complet de pose estimation opérationnel (YOLOv11-Pose)
 ✓ Tracking multi-personnes avec ByteTrack
 ✓ Détection auto du côté filmé et du pied avant
 ✓ Lissage Savitzky-Golay des landmarks
 ✓ Segmentation en 5 phases Kalichová
 ✓ Métriques angles articulaires avec benchmarks Grigg
-✓ Repo GitHub avec versioning
-✓ CLI fonctionnelle
+✓ Trajectoire du moyeu avant (classification hairpin/up-and-over)
+✓ Classification position de set (upright/back/angled)
+✓ Temps de réaction depuis le gate drop
+
+### Application web (FastAPI — fonctionnelle localement)
+✓ Upload vidéo drag & drop
+✓ Identification manuelle du gate drop (lecteur vidéo + frame par frame)
+✓ Analyse en arrière-plan avec barre de progression
+✓ Page résultats: métriques, timeline des phases, vidéo annotée, graphique angles
+✓ Navigation frame par frame (← → clavier + boutons)
+✓ Banque de pros: upload vidéo de référence + identification gate + génération squelette
+✓ Comparaison côte-à-côte rider vs pro
+  - Scrubbers indépendants par panneau
+  - Barre SYNC: avance les 2 vidéos ensemble alignées sur le gate drop (T-1s à T+4s)
+  - Panneau actif sélectionnable (clic sur titre ou Tab)
+✓ Persistance données: pros_db.json, jobs_db.json, {job_id}_results.json
+✓ Récupération automatique des jobs après redémarrage serveur
+
+### Prochaines étapes prioritaires
+→ Déploiement cloud (Fly.io ou Railway) pour accès hors local
+→ Comptes utilisateurs (auth simple email/mdp)
+→ Historique des analyses par rider (tracking progression)
+→ Détection audio automatique du gate drop (FFT sur les 4 beeps UCI)
+→ Calibration automatique via dimensions vélo (roue 20" = 508mm) pour m/s réels
+→ Vitesses angulaires (explosivité en °/s) par phase
+→ UI mobile/tablette responsive (usage coach sur piste)

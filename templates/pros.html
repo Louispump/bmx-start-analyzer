@@ -126,15 +126,22 @@
       const form = new FormData();
       form.append('file', file);
       form.append('name', name);
-      const res  = await fetch('/pros/upload', { method: 'POST', body: form });
-      const data = await res.json();
-      proId    = data.pro_id;
-      videoFps = data.fps;
-      gateVideo.src = data.video_url;
-      gateVideo.load();
-      gateScrub.max = Math.max(1, data.n_frames - 1);
-      document.getElementById('step-upload').style.display = 'none';
-      document.getElementById('step-gate').style.display   = 'block';
+      try {
+        const res  = await fetch('/pros/upload', { method: 'POST', body: form });
+        if (!res.ok) throw new Error(`Erreur serveur ${res.status}: ${await res.text()}`);
+        const data = await res.json();
+        if (!data.pro_id) throw new Error('Réponse invalide (pro_id manquant)');
+        proId    = data.pro_id;
+        videoFps = data.fps;
+        gateVideo.src = data.video_url;
+        gateVideo.load();
+        gateScrub.max = Math.max(1, data.n_frames - 1);
+        document.getElementById('step-upload').style.display = 'none';
+        document.getElementById('step-gate').style.display   = 'block';
+      } catch (err) {
+        console.error('Upload pro échoué:', err);
+        alert('Erreur lors de l\'upload : ' + err.message);
+      }
     }
 
     gateVideo.addEventListener('timeupdate', () => {
@@ -175,12 +182,19 @@
 
     async function confirmGate() {
       if (gateFrame === null) return;
+      if (!proId) { alert('Erreur : aucun pro en cours (proId manquant). Recommence l\'upload.'); return; }
       document.getElementById('step-gate').style.display     = 'none';
       document.getElementById('step-progress').style.display = 'block';
       const form = new FormData();
       form.append('gate_frame', gateFrame);
-      await fetch(`/pros/start/${proId}`, { method: 'POST', body: form });
-      pollPro();
+      try {
+        const res = await fetch(`/pros/start/${proId}`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(`Erreur serveur ${res.status}: ${await res.text()}`);
+        pollPro();
+      } catch (err) {
+        console.error('Démarrage analyse pro échoué:', err);
+        document.getElementById('progress-label').textContent = '❌ ' + err.message;
+      }
     }
 
     function pollPro() {

@@ -28,6 +28,7 @@ from analyze import main as analyze_main
 UPLOAD_DIR = Path("uploads")
 OUTPUT_DIR = Path("output")
 PROS_DB    = OUTPUT_DIR / "pros_db.json"
+JOBS_DB    = OUTPUT_DIR / "jobs_db.json"
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -41,8 +42,6 @@ _jinja_env = Environment(loader=FileSystemLoader("templates"), cache_size=0)
 templates  = Jinja2Templates(env=_jinja_env)
 
 # ── Stores ────────────────────────────────────────────────────────────────────
-jobs: dict = {}
-
 def load_pros() -> dict:
     if PROS_DB.exists():
         try:
@@ -54,7 +53,21 @@ def load_pros() -> dict:
 def save_pros(pros: dict):
     PROS_DB.write_text(json.dumps(pros, indent=2, ensure_ascii=False))
 
+def load_jobs() -> dict:
+    if JOBS_DB.exists():
+        try:
+            return json.loads(JOBS_DB.read_text())
+        except Exception:
+            pass
+    return {}
+
+def save_jobs(jobs: dict):
+    # On ne persiste que les jobs terminés (status == done)
+    done = {k: v for k, v in jobs.items() if v.get("status") == "done"}
+    JOBS_DB.write_text(json.dumps(done, indent=2, ensure_ascii=False))
+
 pros: dict = load_pros()
+jobs: dict = load_jobs()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -80,9 +93,10 @@ def run_analysis(job_id: str, video_path: Path, gate_drop: float):
             raise ValueError("L'analyse n'a pas retourné de résultats.")
 
         results["gate_method"] = "manual"
+        results["job_id"]      = job_id
 
         stem         = video_path.stem.replace(f"{job_id}_", "")
-        results_path = OUTPUT_DIR / f"{stem}_results.json"
+        results_path = OUTPUT_DIR / f"{job_id}_results.json"
         results_path.write_text(json.dumps(results, indent=2, ensure_ascii=False))
 
         jobs[job_id].update({
@@ -91,6 +105,7 @@ def run_analysis(job_id: str, video_path: Path, gate_drop: float):
             "stem":     stem,
             "results":  results,
         })
+        save_jobs(jobs)
     except Exception as e:
         jobs[job_id].update({
             "status": "error",
@@ -183,9 +198,25 @@ async def status(job_id: str):
             "error": job.get("error", "")}
 
 
+
+def get_job_or_recover(job_id: str) -> dict | None:
+    """Retourne le job depuis la mémoire ou le recharge depuis le fichier disque."""
+    if job_id in jobs and jobs[job_id].get("status") == "done":
+        return jobs[job_id]
+    results_path = OUTPUT_DIR / f"{job_id}_results.json"
+    if results_path.exists():
+        try:
+            results = json.loads(results_path.read_text())
+            jobs[job_id] = {"status": "done", "results": results}
+            return jobs[job_id]
+        except Exception:
+            pass
+    return None
+
+
 @app.get("/result/{job_id}")
 async def result(request: Request, job_id: str):
-    job = jobs.get(job_id)
+    job = get_job_or_recover(job_id)
     if not job:
         return templates.TemplateResponse(request, "index.html",
                                           {"error": "Job introuvable."})
@@ -275,7 +306,7 @@ async def delete_pro(pro_id: str):
 # ── Comparaison ───────────────────────────────────────────────────────────────
 @app.get("/compare/{job_id}")
 async def compare(request: Request, job_id: str):
-    job = jobs.get(job_id)
+    job = get_job_or_recover(job_id)
     if not job or job["status"] != "done":
         return templates.TemplateResponse(request, "index.html",
                                           {"error": "Job introuvable."})
@@ -285,3 +316,4 @@ async def compare(request: Request, job_id: str):
         "rider":     job["results"],
         "pros_list": pros_done,
     })
+

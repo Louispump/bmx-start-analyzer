@@ -938,14 +938,10 @@ header h1 {
 }
 .btn-gate-mark:hover { background: var(--bg); }
 
-/* ── Panneaux comparaison : hauteur fixe ──────────────────────────── */
+/* ── Panneaux comparaison : hauteur adaptative ────────────────────── */
 .side-by-side {
-  height: 380px;   /* fixe — pas plein écran */
-}
-
-.panel-video-wrap {
-  height: 260px;   /* fixe */
-  flex: none;
+  flex: 1;
+  min-height: 0;
 }
 
 /* ── Barre SYNC ───────────────────────────────────────────────────── */
