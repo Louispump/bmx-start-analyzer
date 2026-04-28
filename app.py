@@ -24,6 +24,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from analyze import main as analyze_main
 from audio_gate import detect_gate_drop
+from mahieu import analyze_video as mahieu_analyze, render_debug_frame as mahieu_render
 
 # ── Dossiers ──────────────────────────────────────────────────────────────────
 UPLOAD_DIR = Path("uploads")
@@ -347,16 +348,36 @@ async def delete_pro(pro_id: str):
 
 
 # ── Plateforme de test détection audio ────────────────────────────────────────
+AUDIO_CACHE = OUTPUT_DIR / "audio_detection_db.json"
+
+def _load_audio_cache() -> dict:
+    if AUDIO_CACHE.exists():
+        try:
+            return json.loads(AUDIO_CACHE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
 @app.get("/test/audio")
 async def test_audio(request: Request):
     """Page de vérification visuelle de la détection audio sur toutes les vidéos
-    du dossier uploads/."""
+    du dossier uploads/. Résultats cachés sur disque (clé = nom + mtime)."""
+    cache = _load_audio_cache()
     videos = []
+    dirty  = False
     for p in sorted(UPLOAD_DIR.iterdir()):
         if not p.is_file() or p.suffix.lower() not in (".mp4", ".mov", ".avi", ".mkv"):
             continue
-        info     = get_video_info(p)
-        detect   = detect_gate_drop(p)
+        info = get_video_info(p)
+        key  = f"{p.name}::{int(p.stat().st_mtime)}"
+        cached = cache.get(key)
+        if cached:
+            detect = cached
+        else:
+            detect = detect_gate_drop(p)
+            cache[key] = detect
+            dirty = True
         gate_frame = None
         if detect.get("detected"):
             gate_frame = int(round(detect["gate_t"] * info["fps"]))
@@ -370,8 +391,71 @@ async def test_audio(request: Request):
             "detect":     detect,
             "gate_frame": gate_frame,
         })
+    if dirty:
+        AUDIO_CACHE.write_text(json.dumps(cache, indent=2, default=str))
     return templates.TemplateResponse(request, "test_audio.html",
                                       {"videos": videos})
+
+
+# ── Plateforme de test alignement Mahieu ──────────────────────────────────────
+MAHIEU_CACHE = OUTPUT_DIR / "mahieu_db.json"
+
+def _load_mahieu_cache() -> dict:
+    if MAHIEU_CACHE.exists():
+        try:
+            return json.loads(MAHIEU_CACHE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+@app.get("/test/mahieu")
+async def test_mahieu(request: Request):
+    """Vérification visuelle de l'alignement Mahieu sur les vidéos d'uploads/."""
+    debug_dir = OUTPUT_DIR / "mahieu_debug"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    cache = _load_mahieu_cache()
+    dirty = False
+    videos = []
+    for p in sorted(UPLOAD_DIR.iterdir()):
+        if not p.is_file() or p.suffix.lower() not in (".mp4", ".mov", ".avi", ".mkv"):
+            continue
+        info = get_video_info(p)
+        key  = f"{p.name}::{int(p.stat().st_mtime)}"
+        cached = cache.get(key)
+        if cached:
+            entry = cached
+        else:
+            res = mahieu_analyze(p)
+            debug_url = None
+            if res.get("detected") and res.get("best_frame"):
+                bf  = res["best_frame"]
+                png = debug_dir / f"{p.stem}.jpg"
+                if mahieu_render(p, bf["frame"], bf["metric"], bf["side"], png):
+                    debug_url = f"/output/mahieu_debug/{png.name}"
+            entry = {"res": res, "debug_url": debug_url}
+            cache[key] = entry
+            dirty = True
+        videos.append({
+            "filename":   p.name,
+            "url":        f"/uploads/{p.name}",
+            "fps":        info["fps"],
+            "duration_s": info["duration_s"],
+            "n_frames":   info["n_frames"],
+            "res":        entry["res"],
+            "debug_url":  entry["debug_url"],
+        })
+    if dirty:
+        MAHIEU_CACHE.write_text(json.dumps(cache, indent=2, default=str))
+    return templates.TemplateResponse(request, "test_mahieu.html",
+                                      {"videos": videos})
+
+
+@app.post("/test/mahieu/clear")
+async def clear_mahieu_cache():
+    if MAHIEU_CACHE.exists():
+        MAHIEU_CACHE.unlink()
+    return {"ok": True}
 
 
 # ── Comparaison ───────────────────────────────────────────────────────────────

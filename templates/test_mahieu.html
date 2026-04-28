@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test alignement Mahieu — BMX Analyzer</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .test-page { max-width: 1100px; }
+    .test-row {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 18px;
+      box-shadow: var(--shadow);
+    }
+    .test-head {
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 8px; margin-bottom: 10px;
+    }
+    .test-name { font-weight: 600; font-family: ui-monospace, monospace; font-size: .9rem; }
+    .test-meta { color: var(--muted); font-size: .8rem; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: .75rem; font-weight: 600; }
+    .badge-good { background: #e8f9ee; color: #1d6c34; border: 1px solid #a8e3bb; }
+    .badge-warn { background: #fff4e5; color: #8a4a00; border: 1px solid #ffd6a5; }
+    .badge-bad  { background: #ffe8e6; color: #8a1a14; border: 1px solid #f0a8a3; }
+    .test-stats { display: flex; gap: 24px; flex-wrap: wrap; margin: 10px 0; font-size: .85rem; }
+    .test-stats > div strong { color: var(--text); }
+    .calib-img { width: 100%; max-width: 720px; border-radius: 10px; background: #000; display: block; }
+    .summary {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 18px; margin-bottom: 24px; font-size: .9rem;
+    }
+    .legend-row {
+      display: flex; gap: 18px; flex-wrap: wrap;
+      margin-top: 8px; font-size: .82rem; color: var(--muted);
+    }
+    .legend-row span::before {
+      content: "●"; margin-right: 4px;
+    }
+    .legend-line::before  { content: "—"; color: #d4b800; font-weight: 700; margin-right: 4px; }
+    .legend-good::before  { color: #00c850; }
+    .legend-warn::before  { color: #ff9f0a; }
+    .legend-bad::before   { color: #ff3b30; }
+    .legend-proj::before  { content: "○"; color: #ff3b30; }
+    .verdict-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .verdict-btn {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: .85rem;
+    }
+    .verdict-btn:hover { background: #f0f0f5; }
+    .verdict-btn.active-ok  { background: #e8f9ee; border-color: #34c759; color: #1d6c34; }
+    .verdict-btn.active-bad { background: #ffe8e6; border-color: #ff3b30; color: #8a1a14; }
+    .verdict-display { font-size: .85rem; color: var(--muted); margin-left: 8px; align-self: center; }
+    .deviations-list {
+      font-family: ui-monospace, monospace; font-size: .78rem; color: var(--muted);
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page test-page">
+    <header>
+      <a href="/" class="back-link">← Accueil</a>
+      <h1>📐 Test alignement Mahieu</h1>
+      <p class="subtitle">Épaule-hanche-cheville en ligne droite pendant le Set</p>
+    </header>
+
+    {% set ok_count   = videos | selectattr('res.detected') | list | length %}
+    {% set fail_count = videos | rejectattr('res.detected') | list | length %}
+
+    <div class="summary">
+      <strong>{{ videos | length }} vidéos</strong> ·
+      <span style="color:#1d6c34">✓ {{ ok_count }} analysées</span> ·
+      <span style="color:#8a1a14">✗ {{ fail_count }} échouées</span>
+      <p style="margin-top:6px; color:var(--muted); font-size:.85rem;">
+        La <strong>ligne jaune</strong> relie épaule et cheville. Le <strong>point coloré</strong>
+        est la hanche (vert = aligné, orange = décalé, rouge = très décalé).
+        Le <strong>cercle rouge</strong> sur la ligne est la position où la hanche DEVRAIT être pour un alignement parfait.
+      </p>
+      <div class="legend-row">
+        <span class="legend-line">Ligne épaule-cheville</span>
+        <span class="legend-good">Excellent / Bon (&lt;32%)</span>
+        <span class="legend-warn">Moyen (32-40%)</span>
+        <span class="legend-bad">Faible (&gt;40%)</span>
+        <span class="legend-proj">Projection idéale</span>
+      </div>
+      <p style="margin-top:8px; color:var(--muted); font-size:.8rem;">
+        Calibration BMX : référence pro mesurée ≈ −27% (hanche naturellement
+        en retrait dans la stance accroupie). Les seuils ci-dessous sont calibrés
+        autour de cette réalité, pas autour d'un alignement vertical théorique.
+      </p>
+    </div>
+
+    {% if not videos %}
+    <div class="empty-state">Aucune vidéo dans <code>uploads/</code>.</div>
+    {% endif %}
+
+    {% for v in videos %}
+    <div class="test-row" data-filename="{{ v.filename }}">
+      <div class="test-head">
+        <span class="test-name">{{ v.filename }}</span>
+        <span class="test-meta">{{ v.duration_s }}s · {{ v.fps }} fps</span>
+        {% if v.res.detected %}
+          {% set absdev = v.res.deviation_pct | abs %}
+          {% if absdev < 32 %}
+            <span class="badge badge-good">✓ {{ v.res.label }} ({{ v.res.deviation_pct }}%)</span>
+          {% elif absdev < 40 %}
+            <span class="badge badge-warn">⚠ {{ v.res.label }} ({{ v.res.deviation_pct }}%)</span>
+          {% else %}
+            <span class="badge badge-bad">✗ {{ v.res.label }} ({{ v.res.deviation_pct }}%)</span>
+          {% endif %}
+        {% else %}
+          <span class="badge badge-bad">✗ {{ v.res.reason }}</span>
+        {% endif %}
+      </div>
+
+      {% if v.res.detected %}
+      <div class="test-stats">
+        <div>Décalage : <strong>{{ v.res.deviation_pct }}%</strong>
+          {% if v.res.deviation_pct > 0 %}vers l'avant{% else %}vers l'arrière{% endif %}
+        </div>
+        <div>Frame réf. : <strong>#{{ v.res.best_frame.frame }}</strong>
+          (côté {{ v.res.best_frame.side }})</div>
+        <div>Détections : <strong>{{ v.res.n_detections }}/{{ v.res.frames_sampled }}</strong></div>
+      </div>
+      <div class="deviations-list">
+        Mesures sur frames : [{{ v.res.all_deviations | join(', ') }}]
+      </div>
+      {% if v.debug_url %}
+      <img class="calib-img" src="{{ v.debug_url }}" alt="Mahieu debug">
+      {% endif %}
+
+      <div class="verdict-row">
+        <span style="font-size:.85rem; color:var(--muted); align-self:center;">Évaluation visuelle :</span>
+        <button class="verdict-btn" data-verdict="ok">✓ Calcul correct</button>
+        <button class="verdict-btn" data-verdict="near">≈ À peu près</button>
+        <button class="verdict-btn" data-verdict="bad">✗ Mauvais</button>
+        <span class="verdict-display"></span>
+      </div>
+      {% else %}
+      <p style="color:var(--muted); font-size:.85rem;">Pas de pose détectée — rider non visible ou trop occulté pendant le Set.</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+  </div>
+
+  <script>
+    const VERDICT_KEY = 'bmx_test_mahieu_verdicts';
+    const verdicts = JSON.parse(localStorage.getItem(VERDICT_KEY) || '{}');
+    document.querySelectorAll('.test-row').forEach(row => {
+      const fileKey = row.dataset.filename;
+      const display = row.querySelector('.verdict-display');
+      function refresh() {
+        const v = verdicts[fileKey];
+        row.querySelectorAll('.verdict-btn').forEach(b => {
+          b.classList.remove('active-ok', 'active-bad');
+          if (b.dataset.verdict === v) b.classList.add(v === 'bad' ? 'active-bad' : 'active-ok');
+        });
+        if (display) display.textContent = v ? `(noté: ${v})` : '';
+      }
+      row.querySelectorAll('.verdict-btn').forEach(btn => {
+        btn.onclick = () => {
+          verdicts[fileKey] = btn.dataset.verdict;
+          localStorage.setItem(VERDICT_KEY, JSON.stringify(verdicts));
+          refresh();
+        };
+      });
+      refresh();
+    });
+  </script>
+</body>
+</html>

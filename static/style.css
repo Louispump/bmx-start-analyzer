@@ -1027,3 +1027,62 @@ header h1 {
 .detect-banner.detect-success { background: #e8f9ee; border-color: #a8e3bb; color: #1d6c34; }
 .detect-banner.detect-fail    { background: #fff4e5; border-color: #ffd6a5; color: #8a4a00; }
 
+
+
+/* ── Vitesses angulaires (explosivité) ──────────────────────────────── */
+.section-tag {
+  display: inline-block; padding: 2px 8px; margin-left: 6px;
+  font-size: .65em; font-weight: 600; letter-spacing: .5px;
+  background: #fff4e5; color: #8a4a00; border-radius: 10px;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.velocity-table th { font-size: .78rem; }
+.velocity-table .cell-peak { background: #fffaf0; }
+.velocity-table .vel-peak { font-weight: 700; color: #1a1a2e; }
+.velocity-table .unit { color: var(--muted); font-size: .72rem; margin-left: 2px; font-weight: 400; }
+
+
+
+/* ── Verdict coach (synthèse) ────────────────────────────────────── */
+.verdict-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow);
+}
+.verdict-title { font-size: 1.05rem; margin-bottom: 12px; }
+.verdict-list  { list-style: none; padding: 0; margin: 0; }
+.verdict-item {
+  display: flex; gap: 12px;
+  padding: 10px 12px; margin-bottom: 6px;
+  border-radius: 10px;
+  border-left: 3px solid var(--border);
+}
+.verdict-item:last-child { margin-bottom: 0; }
+.verdict-good { background: #f0fdf4; border-left-color: #34c759; }
+.verdict-warn { background: #fffaf0; border-left-color: #ff9f0a; }
+.verdict-bad  { background: #fef2f2; border-left-color: #ff3b30; }
+.verdict-icon {
+  font-size: 1.1rem; font-weight: 700;
+  min-width: 22px; text-align: center;
+  align-self: flex-start; padding-top: 2px;
+}
+.verdict-good .verdict-icon { color: #1d6c34; }
+.verdict-warn .verdict-icon { color: #8a4a00; }
+.verdict-bad  .verdict-icon { color: #8a1a14; }
+.verdict-text     { flex: 1; }
+.verdict-headline { font-weight: 600; font-size: .92rem; color: var(--text); }
+.verdict-advice   { color: var(--muted); font-size: .85rem; margin-top: 3px; }
+
+/* ── Tableau Grigg (amplitudes vs élite) ─────────────────────────── */
+.grigg-row td:nth-child(1) { width: 22%; }
+.grigg-row td:nth-child(5) { font-weight: 600; }
+.grigg-ok   { background: #f0fdf4; }
+.grigg-ok   td:nth-child(5) { color: #1d6c34; }
+.grigg-low  { background: #fffaf0; }
+.grigg-low  td:nth-child(5) { color: #8a4a00; }
+.grigg-high { background: #fdf4ff; }
+.grigg-high td:nth-child(5) { color: #6b2380; }

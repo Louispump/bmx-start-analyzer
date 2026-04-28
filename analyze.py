@@ -89,6 +89,35 @@ def detect_visible_side(all_tracks, main_tid, n_frames=20):
     return "L" if left_mean > right_mean else "R"
 
 
+def compute_angular_velocity(angles, fps, window=7, polyorder=3):
+    """Vitesse angulaire en °/s, lissée par Savitzky-Golay (deriv=1).
+
+    Conventions :
+      - Signe positif = angle qui augmente (extension du genou, par ex.)
+      - Les NaN sont préservés (pas d'extrapolation hors zones valides)
+    """
+    s = pd.Series(angles).copy()
+    s = s.interpolate(method='linear', limit=5, limit_area='inside')
+    arr = s.values.copy()
+    velocity = np.full(len(arr), np.nan)
+    valid = ~np.isnan(arr)
+    if valid.sum() < window:
+        return velocity
+    # On applique savgol par groupe contigu de valeurs valides
+    valid_idx = np.where(valid)[0]
+    groups = np.split(valid_idx, np.where(np.diff(valid_idx) > 1)[0] + 1)
+    for g in groups:
+        if len(g) >= window:
+            velocity[g] = savgol_filter(
+                arr[g],
+                window_length=window,
+                polyorder=polyorder,
+                deriv=1,
+                delta=1.0 / fps,
+            )
+    return velocity
+
+
 def smooth_series(series, window=7, polyorder=3, max_gap=5):
     s = pd.Series(series).copy()
     s = s.interpolate(method='linear', limit=max_gap, limit_area='inside')
@@ -353,6 +382,214 @@ def detect_front_foot(all_tracks, main_tid, n_frames=30):
         print(f"  ⚠️  Écart faible ({diff:.0f}px), détection peu fiable")
 
     return front, direction
+
+
+def build_coaching_verdict(reaction_type, react_from_gate, react_from_bip1,
+                            set_label, mahieu_label, mahieu_dev,
+                            hub_type, hub_backward_px,
+                            propulsion_amplitudes, phases_dict):
+    """Synthèse coach en français clair — liste d'observations avec status.
+
+    Chaque observation = {"status": "good"|"warn"|"bad",
+                          "title": str (constat),
+                          "advice": str | None (conseil actionnable)}
+    """
+    obs = []
+
+    # 1) Réaction au départ
+    if reaction_type == "false_start":
+        obs.append({
+            "status": "bad",
+            "title":  f"Faux départ ({abs(react_from_gate)*1000:.0f} ms avant le bip 1)",
+            "advice": "Attendre le 1er bip avant tout mouvement.",
+        })
+    elif reaction_type == "bip":
+        if react_from_bip1 is not None and react_from_bip1 < 0.30:
+            obs.append({
+                "status": "good",
+                "title":  f"Anticipation des bips bien synchronisée ({react_from_bip1*1000:.0f} ms après bip 1)",
+                "advice": None,
+            })
+        else:
+            obs.append({
+                "status": "warn",
+                "title":  f"Anticipation des bips lente ({react_from_bip1*1000:.0f} ms après bip 1)" if react_from_bip1 else "Stratégie bips détectée",
+                "advice": "Travailler la réactivité aux bips à l'entraînement.",
+            })
+    else:  # gate
+        if react_from_gate < 0.18:
+            obs.append({
+                "status": "good",
+                "title":  f"Excellente réaction au gate ({react_from_gate*1000:.0f} ms)",
+                "advice": None,
+            })
+        elif react_from_gate < 0.25:
+            obs.append({
+                "status": "warn",
+                "title":  f"Réaction correcte ({react_from_gate*1000:.0f} ms) mais perfectible",
+                "advice": "Tu pourrais gagner du temps en travaillant l'anticipation des bips.",
+            })
+        else:
+            obs.append({
+                "status": "bad",
+                "title":  f"Réaction lente au gate ({react_from_gate*1000:.0f} ms)",
+                "advice": "Drills de réactivité visuelle ; viser <180 ms.",
+            })
+
+    # 2) Position de set (Grigg)
+    if set_label == "Back":
+        obs.append({
+            "status": "good",
+            "title":  "Position de set optimale (Back)",
+            "advice": None,
+        })
+    elif set_label == "Upright":
+        obs.append({
+            "status": "warn",
+            "title":  "Position de set trop droite (Upright)",
+            "advice": "Pencher davantage en arrière pour précharger les ischio-jambiers.",
+        })
+    elif set_label == "Angled":
+        obs.append({
+            "status": "warn",
+            "title":  "Position de set penchée en avant (Angled)",
+            "advice": "Reculer le bassin et abaisser la poitrine vers le guidon.",
+        })
+
+    # 3) Alignement Mahieu (épaule-hanche-cheville) — calibration BMX
+    PRO_REF = -27.0  # médiane mesurée sur les pros de la banque
+    if mahieu_label == "excellent":
+        obs.append({
+            "status": "good",
+            "title":  f"Alignement Mahieu excellent ({mahieu_dev:+.0f}%, niveau élite)",
+            "advice": None,
+        })
+    elif mahieu_label == "bon":
+        obs.append({
+            "status": "good",
+            "title":  f"Bon alignement Mahieu ({mahieu_dev:+.0f}%, niveau pro {PRO_REF:+.0f}%)",
+            "advice": None,
+        })
+    elif mahieu_label == "moyen":
+        gap = abs(mahieu_dev) - abs(PRO_REF)
+        obs.append({
+            "status": "warn",
+            "title":  f"Alignement Mahieu moyen ({mahieu_dev:+.0f}% vs pro {PRO_REF:+.0f}%, écart {gap:+.0f} pts)",
+            "advice": "Travailler le dos plat : épaule-hanche-cheville en ligne droite.",
+        })
+    elif mahieu_label == "faible":
+        gap = abs(mahieu_dev) - abs(PRO_REF)
+        obs.append({
+            "status": "bad",
+            "title":  f"Alignement Mahieu faible ({mahieu_dev:+.0f}% vs pro {PRO_REF:+.0f}%, écart {gap:+.0f} pts)",
+            "advice": "C-back marqué : priorité absolue. Renforcement gainage + dos plat à chaque set.",
+        })
+
+    # 4) Trajectoire du moyeu (hairpin)
+    if hub_type == "hairpin":
+        obs.append({
+            "status": "good",
+            "title":  f"Hairpin présent (recul {hub_backward_px:.0f} px)",
+            "advice": None,
+        })
+    elif hub_type == "high":
+        obs.append({
+            "status": "warn",
+            "title":  f"Pas de hairpin (recul {hub_backward_px:.0f} px)",
+            "advice": "Reculer le moyeu en début de Push 1 pour un meilleur transfert d'énergie.",
+        })
+
+    # 5) Amplitudes vs élite Grigg : signaler la plus en dessous
+    low_joints = [(j, d) for j, d in propulsion_amplitudes.items() if d["status"] == "low"]
+    if low_joints:
+        # Trier par déficit le plus important
+        low_joints.sort(key=lambda x: x[1]["delta"])
+        joint, data = low_joints[0]
+        joint_fr = {"knee": "genou", "hip": "hanche", "ankle": "cheville",
+                    "shoulder": "épaule", "elbow": "coude"}.get(joint, joint)
+        obs.append({
+            "status": "warn",
+            "title":  f"Amplitude {joint_fr} faible ({data['value']}° vs élite {data['target']}°±{data['sd']}°)",
+            "advice": f"Travailler l'amplitude de {joint_fr} sur les 3 phases de propulsion.",
+        })
+
+    # 6) Phase la plus longue parmi propulsion (potentielle faiblesse)
+    propulsion_durations = {
+        ph: phases_dict[ph][1] - phases_dict[ph][0]
+        for ph in ("Push 1", "Pull 1", "Push 2") if ph in phases_dict
+    }
+    if propulsion_durations:
+        slowest = max(propulsion_durations, key=propulsion_durations.get)
+        # Seulement si la phase la plus lente est clairement plus lente que les autres
+        durations_list = list(propulsion_durations.values())
+        if len(durations_list) >= 2 and propulsion_durations[slowest] > 1.4 * np.median(durations_list):
+            obs.append({
+                "status": "warn",
+                "title":  f"Phase la plus lente : {slowest}",
+                "advice": f"Concentrer le travail explosivité sur {slowest}.",
+            })
+
+    return obs
+
+
+def compute_mahieu_alignment(df, gate_idx, side, direction):
+    """Mesure l'alignement épaule-hanche-cheville pendant le Set (principe Mahieu).
+
+    Pour une bonne transmission de puissance, les 3 points doivent être quasi
+    colinéaires dans le plan sagittal. On mesure le décalage horizontal de la
+    hanche par rapport à la ligne (épaule → cheville), exprimé en % de cette
+    longueur, dans le repère orienté selon la direction du rider.
+
+    Retourne (deviation_pct, label) :
+      deviation_pct > 0 : hanche déplacée vers l'AVANT du rider
+      deviation_pct < 0 : hanche déplacée vers l'ARRIÈRE
+      Conventions de classification :
+        |dev| < 5%  : aligné
+        5% < |dev| < 12% : léger décalage
+        |dev| > 12%       : décalage marqué
+    """
+    stable_start = max(0, gate_idx // 4)
+    stable_end   = max(stable_start + 1, 3 * gate_idx // 4)
+    sub = df.loc[stable_start:stable_end]
+
+    sh_x = sub[f"{side}_shoulder_x"].dropna()
+    sh_y = sub[f"{side}_shoulder_y"].dropna()
+    hi_x = sub[f"{side}_hip_x"].dropna()
+    hi_y = sub[f"{side}_hip_y"].dropna()
+    an_x = sub[f"{side}_ankle_x"].dropna()
+    an_y = sub[f"{side}_ankle_y"].dropna()
+    common = sh_x.index & sh_y.index & hi_x.index & hi_y.index & an_x.index & an_y.index
+    if len(common) < 3:
+        return None, None
+
+    deviations = []
+    for i in common:
+        sh = np.array([sh_x[i], sh_y[i]])
+        hi = np.array([hi_x[i], hi_y[i]])
+        an = np.array([an_x[i], an_y[i]])
+        if abs(an[1] - sh[1]) < 1.0:
+            continue   # ligne quasi horizontale → projection instable
+        line_length = float(np.linalg.norm(an - sh))
+        if line_length < 5.0:
+            continue
+        # Position X de la ligne shoulder→ankle à la hauteur de la hanche
+        t = (hi[1] - sh[1]) / (an[1] - sh[1])
+        line_x_at_hip = sh[0] + t * (an[0] - sh[0])
+        # Décalage signé orienté vers l'avant du rider
+        hip_offset = (hi[0] - line_x_at_hip) * direction
+        deviations.append(hip_offset / line_length * 100.0)
+
+    if not deviations:
+        return None, None
+    median_dev = float(np.median(deviations))
+    abs_dev = abs(median_dev)
+    if abs_dev < 5:
+        label = "aligné"
+    elif abs_dev < 12:
+        label = "hanche avant" if median_dev > 0 else "hanche arrière"
+    else:
+        label = "hanche très avant" if median_dev > 0 else "hanche très arrière"
+    return median_dev, label
 
 
 def classify_set_position(df, gate_idx, side, direction):
@@ -717,23 +954,48 @@ def main(video_path, front_foot=None, gate_drop=None, bip1_time=None):
         df[f"{name}_y"] = smooth_series(df[f"{name}_y"].values)
 
     knee_angles, hip_angles, elbow_angles = [], [], []
+    ankle_angles, shoulder_angles         = [], []
     for _, r in df.iterrows():
         shoulder = (r[f"{shoulder_k}_x"], r[f"{shoulder_k}_y"])
-        elbow    = (r[f"{elbow_k}_x"], r[f"{elbow_k}_y"])
-        wrist    = (r[f"{wrist_k}_x"], r[f"{wrist_k}_y"])
-        hip      = (r[f"{hip_k}_x"], r[f"{hip_k}_y"])
-        knee     = (r[f"{knee_k}_x"], r[f"{knee_k}_y"])
-        ankle    = (r[f"{ankle_k}_x"], r[f"{ankle_k}_y"])
+        elbow    = (r[f"{elbow_k}_x"],    r[f"{elbow_k}_y"])
+        wrist    = (r[f"{wrist_k}_x"],    r[f"{wrist_k}_y"])
+        hip      = (r[f"{hip_k}_x"],      r[f"{hip_k}_y"])
+        knee     = (r[f"{knee_k}_x"],     r[f"{knee_k}_y"])
+        ankle    = (r[f"{ankle_k}_x"],    r[f"{ankle_k}_y"])
         knee_angles.append(calculate_angle(hip, knee, ankle))
         hip_angles.append(calculate_angle(shoulder, hip, knee))
         elbow_angles.append(calculate_angle(shoulder, elbow, wrist))
-    df["knee_angle"] = knee_angles
-    df["hip_angle"] = hip_angles
-    df["elbow_angle"] = elbow_angles
+        # Cheville : angle au pied = genou-cheville-pointe (faute d'orteil, on
+        # approxime avec un point projeté à 30 px sous la cheville dans la
+        # direction du vélo) — utile uniquement pour amplitudes.
+        # Épaule : angle hanche-épaule-coude.
+        shoulder_angles.append(calculate_angle(hip, shoulder, elbow))
+        # Cheville : on n'a pas le pied dans COCO. Approximation : genou-cheville-
+        # point projeté horizontalement vers l'avant du rider (proxy pointe pied).
+        if not (np.isnan(ankle[0]) or np.isnan(ankle[1]) or np.isnan(knee[0])):
+            toe_proxy = (ankle[0] + 30 * direction, ankle[1])
+            ankle_angles.append(calculate_angle(knee, ankle, toe_proxy))
+        else:
+            ankle_angles.append(np.nan)
+    df["knee_angle"]     = knee_angles
+    df["hip_angle"]      = hip_angles
+    df["elbow_angle"]    = elbow_angles
+    df["shoulder_angle"] = shoulder_angles
+    df["ankle_angle"]    = ankle_angles
+
+    # Vitesses angulaires (°/s) — explosivité par articulation
+    df["knee_velocity"]  = compute_angular_velocity(df["knee_angle"].values,  fps)
+    df["hip_velocity"]   = compute_angular_velocity(df["hip_angle"].values,   fps)
+    df["elbow_velocity"] = compute_angular_velocity(df["elbow_angle"].values, fps)
 
     # === Position de set (Grigg) ===
     gate_idx_for_set = (df["time"] - gate_drop).abs().idxmin()
     trunk_angle, set_label = classify_set_position(df, gate_idx_for_set, side, direction)
+
+    # === Alignement Mahieu (épaule-hanche-cheville) pendant le Set ===
+    mahieu_dev, mahieu_label = compute_mahieu_alignment(
+        df, gate_idx_for_set, side, direction
+    )
 
     # === Segmentation en phases ===
     print("Segmenting phases (Kalichová)...")
@@ -961,18 +1223,90 @@ def main(video_path, front_foot=None, gate_drop=None, bip1_time=None):
             "color":       PHASE_COLORS.get(phase_name, "#eeeeee"),
         })
 
+    # === Amplitudes totales sur les phases de propulsion (Grigg 2018) ===
+    # Benchmarks élite Grigg 2018 (n=10) : amplitudes en degrés sur les phases
+    # propulsives. Format : (target, sd) — un rider est dans la norme si
+    # |measured − target| ≤ 1.5 × sd.
+    GRIGG_BENCHMARKS = {
+        "knee":     (93.0, 12.0),
+        "hip":      (62.0, 11.0),
+        "ankle":    (58.0, 14.0),
+        "shoulder": (87.0,  7.0),
+        "elbow":    (47.0, 15.0),
+    }
+    propulsion_idx = []
+    for ph in ("Push 1", "Pull 1", "Push 2"):
+        if ph in phases:
+            s, e = phases[ph]
+            propulsion_idx.extend(range(s, e + 1))
+    propulsion_amplitudes = {}
+    if propulsion_idx:
+        sub_prop = df.loc[propulsion_idx]
+        for col, label in [("knee_angle","knee"), ("hip_angle","hip"),
+                           ("ankle_angle","ankle"), ("shoulder_angle","shoulder"),
+                           ("elbow_angle","elbow")]:
+            vals = sub_prop[col].dropna()
+            if len(vals) < 3:
+                continue
+            amplitude = float(vals.max() - vals.min())
+            target, sd = GRIGG_BENCHMARKS[label]
+            diff = amplitude - target
+            if abs(diff) <= 1.5 * sd:
+                status = "ok"
+            elif diff < 0:
+                status = "low"
+            else:
+                status = "high"
+            propulsion_amplitudes[label] = {
+                "value":      round(amplitude, 1),
+                "target":     target,
+                "sd":         sd,
+                "status":     status,
+                "delta":      round(diff, 1),
+            }
+
     angle_metrics = {}
+    angular_velocities = {}
     for phase_name in ["Push 1", "Pull 1", "Push 2"]:
         if phase_name not in phases:
             continue
         start, end = phases[phase_name]
         sub = df.loc[start:end]
-        m = {}
+        # Amplitude de l'angle (déjà existant)
+        m_amp = {}
         for col, label in [("knee_angle","knee"), ("hip_angle","hip"), ("elbow_angle","elbow")]:
             vals = sub[col].dropna()
             if len(vals) > 0:
-                m[label] = round(float(vals.max() - vals.min()), 1)
-        angle_metrics[phase_name] = m
+                m_amp[label] = round(float(vals.max() - vals.min()), 1)
+        angle_metrics[phase_name] = m_amp
+        # Vitesses angulaires (°/s) : peak signé + |peak| + moyenne signée
+        m_vel = {}
+        for col, label in [("knee_velocity","knee"), ("hip_velocity","hip"),
+                           ("elbow_velocity","elbow")]:
+            vals = sub[col].dropna()
+            if len(vals) > 0:
+                # peak = valeur dont |·| est max — signé pour distinguer extension vs flexion
+                peak_idx = vals.abs().idxmax()
+                peak_signed = float(vals.loc[peak_idx])
+                m_vel[label] = {
+                    "peak":      round(peak_signed,                1),
+                    "peak_abs":  round(abs(peak_signed),           1),
+                    "mean":      round(float(vals.mean()),         1),
+                }
+        angular_velocities[phase_name] = m_vel
+
+    coaching_verdict = build_coaching_verdict(
+        reaction_type     = reaction_type,
+        react_from_gate   = react_from_gate,
+        react_from_bip1   = (t_move - bip1_time) if bip1_time is not None else None,
+        set_label         = set_label,
+        mahieu_label      = mahieu_label,
+        mahieu_dev        = mahieu_dev,
+        hub_type          = hub_type,
+        hub_backward_px   = hub_backward_px,
+        propulsion_amplitudes = propulsion_amplitudes,
+        phases_dict       = phases,
+    )
 
     results = {
         "video_name":    video_name,
@@ -984,14 +1318,21 @@ def main(video_path, front_foot=None, gate_drop=None, bip1_time=None):
             "angle_deg":    round(float(trunk_angle), 1) if trunk_angle is not None else None,
             "label":        set_label or "Unknown",
         },
+        "mahieu_alignment": {
+            "deviation_pct": round(float(mahieu_dev), 1) if mahieu_dev is not None else None,
+            "label":         mahieu_label or "Unknown",
+        },
         "reaction": {
             "type":              reaction_type,
             "first_move_t":      round(float(t_move), 3),
             "from_gate_ms":      round(react_from_gate * 1000),
             "from_bip1_ms":      round((t_move - bip1_time) * 1000) if bip1_time else None,
         },
-        "phases":          phases_list,
-        "angle_metrics":   angle_metrics,
+        "phases":                phases_list,
+        "angle_metrics":         angle_metrics,
+        "angular_velocities":    angular_velocities,
+        "propulsion_amplitudes": propulsion_amplitudes,
+        "coaching_verdict":      coaching_verdict,
         "hub_trajectory":  {
             "type":        hub_type,
             "backward_px": round(float(hub_backward_px)),

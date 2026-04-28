@@ -24,6 +24,30 @@
       </p>
     </header>
 
+    <!-- Verdict coach (synthèse) -->
+    {% if results.coaching_verdict %}
+    <section class="section verdict-box">
+      <h2 class="verdict-title">📋 Évaluation coach</h2>
+      <ul class="verdict-list">
+        {% for o in results.coaching_verdict %}
+        <li class="verdict-item verdict-{{ o.status }}">
+          <span class="verdict-icon">
+            {% if o.status == 'good' %}✓
+            {% elif o.status == 'warn' %}⚠
+            {% else %}✗{% endif %}
+          </span>
+          <div class="verdict-text">
+            <div class="verdict-headline">{{ o.title }}</div>
+            {% if o.advice %}
+            <div class="verdict-advice">→ {{ o.advice }}</div>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
     <!-- Métriques clés -->
     <section class="metrics-grid">
 
@@ -67,6 +91,21 @@
           {% else %}Acceptable{% endif %}
         </div>
       </div>
+
+      {% if results.mahieu_alignment and results.mahieu_alignment.label != 'Unknown' %}
+      <div class="metric-card
+        {% if results.mahieu_alignment.label in ('excellent','bon') %} card-green
+        {% elif results.mahieu_alignment.label == 'moyen' %}            card-orange
+        {% else %}                                                       card-red
+        {% endif %}">
+        <div class="metric-label">Alignement Mahieu</div>
+        <div class="metric-value">{{ results.mahieu_alignment.label | capitalize }}</div>
+        <div class="metric-sub">
+          Décalage : {{ results.mahieu_alignment.deviation_pct }}%<br>
+          Référence pro : −27%
+        </div>
+      </div>
+      {% endif %}
 
     </section>
 
@@ -116,11 +155,48 @@
       <p class="video-hint">← → pour avancer frame par frame · Espace pour play/pause</p>
     </section>
 
+    <!-- Amplitudes vs benchmarks Grigg (élite) -->
+    {% if results.propulsion_amplitudes %}
+    <section class="section">
+      <h2>Amplitudes vs élite <span class="section-tag">Grigg 2018</span></h2>
+      <p class="section-note">
+        Amplitude totale sur Push 1 + Pull 1 + Push 2 vs valeurs de référence
+        sur 10 athlètes élites. Tolérance : ±1.5 σ.
+      </p>
+      <div class="angle-table-wrap">
+        <table class="angle-table grigg-table">
+          <thead>
+            <tr><th>Articulation</th><th>Mesuré</th><th>Élite</th><th>Écart</th><th>Statut</th></tr>
+          </thead>
+          <tbody>
+            {% set joint_fr = {'knee':'Genou','hip':'Hanche','ankle':'Cheville','shoulder':'Épaule','elbow':'Coude'} %}
+            {% for joint in ['knee','hip','ankle','shoulder','elbow'] %}
+              {% set d = results.propulsion_amplitudes[joint] if joint in results.propulsion_amplitudes else None %}
+              {% if d %}
+              <tr class="grigg-row grigg-{{ d.status }}">
+                <td><strong>{{ joint_fr[joint] }}</strong></td>
+                <td>{{ d.value }}°</td>
+                <td>{{ d.target }}° ± {{ d.sd }}°</td>
+                <td>{% if d.delta >= 0 %}+{% endif %}{{ d.delta }}°</td>
+                <td>
+                  {% if d.status == 'ok' %}✓ dans la norme
+                  {% elif d.status == 'low' %}↓ sous-amplitude
+                  {% else %}↑ sur-amplitude{% endif %}
+                </td>
+              </tr>
+              {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
+
     <!-- Métriques par phase -->
     {% if results.angle_metrics %}
     <section class="section">
-      <h2>Amplitudes articulaires</h2>
-      <p class="section-note">Amplitude de mouvement par phase</p>
+      <h2>Amplitudes par phase <span class="section-tag" style="background:#eee;color:#666;">détail</span></h2>
+      <p class="section-note">Décomposition par phase de propulsion (référence interne)</p>
       <div class="angle-table-wrap">
         <table class="angle-table">
           <thead>
@@ -133,6 +209,52 @@
               <td>{{ angles.knee | default('—') }}{% if angles.knee is defined %}°{% endif %}</td>
               <td>{{ angles.hip  | default('—') }}{% if angles.hip  is defined %}°{% endif %}</td>
               <td>{{ angles.elbow| default('—') }}{% if angles.elbow is defined %}°{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- Vitesses angulaires (explosivité) -->
+    {% if results.angular_velocities %}
+    <section class="section">
+      <h2>Vitesses angulaires <span class="section-tag">explosivité</span></h2>
+      <p class="section-note">
+        Pic et moyenne en °/s par phase. Signe + = extension, − = flexion.
+        La valeur absolue du pic indique <strong>l'explosivité</strong> de l'articulation.
+      </p>
+      <div class="angle-table-wrap">
+        <table class="angle-table velocity-table">
+          <thead>
+            <tr>
+              <th rowspan="2">Phase</th>
+              <th colspan="2">Genou</th>
+              <th colspan="2">Hanche</th>
+              <th colspan="2">Coude</th>
+            </tr>
+            <tr>
+              <th>Pic</th><th>Moy</th>
+              <th>Pic</th><th>Moy</th>
+              <th>Pic</th><th>Moy</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for phase_name, vel in results.angular_velocities.items() %}
+            <tr>
+              <td>{{ phase_name }}</td>
+              {% for joint in ['knee', 'hip', 'elbow'] %}
+                {% set v = vel[joint] %}
+                {% if v is defined %}
+                  <td class="cell-peak">
+                    <span class="vel-peak">{{ v.peak }}<span class="unit">°/s</span></span>
+                  </td>
+                  <td>{{ v.mean }}<span class="unit">°/s</span></td>
+                {% else %}
+                  <td>—</td><td>—</td>
+                {% endif %}
+              {% endfor %}
             </tr>
             {% endfor %}
           </tbody>
