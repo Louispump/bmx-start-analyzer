@@ -92,21 +92,6 @@
         </div>
       </div>
 
-      {% if results.mahieu_alignment and results.mahieu_alignment.label != 'Unknown' %}
-      <div class="metric-card
-        {% if results.mahieu_alignment.label in ('excellent','bon') %} card-green
-        {% elif results.mahieu_alignment.label == 'moyen' %}            card-orange
-        {% else %}                                                       card-red
-        {% endif %}">
-        <div class="metric-label">Alignement Mahieu</div>
-        <div class="metric-value">{{ results.mahieu_alignment.label | capitalize }}</div>
-        <div class="metric-sub">
-          Décalage : {{ results.mahieu_alignment.deviation_pct }}%<br>
-          Référence pro : −27%
-        </div>
-      </div>
-      {% endif %}
-
     </section>
 
     <!-- Timeline des phases -->

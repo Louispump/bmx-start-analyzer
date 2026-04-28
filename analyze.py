@@ -385,7 +385,7 @@ def detect_front_foot(all_tracks, main_tid, n_frames=30):
 
 
 def build_coaching_verdict(reaction_type, react_from_gate, react_from_bip1,
-                            set_label, mahieu_label, mahieu_dev,
+                            set_label,
                             hub_type, hub_backward_px,
                             propulsion_amplitudes, phases_dict):
     """Synthèse coach en français clair — liste d'observations avec status.
@@ -456,36 +456,7 @@ def build_coaching_verdict(reaction_type, react_from_gate, react_from_bip1,
             "advice": "Reculer le bassin et abaisser la poitrine vers le guidon.",
         })
 
-    # 3) Alignement Mahieu (épaule-hanche-cheville) — calibration BMX
-    PRO_REF = -27.0  # médiane mesurée sur les pros de la banque
-    if mahieu_label == "excellent":
-        obs.append({
-            "status": "good",
-            "title":  f"Alignement Mahieu excellent ({mahieu_dev:+.0f}%, niveau élite)",
-            "advice": None,
-        })
-    elif mahieu_label == "bon":
-        obs.append({
-            "status": "good",
-            "title":  f"Bon alignement Mahieu ({mahieu_dev:+.0f}%, niveau pro {PRO_REF:+.0f}%)",
-            "advice": None,
-        })
-    elif mahieu_label == "moyen":
-        gap = abs(mahieu_dev) - abs(PRO_REF)
-        obs.append({
-            "status": "warn",
-            "title":  f"Alignement Mahieu moyen ({mahieu_dev:+.0f}% vs pro {PRO_REF:+.0f}%, écart {gap:+.0f} pts)",
-            "advice": "Travailler le dos plat : épaule-hanche-cheville en ligne droite.",
-        })
-    elif mahieu_label == "faible":
-        gap = abs(mahieu_dev) - abs(PRO_REF)
-        obs.append({
-            "status": "bad",
-            "title":  f"Alignement Mahieu faible ({mahieu_dev:+.0f}% vs pro {PRO_REF:+.0f}%, écart {gap:+.0f} pts)",
-            "advice": "C-back marqué : priorité absolue. Renforcement gainage + dos plat à chaque set.",
-        })
-
-    # 4) Trajectoire du moyeu (hairpin)
+    # 3) Trajectoire du moyeu (hairpin)
     if hub_type == "hairpin":
         obs.append({
             "status": "good",
@@ -499,7 +470,7 @@ def build_coaching_verdict(reaction_type, react_from_gate, react_from_bip1,
             "advice": "Reculer le moyeu en début de Push 1 pour un meilleur transfert d'énergie.",
         })
 
-    # 5) Amplitudes vs élite Grigg : signaler la plus en dessous
+    # 4) Amplitudes vs élite Grigg : signaler la plus en dessous
     low_joints = [(j, d) for j, d in propulsion_amplitudes.items() if d["status"] == "low"]
     if low_joints:
         # Trier par déficit le plus important
@@ -513,7 +484,7 @@ def build_coaching_verdict(reaction_type, react_from_gate, react_from_bip1,
             "advice": f"Travailler l'amplitude de {joint_fr} sur les 3 phases de propulsion.",
         })
 
-    # 6) Phase la plus longue parmi propulsion (potentielle faiblesse)
+    # 5) Phase la plus longue parmi propulsion (potentielle faiblesse)
     propulsion_durations = {
         ph: phases_dict[ph][1] - phases_dict[ph][0]
         for ph in ("Push 1", "Pull 1", "Push 2") if ph in phases_dict
@@ -530,66 +501,6 @@ def build_coaching_verdict(reaction_type, react_from_gate, react_from_bip1,
             })
 
     return obs
-
-
-def compute_mahieu_alignment(df, gate_idx, side, direction):
-    """Mesure l'alignement épaule-hanche-cheville pendant le Set (principe Mahieu).
-
-    Pour une bonne transmission de puissance, les 3 points doivent être quasi
-    colinéaires dans le plan sagittal. On mesure le décalage horizontal de la
-    hanche par rapport à la ligne (épaule → cheville), exprimé en % de cette
-    longueur, dans le repère orienté selon la direction du rider.
-
-    Retourne (deviation_pct, label) :
-      deviation_pct > 0 : hanche déplacée vers l'AVANT du rider
-      deviation_pct < 0 : hanche déplacée vers l'ARRIÈRE
-      Conventions de classification :
-        |dev| < 5%  : aligné
-        5% < |dev| < 12% : léger décalage
-        |dev| > 12%       : décalage marqué
-    """
-    stable_start = max(0, gate_idx // 4)
-    stable_end   = max(stable_start + 1, 3 * gate_idx // 4)
-    sub = df.loc[stable_start:stable_end]
-
-    sh_x = sub[f"{side}_shoulder_x"].dropna()
-    sh_y = sub[f"{side}_shoulder_y"].dropna()
-    hi_x = sub[f"{side}_hip_x"].dropna()
-    hi_y = sub[f"{side}_hip_y"].dropna()
-    an_x = sub[f"{side}_ankle_x"].dropna()
-    an_y = sub[f"{side}_ankle_y"].dropna()
-    common = sh_x.index & sh_y.index & hi_x.index & hi_y.index & an_x.index & an_y.index
-    if len(common) < 3:
-        return None, None
-
-    deviations = []
-    for i in common:
-        sh = np.array([sh_x[i], sh_y[i]])
-        hi = np.array([hi_x[i], hi_y[i]])
-        an = np.array([an_x[i], an_y[i]])
-        if abs(an[1] - sh[1]) < 1.0:
-            continue   # ligne quasi horizontale → projection instable
-        line_length = float(np.linalg.norm(an - sh))
-        if line_length < 5.0:
-            continue
-        # Position X de la ligne shoulder→ankle à la hauteur de la hanche
-        t = (hi[1] - sh[1]) / (an[1] - sh[1])
-        line_x_at_hip = sh[0] + t * (an[0] - sh[0])
-        # Décalage signé orienté vers l'avant du rider
-        hip_offset = (hi[0] - line_x_at_hip) * direction
-        deviations.append(hip_offset / line_length * 100.0)
-
-    if not deviations:
-        return None, None
-    median_dev = float(np.median(deviations))
-    abs_dev = abs(median_dev)
-    if abs_dev < 5:
-        label = "aligné"
-    elif abs_dev < 12:
-        label = "hanche avant" if median_dev > 0 else "hanche arrière"
-    else:
-        label = "hanche très avant" if median_dev > 0 else "hanche très arrière"
-    return median_dev, label
 
 
 def classify_set_position(df, gate_idx, side, direction):
@@ -992,11 +903,6 @@ def main(video_path, front_foot=None, gate_drop=None, bip1_time=None):
     gate_idx_for_set = (df["time"] - gate_drop).abs().idxmin()
     trunk_angle, set_label = classify_set_position(df, gate_idx_for_set, side, direction)
 
-    # === Alignement Mahieu (épaule-hanche-cheville) pendant le Set ===
-    mahieu_dev, mahieu_label = compute_mahieu_alignment(
-        df, gate_idx_for_set, side, direction
-    )
-
     # === Segmentation en phases ===
     print("Segmenting phases (Kalichová)...")
     ankle_col = f"{ankle_k}_y"  # ex: "R_ankle_y" ou "L_ankle_y"
@@ -1300,8 +1206,6 @@ def main(video_path, front_foot=None, gate_drop=None, bip1_time=None):
         react_from_gate   = react_from_gate,
         react_from_bip1   = (t_move - bip1_time) if bip1_time is not None else None,
         set_label         = set_label,
-        mahieu_label      = mahieu_label,
-        mahieu_dev        = mahieu_dev,
         hub_type          = hub_type,
         hub_backward_px   = hub_backward_px,
         propulsion_amplitudes = propulsion_amplitudes,
@@ -1317,10 +1221,6 @@ def main(video_path, front_foot=None, gate_drop=None, bip1_time=None):
         "set_position":  {
             "angle_deg":    round(float(trunk_angle), 1) if trunk_angle is not None else None,
             "label":        set_label or "Unknown",
-        },
-        "mahieu_alignment": {
-            "deviation_pct": round(float(mahieu_dev), 1) if mahieu_dev is not None else None,
-            "label":         mahieu_label or "Unknown",
         },
         "reaction": {
             "type":              reaction_type,
