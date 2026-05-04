@@ -1,112 +1,107 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Banque de pros — BMX Analyzer</title>
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-  <div class="page">
-    <header>
-      <a href="/" class="back-link">← Accueil</a>
-      <h1>Banque de référence</h1>
-      <p class="subtitle">Vidéos de pros pour la comparaison côte à côte</p>
-    </header>
+{% extends "_base.html" %}
 
-    <!-- ÉTAPE 1 : Nom + upload -->
-    <section class="section" id="step-upload">
-      <div class="save-rider-box">
-        <h2>Ajouter un pro</h2>
-        <p class="section-note">Upload une vidéo → tu identifies le gate → le squelette est généré</p>
-        <div class="save-form">
-          <input type="text" id="pro-name-input" class="rider-name-input"
-                 placeholder="Nom (ex: Sylvain André…)" maxlength="40">
-          <label class="btn btn-primary" for="pro-file-input">Choisir une vidéo</label>
-          <input type="file" id="pro-file-input" accept="video/*" style="display:none">
-        </div>
+{% block title %}Banque de pros — BMX Start Analyzer{% endblock %}
+{% set active = "pros" %}
+
+{% block content %}
+  <header>
+    <h1>Banque de pros</h1>
+    <p class="subtitle">Vidéos de référence pour la comparaison côte à côte. Upload une vidéo, identifie le gate drop, et le squelette est généré.</p>
+  </header>
+
+  <!-- ÉTAPE 1 : Nom + upload -->
+  <section class="section" id="step-upload">
+    <div class="save-rider-box">
+      <h2>Ajouter un pro</h2>
+      <p class="section-note">Upload une vidéo → identifie le gate → le squelette est généré.</p>
+      <div class="save-form">
+        <input type="text" id="pro-name-input" class="rider-name-input"
+               placeholder="Nom (ex: Sylvain André…)" maxlength="40">
+        <label class="btn btn-primary" for="pro-file-input">Choisir une vidéo</label>
+        <input type="file" id="pro-file-input" accept="video/*" style="display:none">
       </div>
-    </section>
+    </div>
+  </section>
 
-    <!-- ÉTAPE 2 : Sélection du gate drop -->
-    <section class="section" id="step-gate" style="display:none">
-      <div class="gate-select-box">
-        <h2>📍 Identifie le gate drop</h2>
-        <p class="section-note">
-          Scrub jusqu'au moment où la grille tombe, puis clique sur <strong>Marquer</strong>.
-        </p>
-        <div class="gate-video-wrap">
-          <video id="gate-video" playsinline preload="auto" controls></video>
-        </div>
-        <div id="detect-banner" class="detect-banner" style="display:none"></div>
-        <div class="gate-scrubber-wrap">
-          <input type="range" class="scrubber scrubber-light" id="gate-scrub"
-                 min="0" max="1000" value="0" step="1">
-        </div>
-        <div class="gate-controls">
-          <button class="btn-frame btn-frame-dark" onclick="gateStep(-1)">&#9664;</button>
-          <span class="frame-counter-dark" id="gate-counter">Frame 0</span>
-          <button class="btn-frame btn-frame-dark" onclick="gateStep(+1)">&#9654;</button>
-        </div>
-        <div class="gate-marker" id="gate-marker">
-          Gate drop : <strong id="gate-marker-val">non défini</strong>
-        </div>
-        <div class="gate-actions">
-          <button class="btn btn-gate-mark" onclick="markGate()">📌 Marquer le gate ici</button>
-          <button class="btn btn-primary" id="btn-confirm-gate"
-                  onclick="confirmGate()" disabled>
-            ✓ Confirmer et générer le squelette
-          </button>
-        </div>
+  <!-- ÉTAPE 2 : Sélection du gate drop -->
+  <section class="section" id="step-gate" style="display:none">
+    <div class="gate-select-box">
+      <h2>📍 Identifie le gate drop</h2>
+      <p class="section-note">
+        Scrub jusqu'au moment où la grille tombe, puis clique sur <strong>Marquer</strong>.
+      </p>
+      <div class="gate-video-wrap">
+        <video id="gate-video" playsinline preload="auto" controls></video>
       </div>
-    </section>
+      <div id="detect-banner" class="detect-banner" style="display:none"></div>
+      <div class="gate-scrubber-wrap">
+        <input type="range" class="scrubber scrubber-light" id="gate-scrub"
+               min="0" max="1000" value="0" step="1">
+      </div>
+      <div class="gate-controls">
+        <button class="btn-frame btn-frame-dark" onclick="gateStep(-1)">&#9664;</button>
+        <span class="frame-counter-dark" id="gate-counter">Frame 0</span>
+        <button class="btn-frame btn-frame-dark" onclick="gateStep(+1)">&#9654;</button>
+      </div>
+      <div class="gate-marker" id="gate-marker">
+        Gate drop : <strong id="gate-marker-val">non défini</strong>
+      </div>
+      <div class="gate-actions">
+        <button class="btn btn-gate-mark" onclick="markGate()">📌 Marquer le gate ici</button>
+        <button class="btn btn-primary" id="btn-confirm-gate"
+                onclick="confirmGate()" disabled>
+          ✓ Confirmer et générer le squelette
+        </button>
+      </div>
+    </div>
+  </section>
 
-    <!-- ÉTAPE 3 : Progression -->
-    <section class="section" id="step-progress" style="display:none">
-      <div class="progress-block" style="display:flex">
-        <div class="spinner"></div>
-        <p class="progress-label" id="progress-label">Génération du squelette...</p>
-        <div class="progress-bar-wrap">
-          <div class="progress-bar" id="progress-bar"></div>
+  <!-- ÉTAPE 3 : Progression -->
+  <section class="section" id="step-progress" style="display:none">
+    <div class="progress-block" style="display:flex">
+      <div class="spinner"></div>
+      <p class="progress-label" id="progress-label">Génération du squelette...</p>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Liste des pros -->
+  <section class="section">
+    <h2>Pros enregistrés <span class="section-tag">{{ pros|length }}</span></h2>
+    {% if not pros %}
+    <div class="empty-state">
+      Aucun pro enregistré. Ajoute ta première vidéo de référence ci-dessus.
+    </div>
+    {% else %}
+    <div class="pros-list">
+      {% for pro in pros %}
+      <div class="pro-row">
+        <div class="pro-info">
+          <span class="pro-name-text">{{ pro.name }}</span>
+          <span class="pro-meta">{{ pro.added_at }}</span>
         </div>
-      </div>
-    </section>
-
-    <!-- Liste des pros -->
-    <section class="section">
-      <h2>Pros enregistrés</h2>
-      {% if not pros %}
-      <div class="empty-state">
-        Aucun pro enregistré. Ajoute ta première vidéo de référence ci-dessus.
-      </div>
-      {% else %}
-      <div class="pros-list">
-        {% for pro in pros %}
-        <div class="pro-row">
-          <div class="pro-info">
-            <span class="pro-name-text">{{ pro.name }}</span>
-            <span class="pro-meta">{{ pro.added_at }}</span>
-          </div>
-          <div class="pro-status">
-            {% if pro.status == 'done' %}
-              <span class="status-badge status-done">✓ Prêt</span>
-            {% elif pro.status == 'error' %}
-              <span class="status-badge status-error">✗ Erreur</span>
-            {% elif pro.status == 'pending_gate' %}
-              <span class="status-badge status-processing">⏳ Gate non défini</span>
-            {% else %}
-              <span class="status-badge status-processing">⟳ {{ pro.progress or 'En cours…' }}</span>
-            {% endif %}
-          </div>
-          <button class="btn-delete" onclick="deletePro('{{ pro.id }}')">✕</button>
+        <div class="pro-status">
+          {% if pro.status == 'done' %}
+            <span class="status-badge status-done">✓ Prêt</span>
+          {% elif pro.status == 'error' %}
+            <span class="status-badge status-error">✗ Erreur</span>
+          {% elif pro.status == 'pending_gate' %}
+            <span class="status-badge status-processing">⏳ Gate non défini</span>
+          {% else %}
+            <span class="status-badge status-processing">⟳ {{ pro.progress or 'En cours…' }}</span>
+          {% endif %}
         </div>
-        {% endfor %}
+        <button class="btn-delete" onclick="deletePro('{{ pro.id }}')" title="Retirer">✕</button>
       </div>
-      {% endif %}
-    </section>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+{% endblock %}
 
-  </div>
-
+{% block scripts %}
   <script>
     let proId     = null;
     let videoFps  = 30;
@@ -251,5 +246,4 @@
       location.reload();
     }
   </script>
-</body>
-</html>
+{% endblock %}

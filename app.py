@@ -22,7 +22,10 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
 from jinja2 import Environment, FileSystemLoader
 
-from analyze import main as analyze_main
+import numpy as np
+import pandas as pd
+
+from analyze import main as analyze_main, calculate_angle
 from audio_gate import detect_gate_drop
 from mahieu import analyze_video as mahieu_analyze, render_debug_frame as mahieu_render
 
@@ -127,12 +130,14 @@ def run_pro_analysis(pro_id: str, video_path: Path, gate_drop: float):
             raise ValueError("L'analyse n'a pas retourné de résultats.")
 
         pros[pro_id].update({
-            "status":      "done",
-            "progress":    "Terminé",
-            "video_file":  results["files"]["annotated_video"],
-            "gate_drop_t": results["gate_drop_t"],
-            "duration_s":  results["duration_s"],
-            "fps":         results["fps"],
+            "status":        "done",
+            "progress":      "Terminé",
+            "video_file":    results["files"]["annotated_video"],
+            "landmarks_csv": results["files"]["landmarks_csv"],
+            "front_foot":    results.get("front_foot"),
+            "gate_drop_t":   results["gate_drop_t"],
+            "duration_s":    results["duration_s"],
+            "fps":           results["fps"],
         })
         save_pros(pros)
     except Exception as e:
@@ -456,6 +461,186 @@ async def clear_mahieu_cache():
     if MAHIEU_CACHE.exists():
         MAHIEU_CACHE.unlink()
     return {"ok": True}
+
+
+# ── Comparaison angles à un instant T (rider vs pro) ──────────────────────────
+def _infer_front_foot_from_csv(df: pd.DataFrame) -> str:
+    """Fallback pour les pros déjà stockés sans `front_foot` : on choisit le côté
+    dont la confiance moyenne (épaule + hanche + genou + cheville) est la plus
+    haute sur l'ensemble de la vidéo."""
+    cols_L = ["L_shoulder_conf", "L_hip_conf", "L_knee_conf", "L_ankle_conf"]
+    cols_R = ["R_shoulder_conf", "R_hip_conf", "R_knee_conf", "R_ankle_conf"]
+    if all(c in df.columns for c in cols_L + cols_R):
+        L_conf = df[cols_L].mean().mean()
+        R_conf = df[cols_R].mean().mean()
+        return "L" if L_conf >= R_conf else "R"
+    return "L"
+
+
+def _normalized_skeleton(row, side: str, direction: int) -> dict | None:
+    """Normalise le squelette pour overlay : hanche à l'origine, échelle = 1.0
+    sur la longueur hanche→épaule, mirror si le rider est tourné à gauche
+    (pour que les 2 squelettes soient comparables face à droite).
+
+    Retourne dict {nom_articulation: [x, y]} ou None si l'ancrage est invalide.
+    """
+    sh_x = row.get(f"{side}_shoulder_x", np.nan)
+    sh_y = row.get(f"{side}_shoulder_y", np.nan)
+    hi_x = row.get(f"{side}_hip_x",      np.nan)
+    hi_y = row.get(f"{side}_hip_y",      np.nan)
+    if np.isnan(sh_x) or np.isnan(hi_x) or np.isnan(sh_y) or np.isnan(hi_y):
+        return None
+    scale = float(np.hypot(sh_x - hi_x, sh_y - hi_y))
+    if scale < 1.0:
+        return None
+
+    other = "R" if side == "L" else "L"
+
+    def _n(col_x: str, col_y: str):
+        x = row.get(col_x, np.nan)
+        y = row.get(col_y, np.nan)
+        if np.isnan(x) or np.isnan(y):
+            return None
+        nx = (x - hi_x) / scale
+        ny = (y - hi_y) / scale
+        if direction < 0:
+            nx = -nx   # mirror : tout le monde tourné à droite
+        return [round(float(nx), 3), round(float(ny), 3)]
+
+    return {
+        "nose":          _n("nose_x",                "nose_y"),
+        "shoulder":      _n(f"{side}_shoulder_x",    f"{side}_shoulder_y"),
+        "elbow":         _n(f"{side}_elbow_x",       f"{side}_elbow_y"),
+        "wrist":         _n(f"{side}_wrist_x",       f"{side}_wrist_y"),
+        "hip":           _n(f"{side}_hip_x",         f"{side}_hip_y"),    # → [0, 0]
+        "knee":          _n(f"{side}_knee_x",        f"{side}_knee_y"),
+        "ankle":         _n(f"{side}_ankle_x",       f"{side}_ankle_y"),
+        "back_shoulder": _n(f"{other}_shoulder_x",   f"{other}_shoulder_y"),
+        "back_hip":      _n(f"{other}_hip_x",        f"{other}_hip_y"),
+    }
+
+
+def _compute_angles_at_time(csv_path: Path, t: float, side: str) -> dict | None:
+    """Lit les keypoints au frame le plus proche de l'instant `t` dans le CSV
+    landmarks et calcule 6 angles : knee, hip, ankle, shoulder, elbow, trunk.
+
+    `side` ∈ {'L','R'} = côté du rider (pied avant). Le tronc est signé selon
+    la direction du rider (positif = penché en avant). Le squelette normalisé
+    pour l'overlay est inclus dans la réponse."""
+    if not csv_path.exists():
+        return None
+    df = pd.read_csv(csv_path)
+    if "time" not in df.columns or len(df) == 0:
+        return None
+    idx = int((df["time"] - t).abs().idxmin())
+    row = df.loc[idx]
+
+    # Direction (rider face droite ou gauche) à partir du nez vs centre des hanches
+    nose_x  = row.get("nose_x",   np.nan)
+    L_hi_x  = row.get("L_hip_x",  np.nan)
+    R_hi_x  = row.get("R_hip_x",  np.nan)
+    if not (np.isnan(nose_x) or np.isnan(L_hi_x) or np.isnan(R_hi_x)):
+        direction = 1 if nose_x > (L_hi_x + R_hi_x) / 2 else -1
+    else:
+        direction = 1
+
+    def _pt(part: str):
+        x = row.get(f"{side}_{part}_x", np.nan)
+        y = row.get(f"{side}_{part}_y", np.nan)
+        return (float(x), float(y))
+
+    sh = _pt("shoulder")
+    el = _pt("elbow")
+    wr = _pt("wrist")
+    hi = _pt("hip")
+    kn = _pt("knee")
+    an = _pt("ankle")
+
+    def _safe_angle(p1, p2, p3):
+        if any(np.isnan(p[0]) or np.isnan(p[1]) for p in (p1, p2, p3)):
+            return None
+        a = float(calculate_angle(p1, p2, p3))
+        return round(a, 1) if not np.isnan(a) else None
+
+    knee_a     = _safe_angle(hi, kn, an)
+    hip_a      = _safe_angle(sh, hi, kn)
+    elbow_a    = _safe_angle(sh, el, wr)
+    shoulder_a = _safe_angle(hi, sh, el)
+    # Cheville : proxy pointe pied (+30 px dans direction du rider)
+    ankle_a = None
+    if not (np.isnan(an[0]) or np.isnan(kn[0])):
+        toe_proxy = (an[0] + 30 * direction, an[1])
+        ankle_a = _safe_angle(kn, an, toe_proxy)
+
+    # Tronc : angle (hip→shoulder) vs verticale, signé selon direction
+    # Convention : positif = penché en AVANT du rider, 0 = vertical, négatif = en arrière
+    trunk_a = None
+    if not (np.isnan(sh[0]) or np.isnan(hi[0])):
+        dx = sh[0] - hi[0]
+        dy = sh[1] - hi[1]   # négatif = épaule au-dessus (image y vers le bas)
+        trunk_a = round(float(np.degrees(np.arctan2(direction * dx, -dy))), 1)
+
+    return {
+        "frame":    int(idx),
+        "t":        round(float(row["time"]), 3),
+        "side":     side,
+        "knee":     knee_a,
+        "hip":      hip_a,
+        "ankle":    ankle_a,
+        "shoulder": shoulder_a,
+        "elbow":    elbow_a,
+        "trunk":    trunk_a,
+        "skeleton": _normalized_skeleton(row, side, direction),
+    }
+
+
+@app.post("/compare_angles/{job_id}")
+async def compare_angles(job_id: str,
+                         pro_id:    str   = Form(...),
+                         rider_t:   float = Form(...),
+                         pro_t:     float = Form(...)):
+    """Calcule et compare les 6 angles articulaires (rider vs pro) aux instants
+    spécifiés. Lit les CSV landmarks déjà générés par l'analyse — pas de
+    ré-analyse ni de re-pose-detection."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return JSONResponse({"error": "Job introuvable ou non terminé."},
+                            status_code=404)
+    pro = pros.get(pro_id)
+    if not pro or pro.get("status") != "done":
+        return JSONResponse({"error": "Pro introuvable ou non analysé."},
+                            status_code=404)
+
+    rider_results = job["results"]
+    rider_csv     = OUTPUT_DIR / rider_results["files"]["landmarks_csv"]
+    rider_side    = rider_results.get("front_foot") or "L"
+
+    pro_csv_name  = pro.get("landmarks_csv")
+    if not pro_csv_name:
+        # Pro analysé avant l'ajout du champ — on dérive depuis la vidéo annotée
+        pro_csv_name = pro["video_file"].replace("_annotated.mp4", "_landmarks.csv")
+    pro_csv = OUTPUT_DIR / pro_csv_name
+
+    # Fallback : déduire le côté pied avant si non stocké côté pro
+    pro_side = pro.get("front_foot")
+    if not pro_side and pro_csv.exists():
+        pro_side = _infer_front_foot_from_csv(pd.read_csv(pro_csv))
+    pro_side = pro_side or "L"
+
+    rider_angles = _compute_angles_at_time(rider_csv, rider_t, rider_side)
+    pro_angles   = _compute_angles_at_time(pro_csv,   pro_t,   pro_side)
+
+    if rider_angles is None or pro_angles is None:
+        return JSONResponse(
+            {"error": f"Lecture CSV impossible (rider={rider_csv.exists()}, pro={pro_csv.exists()})"},
+            status_code=500,
+        )
+
+    return {
+        "rider":   rider_angles,
+        "pro":     pro_angles,
+        "pro_name": pro.get("name", "Pro"),
+    }
 
 
 # ── Comparaison ───────────────────────────────────────────────────────────────

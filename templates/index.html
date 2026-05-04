@@ -1,81 +1,77 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BMX Start Analyzer</title>
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-  <div class="page">
-    <header>
-      <h1>BMX Start Analyzer</h1>
-      <p class="subtitle">Analyse biomécanique du départ BMX</p>
-    </header>
+{% extends "_base.html" %}
 
-    {% if error %}
-    <div class="alert alert-error">{{ error }}</div>
-    {% endif %}
+{% block title %}Nouvelle analyse — BMX Start Analyzer{% endblock %}
+{% set active = "index" %}
 
-    <!-- ÉTAPE 1 : Upload -->
-    <div id="step-upload">
-      <div class="upload-zone" id="dropzone">
-        <div class="upload-icon">🎬</div>
-        <p class="upload-label">Glisse ta vidéo ici</p>
-        <p class="upload-hint">ou</p>
-        <label class="btn btn-primary" for="file-input">Choisir un fichier</label>
-        <input type="file" id="file-input" accept="video/*" style="display:none">
-        <p class="upload-formats">MP4 · MOV · AVI</p>
-      </div>
+{% block content %}
+  <header>
+    <h1>Nouvelle analyse</h1>
+    <p class="subtitle">Upload une vidéo de départ → identifie le gate drop → l'analyse génère la vidéo annotée et la timeline des phases.</p>
+  </header>
+
+  {% if error %}
+  <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+
+  <!-- ÉTAPE 1 : Upload -->
+  <div id="step-upload">
+    <div class="upload-zone" id="dropzone">
+      <div class="upload-icon">🎬</div>
+      <p class="upload-label">Glisse ta vidéo ici</p>
+      <p class="upload-hint">ou</p>
+      <label class="btn btn-primary" for="file-input">Choisir un fichier</label>
+      <input type="file" id="file-input" accept="video/*" style="display:none">
+      <p class="upload-formats">MP4 · MOV · AVI</p>
     </div>
-
-    <!-- ÉTAPE 2 : Sélection du gate drop -->
-    <div id="step-gate" style="display:none">
-      <div class="gate-select-box">
-        <h2>📍 Identifie le gate drop</h2>
-        <p class="section-note">
-          Scrub jusqu'au moment où la grille commence à tomber, puis clique sur
-          <strong>Marquer</strong>.
-        </p>
-        <div class="gate-video-wrap">
-          <video id="gate-video" playsinline preload="auto" controls></video>
-        </div>
-        <div id="detect-banner" class="detect-banner" style="display:none"></div>
-        <div class="gate-scrubber-wrap">
-          <input type="range" class="scrubber scrubber-light" id="gate-scrub"
-                 min="0" max="1000" value="0" step="1">
-        </div>
-        <div class="gate-controls">
-          <button class="btn-frame btn-frame-dark" onclick="gateStep(-1)">&#9664;</button>
-          <span class="frame-counter-dark" id="gate-counter">Frame 0</span>
-          <button class="btn-frame btn-frame-dark" onclick="gateStep(+1)">&#9654;</button>
-        </div>
-        <div class="gate-marker" id="gate-marker">
-          Gate drop : <strong id="gate-marker-val">non défini</strong>
-        </div>
-        <div class="gate-actions">
-          <button class="btn btn-gate-mark" onclick="markGate()">📌 Marquer le gate ici</button>
-          <button class="btn btn-primary" id="btn-confirm-gate"
-                  onclick="confirmGate()" disabled>
-            ✓ Confirmer et analyser
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ÉTAPE 3 : Progression -->
-    <div id="step-progress" style="display:none">
-      <div class="progress-block" style="display:flex">
-        <div class="spinner"></div>
-        <p class="progress-label" id="progress-label">En cours...</p>
-        <div class="progress-bar-wrap">
-          <div class="progress-bar" id="progress-bar"></div>
-        </div>
-      </div>
-    </div>
-
   </div>
 
+  <!-- ÉTAPE 2 : Sélection du gate drop -->
+  <div id="step-gate" style="display:none">
+    <div class="gate-select-box">
+      <h2>📍 Identifie le gate drop</h2>
+      <p class="section-note">
+        Scrub jusqu'au moment où la grille commence à tomber, puis clique sur
+        <strong>Marquer</strong>.
+      </p>
+      <div class="gate-video-wrap">
+        <video id="gate-video" playsinline preload="auto" controls></video>
+      </div>
+      <div id="detect-banner" class="detect-banner" style="display:none"></div>
+      <div class="gate-scrubber-wrap">
+        <input type="range" class="scrubber scrubber-light" id="gate-scrub"
+               min="0" max="1000" value="0" step="1">
+      </div>
+      <div class="gate-controls">
+        <button class="btn-frame btn-frame-dark" onclick="gateStep(-1)">&#9664;</button>
+        <span class="frame-counter-dark" id="gate-counter">Frame 0</span>
+        <button class="btn-frame btn-frame-dark" onclick="gateStep(+1)">&#9654;</button>
+      </div>
+      <div class="gate-marker" id="gate-marker">
+        Gate drop : <strong id="gate-marker-val">non défini</strong>
+      </div>
+      <div class="gate-actions">
+        <button class="btn btn-gate-mark" onclick="markGate()">📌 Marquer le gate ici</button>
+        <button class="btn btn-primary" id="btn-confirm-gate"
+                onclick="confirmGate()" disabled>
+          ✓ Confirmer et analyser
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ÉTAPE 3 : Progression -->
+  <div id="step-progress" style="display:none">
+    <div class="progress-block" style="display:flex">
+      <div class="spinner"></div>
+      <p class="progress-label" id="progress-label">En cours...</p>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
   <script>
     let jobId     = null;
     let videoFps  = 30;
@@ -86,7 +82,6 @@
     const gateScrub   = document.getElementById('gate-scrub');
     const gateCounter = document.getElementById('gate-counter');
 
-    // ── Upload ────────────────────────────────────────────────────────
     const dropzone  = document.getElementById('dropzone');
     const fileInput = document.getElementById('file-input');
     dropzone.addEventListener('dragover',  e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
@@ -143,7 +138,6 @@
       }
     }
 
-    // ── Sync scrubber ↔ vidéo ─────────────────────────────────────────
     gateVideo.addEventListener('timeupdate', () => {
       if (!scrubbing) gateScrub.value = Math.round(gateVideo.currentTime * videoFps);
       gateCounter.textContent = `Frame ${Math.round(gateVideo.currentTime * videoFps)}`;
@@ -173,7 +167,6 @@
       gateCounter.textContent = `Frame ${f}`;
     }
 
-    // ── Marquer + confirmer ───────────────────────────────────────────
     function markGate() {
       gateFrame = Math.round(gateVideo.currentTime * videoFps);
       document.getElementById('gate-marker-val').textContent =
@@ -191,7 +184,6 @@
       pollStatus();
     }
 
-    // ── Polling ───────────────────────────────────────────────────────
     function pollStatus() {
       const bar = document.getElementById('progress-bar');
       const lbl = document.getElementById('progress-label');
@@ -208,8 +200,7 @@
           clearInterval(iv);
           lbl.textContent = '❌ ' + data.error;
         }
-      }, 1500);
+      }, 1000);
     }
   </script>
-</body>
-</html>
+{% endblock %}

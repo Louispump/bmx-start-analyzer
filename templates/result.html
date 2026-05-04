@@ -1,276 +1,139 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ results.video_name }} — Analyse</title>
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-  <div class="page">
+{% extends "_base.html" %}
 
-    <!-- Header -->
-    <header>
-      <div class="header-row">
-        <a href="/" class="back-link">← Nouvelle vidéo</a>
-        <a href="/compare/{{ job_id }}" class="compare-link">Comparer les riders →</a>
+{% block title %}{{ results.video_name }} — Analyse{% endblock %}
+{% set active = "result" %}
+
+{% block content %}
+  <header>
+    <div class="header-row">
+      <a href="/" class="back-link">← Nouvelle vidéo</a>
+      <a href="/compare/{{ job_id }}" class="compare-link">Comparer les riders</a>
+    </div>
+    <h1>{{ results.video_name }}</h1>
+    <p class="subtitle">
+      {{ results.fps }} fps · {{ results.total_frames }} frames · {{ results.duration_s }}s
+      <span class="gate-badge gate-{{ results.gate_method }}">
+        {{ "Audio" if results.gate_method == "audio" else "Visuel" }}
+      </span>
+    </p>
+  </header>
+
+  <!-- Métriques clés -->
+  <section class="metrics-grid">
+
+    <div class="metric-card
+      {% if results.reaction.type == 'false_start' %} card-red
+      {% elif results.reaction.type == 'bip' %}       card-orange
+      {% else %}                                       card-green
+      {% endif %}">
+      <div class="metric-label">Temps de réaction</div>
+      <div class="metric-value">
+        {% if results.reaction.type == 'false_start' %}
+          ⚠ Faux départ
+        {% elif results.reaction.type == 'bip' %}
+          {{ results.reaction.from_bip1_ms }} ms
+        {% else %}
+          {{ results.reaction.from_gate_ms }} ms
+        {% endif %}
       </div>
-      <h1>{{ results.video_name }}</h1>
-      <p class="subtitle">
-        {{ results.fps }} fps · {{ results.total_frames }} frames · {{ results.duration_s }}s
-        <span class="gate-badge gate-{{ results.gate_method }}">
-          {{ "🔊 Audio" if results.gate_method == "audio" else "👁 Visuel" }}
-        </span>
-      </p>
-    </header>
+      <div class="metric-sub">
+        {% if results.reaction.type == 'false_start' %}
+          Mouvement avant le bip 1
+        {% elif results.reaction.type == 'bip' %}
+          Réaction aux bips · {{ results.reaction.from_gate_ms | abs }} ms avant le gate
+        {% else %}
+          Depuis le gate drop
+        {% endif %}
+      </div>
+    </div>
 
-    <!-- Verdict coach (synthèse) -->
-    {% if results.coaching_verdict %}
-    <section class="section verdict-box">
-      <h2 class="verdict-title">📋 Évaluation coach</h2>
-      <ul class="verdict-list">
-        {% for o in results.coaching_verdict %}
-        <li class="verdict-item verdict-{{ o.status }}">
-          <span class="verdict-icon">
-            {% if o.status == 'good' %}✓
-            {% elif o.status == 'warn' %}⚠
-            {% else %}✗{% endif %}
-          </span>
-          <div class="verdict-text">
-            <div class="verdict-headline">{{ o.title }}</div>
-            {% if o.advice %}
-            <div class="verdict-advice">→ {{ o.advice }}</div>
-            {% endif %}
+    <div class="metric-card">
+      <div class="metric-label">Gate drop</div>
+      <div class="metric-value">{{ results.gate_drop_t }}<span class="metric-unit">s</span></div>
+      <div class="metric-sub">{{ results.fps }} fps · frame {{ (results.gate_drop_t * results.fps) | round | int }}</div>
+    </div>
+
+    <div class="metric-card">
+      <div class="metric-label">Pied avant</div>
+      <div class="metric-value">{{ "Gauche" if results.front_foot == "L" else "Droit" }}</div>
+      <div class="metric-sub">Côté analysé du rider</div>
+    </div>
+
+  </section>
+
+  <!-- Timeline des phases -->
+  <section class="section">
+    <h2>Phases <span class="section-tag">Kalichová</span></h2>
+    <div class="timeline-wrap">
+      <div class="timeline" id="timeline">
+        {% set total = results.duration_s %}
+        {% for phase in results.phases %}
+          {% set pct_start = (phase.start_t / total * 100) | round(2) %}
+          {% set pct_width = ((phase.end_t - phase.start_t) / total * 100) | round(2) %}
+          <div class="tl-phase"
+               style="left:{{ pct_start }}%; width:{{ pct_width }}%; background:{{ phase.color }};"
+               data-time="{{ phase.start_t }}"
+               title="{{ phase.name }} — {{ phase.duration_ms }}ms"
+               onclick="seekVideo({{ phase.start_t }})">
+            <span class="tl-label">{{ phase.name }}</span>
           </div>
-        </li>
         {% endfor %}
-      </ul>
-    </section>
-    {% endif %}
-
-    <!-- Métriques clés -->
-    <section class="metrics-grid">
-
-      <div class="metric-card
-        {% if results.reaction.type == 'false_start' %} card-red
-        {% elif results.reaction.type == 'bip' %}       card-orange
-        {% else %}                                       card-green
-        {% endif %}">
-        <div class="metric-label">Temps de réaction</div>
-        <div class="metric-value">
-          {% if results.reaction.type == 'false_start' %}
-            ⚠️ FAUX DÉPART
-          {% elif results.reaction.type == 'bip' %}
-            {{ results.reaction.from_bip1_ms }} ms
-          {% else %}
-            {{ results.reaction.from_gate_ms }} ms
-          {% endif %}
-        </div>
-        <div class="metric-sub">
-          {% if results.reaction.type == 'false_start' %}
-            Mouvement avant le bip 1
-          {% elif results.reaction.type == 'bip' %}
-            Réaction aux bips · {{ results.reaction.from_gate_ms | abs }} ms avant le gate
-          {% else %}
-            Depuis le gate drop
-          {% endif %}
-        </div>
+        <div class="tl-cursor" id="tl-cursor"></div>
       </div>
-
-      <div class="metric-card
-        {% if results.set_position.label == 'Back' %}    card-green
-        {% elif results.set_position.label == 'Upright' %}card-orange
-        {% else %}                                        card-yellow
-        {% endif %}">
-        <div class="metric-label">Position de set</div>
-        <div class="metric-value">{{ results.set_position.label }}</div>
-        <div class="metric-sub">
-          {% if results.set_position.angle_deg is not none %}{{ results.set_position.angle_deg }}° · {% endif %}
-          {% if results.set_position.label == 'Back' %}Optimal (Grigg)
-          {% elif results.set_position.label == 'Upright' %}Sous-optimal
-          {% else %}Acceptable{% endif %}
-        </div>
+      <div class="timeline-legend">
+        {% for phase in results.phases %}
+        <span class="legend-item">
+          <span class="legend-dot" style="background:{{ phase.color }}"></span>
+          {{ phase.name }} <em>{{ phase.duration_ms }}ms</em>
+        </span>
+        {% endfor %}
       </div>
+    </div>
+  </section>
 
-    </section>
+  <!-- Lecteur vidéo annoté -->
+  <section class="section">
+    <h2>Vidéo annotée</h2>
+    <div class="video-wrap">
+      <video id="main-video" controls playsinline preload="metadata"
+             src="/output/{{ results.files.annotated_video }}">
+      </video>
+    </div>
+    <div class="video-controls">
+      <button class="btn-frame" id="btn-prev" title="Frame précédente (←)">&#9664;</button>
+      <span class="frame-counter" id="frame-counter">Frame —</span>
+      <button class="btn-frame" id="btn-next" title="Frame suivante (→)">&#9654;</button>
+    </div>
+    <p class="video-hint">← → pour avancer frame par frame · Espace pour play/pause</p>
+  </section>
 
-    <!-- Timeline des phases -->
-    <section class="section">
-      <h2>Phases (Kalichová)</h2>
-      <div class="timeline-wrap">
-        <div class="timeline" id="timeline">
-          {% set total = results.duration_s %}
-          {% for phase in results.phases %}
-            {% set pct_start = (phase.start_t / total * 100) | round(2) %}
-            {% set pct_width = ((phase.end_t - phase.start_t) / total * 100) | round(2) %}
-            <div class="tl-phase"
-                 style="left:{{ pct_start }}%; width:{{ pct_width }}%; background:{{ phase.color }};"
-                 data-time="{{ phase.start_t }}"
-                 title="{{ phase.name }} — {{ phase.duration_ms }}ms"
-                 onclick="seekVideo({{ phase.start_t }})">
-              <span class="tl-label">{{ phase.name }}</span>
-            </div>
-          {% endfor %}
-          <div class="tl-cursor" id="tl-cursor"></div>
-        </div>
-        <div class="timeline-legend">
-          {% for phase in results.phases %}
-          <span class="legend-item">
-            <span class="legend-dot" style="background:{{ phase.color }}"></span>
-            {{ phase.name }} <em>{{ phase.duration_ms }}ms</em>
-          </span>
-          {% endfor %}
-        </div>
-      </div>
-    </section>
+  <!-- Comparer avec un pro -->
+  <section class="section section-cta">
+    <a href="/compare/{{ job_id }}" class="btn btn-compare">
+      Comparer avec un pro →
+    </a>
+  </section>
+{% endblock %}
 
-    <!-- Lecteur vidéo annoté -->
-    <section class="section">
-      <h2>Vidéo annotée</h2>
-      <div class="video-wrap">
-        <video id="main-video" controls playsinline preload="metadata"
-               src="/output/{{ results.files.annotated_video }}">
-        </video>
-      </div>
-      <div class="video-controls">
-        <button class="btn-frame" id="btn-prev" title="Frame précédente (←)">&#9664;</button>
-        <span class="frame-counter" id="frame-counter">Frame —</span>
-        <button class="btn-frame" id="btn-next" title="Frame suivante (→)">&#9654;</button>
-      </div>
-      <p class="video-hint">← → pour avancer frame par frame · Espace pour play/pause</p>
-    </section>
-
-    <!-- Amplitudes vs benchmarks Grigg (élite) -->
-    {% if results.propulsion_amplitudes %}
-    <section class="section">
-      <h2>Amplitudes vs élite <span class="section-tag">Grigg 2018</span></h2>
-      <p class="section-note">
-        Amplitude totale sur Push 1 + Pull 1 + Push 2 vs valeurs de référence
-        sur 10 athlètes élites. Tolérance : ±1.5 σ.
-      </p>
-      <div class="angle-table-wrap">
-        <table class="angle-table grigg-table">
-          <thead>
-            <tr><th>Articulation</th><th>Mesuré</th><th>Élite</th><th>Écart</th><th>Statut</th></tr>
-          </thead>
-          <tbody>
-            {% set joint_fr = {'knee':'Genou','hip':'Hanche','ankle':'Cheville','shoulder':'Épaule','elbow':'Coude'} %}
-            {% for joint in ['knee','hip','ankle','shoulder','elbow'] %}
-              {% set d = results.propulsion_amplitudes[joint] if joint in results.propulsion_amplitudes else None %}
-              {% if d %}
-              <tr class="grigg-row grigg-{{ d.status }}">
-                <td><strong>{{ joint_fr[joint] }}</strong></td>
-                <td>{{ d.value }}°</td>
-                <td>{{ d.target }}° ± {{ d.sd }}°</td>
-                <td>{% if d.delta >= 0 %}+{% endif %}{{ d.delta }}°</td>
-                <td>
-                  {% if d.status == 'ok' %}✓ dans la norme
-                  {% elif d.status == 'low' %}↓ sous-amplitude
-                  {% else %}↑ sur-amplitude{% endif %}
-                </td>
-              </tr>
-              {% endif %}
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </section>
-    {% endif %}
-
-    <!-- Métriques par phase -->
-    {% if results.angle_metrics %}
-    <section class="section">
-      <h2>Amplitudes par phase <span class="section-tag" style="background:#eee;color:#666;">détail</span></h2>
-      <p class="section-note">Décomposition par phase de propulsion (référence interne)</p>
-      <div class="angle-table-wrap">
-        <table class="angle-table">
-          <thead>
-            <tr><th>Phase</th><th>Genou</th><th>Hanche</th><th>Coude</th></tr>
-          </thead>
-          <tbody>
-            {% for phase_name, angles in results.angle_metrics.items() %}
-            <tr>
-              <td>{{ phase_name }}</td>
-              <td>{{ angles.knee | default('—') }}{% if angles.knee is defined %}°{% endif %}</td>
-              <td>{{ angles.hip  | default('—') }}{% if angles.hip  is defined %}°{% endif %}</td>
-              <td>{{ angles.elbow| default('—') }}{% if angles.elbow is defined %}°{% endif %}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </section>
-    {% endif %}
-
-    <!-- Vitesses angulaires (explosivité) -->
-    {% if results.angular_velocities %}
-    <section class="section">
-      <h2>Vitesses angulaires <span class="section-tag">explosivité</span></h2>
-      <p class="section-note">
-        Pic et moyenne en °/s par phase. Signe + = extension, − = flexion.
-        La valeur absolue du pic indique <strong>l'explosivité</strong> de l'articulation.
-      </p>
-      <div class="angle-table-wrap">
-        <table class="angle-table velocity-table">
-          <thead>
-            <tr>
-              <th rowspan="2">Phase</th>
-              <th colspan="2">Genou</th>
-              <th colspan="2">Hanche</th>
-              <th colspan="2">Coude</th>
-            </tr>
-            <tr>
-              <th>Pic</th><th>Moy</th>
-              <th>Pic</th><th>Moy</th>
-              <th>Pic</th><th>Moy</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for phase_name, vel in results.angular_velocities.items() %}
-            <tr>
-              <td>{{ phase_name }}</td>
-              {% for joint in ['knee', 'hip', 'elbow'] %}
-                {% set v = vel[joint] %}
-                {% if v is defined %}
-                  <td class="cell-peak">
-                    <span class="vel-peak">{{ v.peak }}<span class="unit">°/s</span></span>
-                  </td>
-                  <td>{{ v.mean }}<span class="unit">°/s</span></td>
-                {% else %}
-                  <td>—</td><td>—</td>
-                {% endif %}
-              {% endfor %}
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </section>
-    {% endif %}
-
-    <!-- Graphique angles -->
-    <section class="section">
-      <h2>Courbe des angles</h2>
-      <img class="angles-img" src="/output/{{ results.files.angles_png }}" alt="Angles par phase">
-    </section>
-
-    <!-- Comparer avec un pro -->
-    <section class="section">
-      <a href="/compare/{{ job_id }}" class="btn btn-compare">
-        ⚡ Comparer avec un pro
-      </a>
-    </section>
-
-  </div><!-- /page -->
-
+{% block scripts %}
   <script>
     const video    = document.getElementById('main-video');
     const cursor   = document.getElementById('tl-cursor');
     const counter  = document.getElementById('frame-counter');
     const fps      = {{ results.fps }};
+    const gateT    = {{ results.gate_drop_t }};
     const frameDur = 1 / fps;
 
-    // ── Timeline cursor ───────────────────────────────────────────────
+    function seekToStart() {
+      video.currentTime = Math.max(0, gateT - 0.5);
+      video.pause();
+    }
+    if (video.readyState >= 1) {
+      seekToStart();
+    } else {
+      video.addEventListener('loadedmetadata', seekToStart, { once: true });
+    }
+
     video.addEventListener('timeupdate', updateUI);
     video.addEventListener('seeked',     updateUI);
 
@@ -287,7 +150,6 @@
       video.pause();
     }
 
-    // ── Frame par frame ───────────────────────────────────────────────
     function stepFrame(dir) {
       video.pause();
       video.currentTime = Math.max(0,
@@ -298,12 +160,10 @@
     document.getElementById('btn-next').addEventListener('click', () => stepFrame(+1));
 
     document.addEventListener('keydown', e => {
-      if (e.target.tagName === 'INPUT') return; // ne pas intercepter dans les champs texte
+      if (e.target.tagName === 'INPUT') return;
       if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(+1); }
       if (e.key === 'ArrowLeft')  { e.preventDefault(); stepFrame(-1); }
       if (e.key === ' ')          { e.preventDefault(); video.paused ? video.play() : video.pause(); }
     });
-
   </script>
-</body>
-</html>
+{% endblock %}

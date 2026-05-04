@@ -1,22 +1,21 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Comparaison — {{ rider.video_name }}</title>
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body class="compare-body">
+{% extends "_base.html" %}
 
-  <!-- Barre du haut -->
-  <div class="compare-topbar">
-    <a href="/result/{{ job_id }}" class="back-link-white">← Retour</a>
-    <span class="compare-title">Comparaison</span>
+{% block title %}Comparaison — {{ rider.video_name }}{% endblock %}
+{% set active = "compare" %}
+{% block body_class %}compare-shell{% endblock %}
+
+{% block content %}
+  <header class="compare-header">
+    <div class="compare-header-left">
+      <h1>Comparaison</h1>
+      <p class="subtitle">Rider en cyan, pro en magenta. Scrub indépendamment ou via la sync sur le gate drop.</p>
+    </div>
     <div class="pro-selector">
-      <select id="pro-select" onchange="changePro(this)">
+      <select id="pro-select" onchange="changePro(this)" class="pro-select">
         <option value="">— Choisir un pro —</option>
         {% for pro in pros_list %}
         <option value="{{ pro.video_file }}"
+                data-pro-id="{{ pro.id }}"
                 data-fps="{{ pro.fps }}"
                 data-gate="{{ pro.gate_drop_t }}"
                 data-name="{{ pro.name }}">
@@ -24,18 +23,17 @@
         </option>
         {% endfor %}
       </select>
-      <a href="/pros" class="btn-manage-pros" target="_blank">Gérer les pros</a>
+      <a href="/pros" class="btn-manage-pros">Gérer</a>
     </div>
-  </div>
+  </header>
 
   <!-- Panneaux côte à côte -->
   <div class="side-by-side">
-
     <!-- RIDER -->
     <div class="video-panel active-panel" id="panel-rider">
       <div class="panel-label" onclick="setActive('rider')">
         <span class="panel-tag rider-tag">RIDER</span>
-        {{ rider.video_name }}
+        <span class="panel-name">{{ rider.video_name }}</span>
       </div>
       <div class="panel-video-wrap">
         <video id="video-rider" playsinline preload="auto"
@@ -55,7 +53,7 @@
     <div class="video-panel" id="panel-pro">
       <div class="panel-label" onclick="setActive('pro')">
         <span class="panel-tag pro-tag">PRO</span>
-        <span id="pro-name">Sélectionne un pro</span>
+        <span class="panel-name" id="pro-name">Sélectionne un pro</span>
       </div>
       <div class="panel-video-wrap" id="pro-video-wrap">
         <div class="panel-empty" id="pro-empty">Sélectionne un pro<br>dans le menu ci-dessus</div>
@@ -70,13 +68,12 @@
         <button class="btn-frame" onclick="step('pro',+1)">&#9654;</button>
       </div>
     </div>
-
   </div>
 
-  <!-- Barre SYNC : avance les 2 vidéos ensemble à partir de T=-1s -->
+  <!-- Barre SYNC -->
   <div class="sync-bar-wrap" id="sync-bar-wrap">
     <div class="sync-label">
-      SYNC &nbsp;<span class="sync-hint">Les deux vidéos alignées sur le gate drop (T=0)</span>
+      SYNC <span class="sync-hint">Les 2 vidéos alignées sur le gate drop (T=0)</span>
     </div>
     <div class="sync-controls">
       <button class="btn-frame btn-frame-sync" onclick="syncStep(-1)">&#9664;</button>
@@ -84,19 +81,60 @@
       <button class="btn-frame btn-frame-sync" onclick="syncStep(+1)">&#9654;</button>
     </div>
     <div class="sync-scrubber-wrap">
-      <span class="sync-tick">-1s</span>
+      <span class="sync-tick">-0.5s</span>
       <input type="range" class="scrubber scrubber-sync" id="scrub-sync"
              min="0" max="500" value="0" step="1" disabled>
-      <span class="sync-tick">+4s</span>
+      <span class="sync-tick">+4.5s</span>
     </div>
   </div>
 
-  <!-- Aide clavier -->
-  <div class="compare-footer">
-    <span>Clic sur le titre d'un panneau = le sélectionner &nbsp;·&nbsp; Tab = changer de panneau</span>
-    <span>← → frame par frame &nbsp;·&nbsp; Espace play/pause</span>
+  <!-- Comparaison angles à un instant T -->
+  <div class="angles-compare-wrap">
+    <div class="angles-compare-head">
+      <button class="btn btn-compare-angles" id="btn-compare-angles" disabled>
+        📐 Comparer les angles ici
+      </button>
+      <span class="angles-compare-hint" id="angles-hint">
+        Sélectionne un pro, place les 2 vidéos sur la frame voulue, puis clique.
+      </span>
+    </div>
+    <div class="angles-compare-panel" id="angles-panel" style="display:none">
+      <div class="angles-compare-row">
+        <div class="overlay-box">
+          <div class="overlay-legend">
+            <span><span class="dot dot-rider"></span> Rider</span>
+            <span><span class="dot dot-pro"></span> <span id="ovl-pro-name">Pro</span></span>
+          </div>
+          <canvas id="overlay-canvas" width="320" height="400"></canvas>
+          <p class="overlay-note">Hanches alignées · échelle normalisée sur hanche→épaule · 2 riders tournés vers la droite.</p>
+        </div>
+        <div class="angles-table-box">
+          <table class="angles-compare-table">
+            <thead>
+              <tr>
+                <th>Articulation</th>
+                <th>Rider <span class="ac-frame-info" id="ac-rider-info"></span></th>
+                <th><span id="ac-pro-name">Pro</span> <span class="ac-frame-info" id="ac-pro-info"></span></th>
+                <th>Écart</th>
+              </tr>
+            </thead>
+            <tbody id="angles-tbody"></tbody>
+          </table>
+          <p class="ac-note">
+            Tronc : angle hanche→épaule vs verticale (+ = penché en avant). Cheville : proxy pointe-pied.
+          </p>
+        </div>
+      </div>
+    </div>
   </div>
 
+  <div class="compare-footer">
+    <span>Clic sur le titre d'un panneau = le sélectionner · Tab = changer de panneau</span>
+    <span>← → frame par frame · Espace play/pause</span>
+  </div>
+{% endblock %}
+
+{% block scripts %}
   <script>
     const riderGateT = {{ rider.gate_drop_t }};
     const riderFps   = {{ rider.fps }};
@@ -108,25 +146,21 @@
     const vRider = document.getElementById('video-rider');
     const vPro   = document.getElementById('video-pro');
     const videos = { rider: vRider, pro: vPro };
-
-    const scrubs   = { rider: document.getElementById('scrub-rider'),
-                       pro:   document.getElementById('scrub-pro') };
+    const scrubs = { rider: document.getElementById('scrub-rider'),
+                     pro:   document.getElementById('scrub-pro') };
     const counters = { rider: document.getElementById('counter-rider'),
                        pro:   document.getElementById('counter-pro') };
     const panels   = { rider: document.getElementById('panel-rider'),
                        pro:   document.getElementById('panel-pro') };
-
     const scrubSync   = document.getElementById('scrub-sync');
     const syncCounter = document.getElementById('sync-counter');
 
-    // ── Panneau actif ─────────────────────────────────────────────────
     function setActive(which) {
       active = which;
       Object.keys(panels).forEach(k =>
         panels[k].classList.toggle('active-panel', k === which));
     }
 
-    // ── Frame par frame individuel ────────────────────────────────────
     function step(which, dir) {
       const v   = videos[which];
       const fps = which === 'rider' ? riderFps : proFps;
@@ -135,7 +169,6 @@
       v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + dir / fps));
     }
 
-    // ── Sync UI ───────────────────────────────────────────────────────
     function syncUI(which) {
       const v   = videos[which];
       const fps = which === 'rider' ? riderFps : proFps;
@@ -145,13 +178,11 @@
         scrubs[which].value = Math.round(v.currentTime / v.duration * 1000);
       }
     }
-
     ['timeupdate','seeked','loadedmetadata'].forEach(ev => {
       vRider.addEventListener(ev, () => syncUI('rider'));
       vPro.addEventListener(ev,   () => syncUI('pro'));
     });
 
-    // ── Scrubbers individuels ─────────────────────────────────────────
     function initScrubber(which) {
       const s = scrubs[which];
       const v = videos[which];
@@ -168,15 +199,12 @@
     initScrubber('rider');
     initScrubber('pro');
 
-    // ── Barre SYNC ─────────────────────────────────────────────────────
-    // Plage: 0 = T-1s, 500 = T+4s → 5s total, 1 step = 10ms
-    const SYNC_OFFSET_START = -1.0;   // secondes avant le gate
-    const SYNC_TOTAL        =  5.0;   // durée totale de la plage (5s)
-
+    // ── Barre SYNC : 0 = T-0.5s, 500 = T+4.5s
+    const SYNC_OFFSET_START = -0.5;
+    const SYNC_TOTAL        =  5.0;
     function getSyncOffset() {
       return SYNC_OFFSET_START + (scrubSync.value / 500) * SYNC_TOTAL;
     }
-
     function applySyncOffset(offset) {
       if (vRider.readyState >= 1) {
         vRider.currentTime = Math.max(0, Math.min(vRider.duration, riderGateT + offset));
@@ -187,17 +215,13 @@
       const t = offset >= 0 ? `T +${offset.toFixed(2)}s` : `T ${offset.toFixed(2)}s`;
       syncCounter.textContent = t;
     }
-
     scrubSync.addEventListener('mousedown',  () => { scrubbing.sync = true; });
     scrubSync.addEventListener('touchstart', () => { scrubbing.sync = true; }, {passive:true});
-    scrubSync.addEventListener('input', () => {
-      applySyncOffset(getSyncOffset());
-    });
+    scrubSync.addEventListener('input', () => { applySyncOffset(getSyncOffset()); });
     scrubSync.addEventListener('mouseup',  () => { scrubbing.sync = false; });
     scrubSync.addEventListener('touchend', () => { scrubbing.sync = false; });
 
     function syncStep(dir) {
-      // 1 step = 1 frame du rider
       const frameStep = 1 / riderFps;
       const offset = Math.max(SYNC_OFFSET_START,
         Math.min(SYNC_TOTAL + SYNC_OFFSET_START, getSyncOffset() + dir * frameStep));
@@ -205,7 +229,6 @@
       applySyncOffset(offset);
     }
 
-    // ── Clavier ───────────────────────────────────────────────────────
     document.addEventListener('keydown', e => {
       if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
       if (e.key === 'ArrowRight') { e.preventDefault(); step(active, +1); }
@@ -218,11 +241,12 @@
       if (e.key === 'Tab') { e.preventDefault(); setActive(active === 'rider' ? 'pro' : 'rider'); }
     });
 
-    // ── Changer de pro ────────────────────────────────────────────────
+    let currentProId = null;
     function changePro(select) {
       const opt       = select.options[select.selectedIndex];
       const videoFile = select.value;
       const empty     = document.getElementById('pro-empty');
+      const btnAngles = document.getElementById('btn-compare-angles');
 
       if (!videoFile) {
         vPro.style.display = 'none'; vPro.src = '';
@@ -232,31 +256,161 @@
         counters.pro.textContent = 'Frame —';
         document.getElementById('pro-name').textContent = 'Sélectionne un pro';
         proGateT = null;
+        currentProId = null;
+        btnAngles.disabled = true;
         return;
       }
-
       proFps   = parseFloat(opt.dataset.fps)  || riderFps;
       proGateT = parseFloat(opt.dataset.gate) || 0;
+      currentProId = opt.dataset.proId || null;
       document.getElementById('pro-name').textContent = opt.dataset.name;
       empty.style.display  = 'none';
       vPro.style.display   = 'block';
       scrubs.pro.disabled  = true;
       scrubSync.disabled   = true;
       counters.pro.textContent = 'Chargement…';
-
+      btnAngles.disabled = !currentProId;
       vPro.src = '/output/' + videoFile;
       vPro.load();
-
       vPro.addEventListener('loadedmetadata', () => {
         scrubs.pro.disabled = false;
         scrubs.pro.value    = 0;
         scrubSync.disabled  = false;
         scrubSync.value     = 0;
         counters.pro.textContent = 'Frame 0';
-        // Positionner les 2 vidéos à T-1s automatiquement
         applySyncOffset(SYNC_OFFSET_START);
       }, { once: true });
     }
+
+    // ── Comparaison angles à T donné ────────────────────────────────
+    const JOINT_LABELS = {
+      knee:     "Genou",
+      hip:      "Hanche",
+      ankle:    "Cheville",
+      shoulder: "Épaule",
+      elbow:    "Coude",
+      trunk:    "Tronc (vs vertical)",
+    };
+    const JOINT_ORDER = ["trunk", "shoulder", "elbow", "hip", "knee", "ankle"];
+
+    function fmt(v) { return (v === null || v === undefined) ? "—" : v + "°"; }
+    function deltaClass(d) {
+      const a = Math.abs(d);
+      if (a < 10) return "delta-good";
+      if (a < 20) return "delta-warn";
+      return "delta-bad";
+    }
+
+    document.getElementById('btn-compare-angles').addEventListener('click', async () => {
+      if (!currentProId) return;
+      const btn  = document.getElementById('btn-compare-angles');
+      const hint = document.getElementById('angles-hint');
+      btn.disabled = true; hint.textContent = "Calcul en cours…";
+      const fd = new FormData();
+      fd.append('pro_id',  currentProId);
+      fd.append('rider_t', vRider.currentTime);
+      fd.append('pro_t',   vPro.currentTime);
+      try {
+        const res  = await fetch(`/compare_angles/{{ job_id }}`, { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+          hint.textContent = "Erreur : " + (data.error || res.status);
+          btn.disabled = false;
+          return;
+        }
+        renderAnglesTable(data);
+        hint.textContent = "Reclique après avoir bougé une vidéo pour rafraîchir.";
+      } catch (e) {
+        hint.textContent = "Erreur réseau : " + e.message;
+      }
+      btn.disabled = false;
+    });
+
+    function renderAnglesTable(data) {
+      const panel = document.getElementById('angles-panel');
+      const tbody = document.getElementById('angles-tbody');
+      document.getElementById('ac-pro-name').textContent  = data.pro_name || "Pro";
+      document.getElementById('ovl-pro-name').textContent = data.pro_name || "Pro";
+      document.getElementById('ac-rider-info').textContent =
+        `frame ${data.rider.frame} · t=${data.rider.t}s`;
+      document.getElementById('ac-pro-info').textContent   =
+        `frame ${data.pro.frame} · t=${data.pro.t}s`;
+      tbody.innerHTML = "";
+      JOINT_ORDER.forEach(joint => {
+        const r  = data.rider[joint];
+        const p  = data.pro[joint];
+        const d  = (r !== null && p !== null) ? +(r - p).toFixed(1) : null;
+        const tr = document.createElement("tr");
+        const cls = (d === null) ? "" : deltaClass(d);
+        tr.innerHTML = `
+          <td><strong>${JOINT_LABELS[joint]}</strong></td>
+          <td>${fmt(r)}</td>
+          <td>${fmt(p)}</td>
+          <td class="ac-delta ${cls}">${d === null ? "—" : (d >= 0 ? "+" : "") + d + "°"}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+      panel.style.display = "block";
+      drawOverlay(data.rider.skeleton, data.pro.skeleton);
+    }
+
+    // ── Overlay des squelettes ──────────────────────────────────────
+    const SKEL_BONES = [
+      ["shoulder", "elbow"], ["elbow", "wrist"],
+      ["shoulder", "hip"],
+      ["hip", "knee"], ["knee", "ankle"],
+      ["back_shoulder", "shoulder"],
+      ["back_hip", "hip"],
+      ["back_shoulder", "back_hip"],
+    ];
+    const SKEL_JOINTS = [
+      "shoulder", "elbow", "wrist", "hip", "knee", "ankle",
+      "back_shoulder", "back_hip", "nose",
+    ];
+
+    function drawSkeleton(ctx, skel, color, scalePx, cx, cy) {
+      if (!skel) return;
+      const pt = name => {
+        const p = skel[name];
+        return p ? [cx + p[0] * scalePx, cy + p[1] * scalePx] : null;
+      };
+      ctx.strokeStyle = color;
+      ctx.fillStyle   = color;
+      ctx.lineWidth   = 3;
+      ctx.lineCap     = "round";
+      ctx.globalAlpha = 0.75;
+      for (const [a, b] of SKEL_BONES) {
+        const pa = pt(a), pb = pt(b);
+        if (!pa || !pb) continue;
+        ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+      }
+      ctx.globalAlpha = 1.0;
+      for (const name of SKEL_JOINTS) {
+        const p = pt(name);
+        if (!p) continue;
+        ctx.beginPath();
+        ctx.arc(p[0], p[1], name === "nose" ? 6 : 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawOverlay(riderSkel, proSkel) {
+      const canvas = document.getElementById('overlay-canvas');
+      const ctx    = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = "#0a0a0a";
+      ctx.fillRect(0, 0, W, H);
+      const cx = W / 2;
+      const cy = H * 0.55;
+      ctx.strokeStyle = "#222";
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10); ctx.stroke();
+      const SCALE = 90;
+      drawSkeleton(ctx, proSkel,   "#ff3b9b", SCALE, cx, cy);
+      drawSkeleton(ctx, riderSkel, "#00d4ff", SCALE, cx, cy);
+    }
   </script>
-</body>
-</html>
+{% endblock %}
