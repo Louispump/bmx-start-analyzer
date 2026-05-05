@@ -51,6 +51,21 @@
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M5 17v-5l5-3 5 3v5M3 8l7-5 7 5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>Banque de pros</span>
       </a>
+      {% set tools_active = active in ['tools_gear', 'tools_pressure'] %}
+      <a href="/tools/gear" class="nav-item {% if tools_active %}active{% endif %}">
+        <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.6 5.6l1.4 1.4M13 13l1.4 1.4M5.6 14.4L7 13M13 7l1.4-1.4M10 13a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Outils</span>
+      </a>
+      {% if tools_active %}
+      <a href="/tools/gear" class="nav-item nav-sub {% if active == 'tools_gear' %}active{% endif %}">
+        <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 6a4 4 0 100 8 4 4 0 000-8z" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+        <span>Gear ratio</span>
+      </a>
+      <a href="/tools/pressure" class="nav-item nav-sub {% if active == 'tools_pressure' %}active{% endif %}">
+        <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 3v7M10 17a4 4 0 100-8 4 4 0 000 8z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+        <span>Pression pneus</span>
+      </a>
+      {% endif %}
       {% if active == 'result' or active == 'compare' %}
       <div class="nav-divider"></div>
       <a href="/result/{{ job_id }}" class="nav-item nav-sub {% if active == 'result' %}active{% endif %}">

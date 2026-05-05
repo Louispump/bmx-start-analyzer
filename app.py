@@ -399,6 +399,17 @@ async def athlete_delete(athlete_id: str):
     return {"ok": True}
 
 
+# ── Outils (calculateurs gear / pression) ────────────────────────────────────
+@app.get("/tools/gear")
+async def tools_gear(request: Request):
+    return templates.TemplateResponse(request, "tools_gear.html", {})
+
+
+@app.get("/tools/pressure")
+async def tools_pressure(request: Request):
+    return templates.TemplateResponse(request, "tools_pressure.html", {})
+
+
 # ── Banque de pros ────────────────────────────────────────────────────────────
 @app.get("/pros")
 async def pros_page(request: Request):

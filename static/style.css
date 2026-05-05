@@ -1616,6 +1616,189 @@ input[type="text"].rider-name-input {
 }
 
 /* ══════════════════════════════════════════════════════════════════════
+   OUTILS (calculateurs gear / pression)
+   ══════════════════════════════════════════════════════════════════════ */
+.tool-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 28px;
+  align-items: start;
+}
+
+.tool-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.tool-field { display: flex; flex-direction: column; gap: 7px; }
+
+.tool-label {
+  font-size: .76rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tool-hint-inline {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: var(--subtle);
+  margin-left: 4px;
+}
+
+.tool-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tool-input { width: 110px; font-variant-numeric: tabular-nums; }
+.tool-unit  { color: var(--muted); font-size: .85rem; }
+
+.tool-select { width: 100%; min-width: 0; }
+
+.tool-hint {
+  color: var(--subtle);
+  font-size: .76rem;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+.tool-result { display: flex; flex-direction: column; gap: 18px; }
+
+.tool-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 0;
+}
+.tool-metrics-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.tool-bands {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.tool-bands-label {
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.band-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.band {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  transition: var(--transition);
+}
+.band-name {
+  font-size: .77rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.band-range {
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.band-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-mid);
+  box-shadow: 0 0 0 1px var(--accent-mid), 0 0 12px var(--accent-glow);
+}
+.band-active .band-name  { color: var(--accent); }
+.band-active .band-range { color: var(--text); }
+
+/* Radio cards (surface, niveau) */
+.radio-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.radio-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-elevated);
+  cursor: pointer;
+  transition: var(--transition);
+  user-select: none;
+}
+.radio-card:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+.radio-card input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.radio-card:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent-mid);
+}
+.rc-name {
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.radio-card:has(input:checked) .rc-name { color: var(--accent); }
+.rc-delta {
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Liste des ajustements (page pression) */
+.adjust-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.adjust-list li {
+  font-size: .83rem;
+  color: var(--text);
+  padding: 7px 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.adjust-list li strong {
+  color: var(--text-strong);
+  font-weight: 600;
+  margin-right: 6px;
+}
+.adjust-list li em {
+  font-style: normal;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  float: right;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
    SCROLLBAR
    ══════════════════════════════════════════════════════════════════════ */
 ::-webkit-scrollbar          { width: 8px; height: 8px; }

@@ -1,0 +1,167 @@
+{% extends "_base.html" %}
+
+{% block title %}Calcul pression pneus — BMX Start Analyzer{% endblock %}
+{% set active = "tools_pressure" %}
+
+{% block content %}
+  <header>
+    <h1>Calcul pression pneus</h1>
+    <p class="subtitle">Poids · pneu · piste · niveau · température → plage PSI recommandée avant et arrière, avec détail des ajustements appliqués.</p>
+  </header>
+
+  <div class="section">
+    <div class="tool-grid">
+      <div class="tool-form">
+        <div class="tool-field">
+          <label class="tool-label" for="weight">Poids du coureur</label>
+          <div class="tool-input-row">
+            <input type="number" id="weight" class="rider-name-input tool-input" min="20" max="120" value="70" step="1">
+            <span class="tool-unit">kg</span>
+          </div>
+        </div>
+
+        <div class="tool-field">
+          <label class="tool-label" for="tire-p">Pneu arrière</label>
+          <select id="tire-p" class="pro-select tool-select"></select>
+        </div>
+
+        <div class="tool-field">
+          <label class="tool-label">Surface de piste</label>
+          <div class="radio-cards" id="surface">
+            <label class="radio-card"><input type="radio" name="surface" value="indoor" checked><span class="rc-name">Indoor lisse</span><span class="rc-delta">+5 PSI</span></label>
+            <label class="radio-card"><input type="radio" name="surface" value="asphalt"><span class="rc-name">Asphalte</span><span class="rc-delta">+3 PSI</span></label>
+            <label class="radio-card"><input type="radio" name="surface" value="dirt-dry"><span class="rc-name">Dirt sec</span><span class="rc-delta">±0 PSI</span></label>
+            <label class="radio-card"><input type="radio" name="surface" value="dirt-wet"><span class="rc-name">Dirt humide</span><span class="rc-delta">−5 PSI</span></label>
+          </div>
+        </div>
+
+        <div class="tool-field">
+          <label class="tool-label">Niveau</label>
+          <div class="radio-cards" id="level">
+            <label class="radio-card"><input type="radio" name="level" value="loisir"><span class="rc-name">Loisir</span><span class="rc-delta">−3 PSI</span></label>
+            <label class="radio-card"><input type="radio" name="level" value="regional" checked><span class="rc-name">Régional</span><span class="rc-delta">±0 PSI</span></label>
+            <label class="radio-card"><input type="radio" name="level" value="national"><span class="rc-name">National</span><span class="rc-delta">+2 PSI</span></label>
+            <label class="radio-card"><input type="radio" name="level" value="pro"><span class="rc-name">Pro</span><span class="rc-delta">+4 PSI</span></label>
+          </div>
+        </div>
+
+        <div class="tool-field">
+          <label class="tool-label" for="temp">Température ambiante <span class="tool-hint-inline">(optionnel)</span></label>
+          <div class="tool-input-row">
+            <input type="number" id="temp" class="rider-name-input tool-input" min="-10" max="45" value="20" step="1">
+            <span class="tool-unit">°C</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="tool-result">
+        <div class="metrics-grid tool-metrics tool-metrics-2">
+          <div class="metric-card">
+            <div class="metric-label">Avant</div>
+            <div class="metric-value"><span id="psi-front">—</span><span class="metric-unit">PSI</span></div>
+            <div class="metric-sub" id="psi-front-range">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Arrière</div>
+            <div class="metric-value"><span id="psi-rear">—</span><span class="metric-unit">PSI</span></div>
+            <div class="metric-sub" id="psi-rear-range">—</div>
+          </div>
+        </div>
+
+        <div class="tool-bands">
+          <div class="tool-bands-label">Détail des ajustements</div>
+          <ul class="adjust-list" id="adjust-list"></ul>
+          <p class="tool-hint">Modèle paramétrique : base 30 + 0.4×(poids−50) PSI à l'arrière, avant = arrière−3, plage ±3 PSI. À calibrer avec ton ressenti terrain — ce n'est pas un standard sourcé.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const TIRES = [
+    { id: '20x1.60',   label: '20 × 1.60 (PowerBlock slim)' },
+    { id: '20x1.75',   label: '20 × 1.75 (PowerBlock / DTH)' },
+    { id: '20x1.95',   label: '20 × 1.95' },
+    { id: '20x2.10',   label: '20 × 2.10' },
+    { id: '24x1.75',   label: '24 × 1.75 (cruiser)' },
+  ];
+
+  const tireSel = document.getElementById('tire-p');
+  TIRES.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.label;
+    if (t.id === '20x1.75') opt.selected = true;
+    tireSel.appendChild(opt);
+  });
+
+  const SURFACE = { 'indoor': 5, 'asphalt': 3, 'dirt-dry': 0, 'dirt-wet': -5 };
+  const SURFACE_LABEL = {
+    'indoor':   'Indoor lisse',
+    'asphalt':  'Asphalte',
+    'dirt-dry': 'Dirt sec',
+    'dirt-wet': 'Dirt humide',
+  };
+  const LEVEL = { 'loisir': -3, 'regional': 0, 'national': 2, 'pro': 4 };
+  const LEVEL_LABEL = {
+    'loisir':   'Loisir',
+    'regional': 'Régional',
+    'national': 'National',
+    'pro':      'Pro',
+  };
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function recalc() {
+    const w  = parseFloat(document.getElementById('weight').value) || 70;
+    const surface = document.querySelector('input[name="surface"]:checked').value;
+    const level   = document.querySelector('input[name="level"]:checked').value;
+    const tempStr = document.getElementById('temp').value;
+    const temp    = tempStr === '' ? 20 : parseFloat(tempStr);
+
+    // Base : 30 + 0.4 × (poids − 50), borné [30, 65]
+    const baseRear = clamp(30 + 0.4 * (w - 50), 30, 65);
+    const dSurf = SURFACE[surface];
+    const dLvl  = LEVEL[level];
+    let dTemp   = 0;
+    if (temp < 10)       dTemp = +2;
+    else if (temp > 25)  dTemp = -2;
+
+    const rear  = clamp(baseRear + dSurf + dLvl + dTemp, 25, 75);
+    const front = clamp(rear - 3, 25, 75);
+
+    document.getElementById('psi-rear').textContent  = rear.toFixed(0);
+    document.getElementById('psi-front').textContent = front.toFixed(0);
+    document.getElementById('psi-rear-range').textContent =
+      `plage ${(rear - 3).toFixed(0)} – ${(rear + 3).toFixed(0)} PSI`;
+    document.getElementById('psi-front-range').textContent =
+      `plage ${(front - 3).toFixed(0)} – ${(front + 3).toFixed(0)} PSI`;
+
+    // Détail des ajustements
+    const items = [
+      `<strong>Base poids</strong> (${w} kg) → <em>${baseRear.toFixed(1)} PSI</em>`,
+      `<strong>Surface</strong> ${SURFACE_LABEL[surface]} → <em>${dSurf >= 0 ? '+' : ''}${dSurf} PSI</em>`,
+      `<strong>Niveau</strong> ${LEVEL_LABEL[level]} → <em>${dLvl >= 0 ? '+' : ''}${dLvl} PSI</em>`,
+    ];
+    if (dTemp !== 0) {
+      const tag = temp < 10 ? 'froid (<10°C)' : 'chaud (>25°C)';
+      items.push(`<strong>Température</strong> ${tag} → <em>${dTemp >= 0 ? '+' : ''}${dTemp} PSI</em>`);
+    } else {
+      items.push(`<strong>Température</strong> tempérée → <em>±0 PSI</em>`);
+    }
+    items.push(`<strong>Avant</strong> = arrière − 3 PSI (grip direction)`);
+
+    document.getElementById('adjust-list').innerHTML =
+      items.map(i => `<li>${i}</li>`).join('');
+  }
+
+  document.querySelectorAll('input, select').forEach(el => {
+    el.addEventListener('input', recalc);
+    el.addEventListener('change', recalc);
+  });
+
+  recalc();
+</script>
+{% endblock %}

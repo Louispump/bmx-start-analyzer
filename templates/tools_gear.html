@@ -1,0 +1,166 @@
+{% extends "_base.html" %}
+
+{% block title %}Calcul gear ratio — BMX Start Analyzer{% endblock %}
+{% set active = "tools_gear" %}
+
+{% block content %}
+  <header>
+    <h1>Calcul gear ratio / rollout</h1>
+    <p class="subtitle">Plateau · pignon · pneu → gear inches et développement par tour. Comparaison avec la bande de référence par niveau.</p>
+  </header>
+
+  <div class="section">
+    <div class="tool-grid">
+      <div class="tool-form">
+        <div class="tool-field">
+          <label class="tool-label" for="chainring">Plateau (chainring)</label>
+          <div class="tool-input-row">
+            <input type="number" id="chainring" class="rider-name-input tool-input" min="25" max="65" value="44" step="1">
+            <span class="tool-unit">dents</span>
+          </div>
+        </div>
+
+        <div class="tool-field">
+          <label class="tool-label" for="cog">Pignon arrière (cog)</label>
+          <div class="tool-input-row">
+            <input type="number" id="cog" class="rider-name-input tool-input" min="12" max="22" value="16" step="1">
+            <span class="tool-unit">dents</span>
+          </div>
+        </div>
+
+        <div class="tool-field">
+          <label class="tool-label" for="tire">Pneu arrière</label>
+          <select id="tire" class="pro-select tool-select"></select>
+          <p class="tool-hint" id="tire-hint">Diamètre effectif utilisé pour le calcul.</p>
+        </div>
+
+        <div class="tool-field">
+          <button type="button" class="btn" id="btn-preset">⚡ Standard Pro · 44/16 · 20×1.75</button>
+        </div>
+      </div>
+
+      <div class="tool-result">
+        <div class="metrics-grid tool-metrics">
+          <div class="metric-card">
+            <div class="metric-label">Gear ratio</div>
+            <div class="metric-value" id="out-ratio">—</div>
+            <div class="metric-sub" id="out-ratio-sub">tours de roue / tour de pédalier</div>
+          </div>
+          <div class="metric-card" id="card-gi">
+            <div class="metric-label">Gear inches</div>
+            <div class="metric-value"><span id="out-gi">—</span><span class="metric-unit">"</span></div>
+            <div class="metric-sub" id="out-gi-sub">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Rollout</div>
+            <div class="metric-value"><span id="out-rollout">—</span><span class="metric-unit">m</span></div>
+            <div class="metric-sub">développement par tour de pédalier</div>
+          </div>
+        </div>
+
+        <div class="tool-bands">
+          <div class="tool-bands-label">Bande de référence par niveau</div>
+          <div class="band-row" id="band-row">
+            <div class="band" data-min="45" data-max="47"><span class="band-name">Micro</span><span class="band-range">45 – 47"</span></div>
+            <div class="band" data-min="47" data-max="49"><span class="band-name">Mini</span><span class="band-range">47 – 49"</span></div>
+            <div class="band" data-min="49" data-max="52"><span class="band-name">Junior</span><span class="band-range">49 – 52"</span></div>
+            <div class="band" data-min="51" data-max="53"><span class="band-name">Expert</span><span class="band-range">51 – 53"</span></div>
+            <div class="band" data-min="52" data-max="55"><span class="band-name">Pro</span><span class="band-range">52 – 55"</span></div>
+          </div>
+          <p class="tool-hint">Bandes issues de Lux BMX et Supercross BMX. Le combo standard pro 44/16 sur 20×1.75 = 54.8".</p>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Diamètres effectifs (in) — médiane des sources : bmxultra, danscomp, crupi.
+  // Le 1.75 réel mesuré varie de 19.48 à 19.92 selon la marque ; on prend 19.5".
+  const TIRES = [
+    { id: '20x1-1/8',  label: '20 × 1-1/8 (skinny race)', diam: 19.375 },
+    { id: '20x1.60',   label: '20 × 1.60 (PowerBlock slim)', diam: 19.4 },
+    { id: '20x1.75',   label: '20 × 1.75 (PowerBlock / DTH)', diam: 19.5 },
+    { id: '20x1.95',   label: '20 × 1.95', diam: 20.0 },
+    { id: '20x2.10',   label: '20 × 2.10', diam: 20.3 },
+    { id: '24x1.75',   label: '24 × 1.75 (cruiser)', diam: 23.5 },
+  ];
+
+  const tireSel  = document.getElementById('tire');
+  const tireHint = document.getElementById('tire-hint');
+  const chRing   = document.getElementById('chainring');
+  const cog      = document.getElementById('cog');
+
+  TIRES.forEach((t, i) => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.label;
+    if (t.id === '20x1.75') opt.selected = true;
+    tireSel.appendChild(opt);
+  });
+
+  function tireDiam() {
+    const t = TIRES.find(t => t.id === tireSel.value);
+    return t ? t.diam : 19.5;
+  }
+
+  function bandLabel(gi) {
+    if (gi < 45)        return { name: 'Sous-Micro',  cls: 'band-low' };
+    if (gi < 47)        return { name: 'Micro',       cls: 'band-micro' };
+    if (gi < 49)        return { name: 'Mini',        cls: 'band-mini' };
+    if (gi < 52)        return { name: 'Junior',      cls: 'band-junior' };
+    if (gi <= 53)       return { name: 'Expert',      cls: 'band-expert' };
+    if (gi <= 55)       return { name: 'Pro',         cls: 'band-pro' };
+    return                     { name: 'Au-dessus du Pro', cls: 'band-high' };
+  }
+
+  function recalc() {
+    const c = parseFloat(chRing.value);
+    const r = parseFloat(cog.value);
+    const d = tireDiam();
+    const giRatio = c / r;
+    const gi      = giRatio * d;
+    const rollout = giRatio * Math.PI * d * 0.0254;
+
+    document.getElementById('out-ratio').textContent   = giRatio.toFixed(2);
+    document.getElementById('out-gi').textContent      = gi.toFixed(1);
+    document.getElementById('out-rollout').textContent = rollout.toFixed(2);
+
+    const bl = bandLabel(gi);
+    const sub = document.getElementById('out-gi-sub');
+    sub.innerHTML = `<span class="section-tag">${bl.name}</span>`;
+
+    const card = document.getElementById('card-gi');
+    card.classList.remove('card-green', 'card-yellow', 'card-orange', 'card-red');
+    if (bl.cls === 'band-pro')        card.classList.add('card-green');
+    else if (bl.cls === 'band-expert') card.classList.add('card-yellow');
+    else if (bl.cls === 'band-high')   card.classList.add('card-red');
+    else if (bl.cls === 'band-low')    card.classList.add('card-red');
+    else                                card.classList.add('card-orange');
+
+    document.querySelectorAll('#band-row .band').forEach(b => {
+      const min = parseFloat(b.dataset.min);
+      const max = parseFloat(b.dataset.max);
+      if (gi >= min && gi <= max) b.classList.add('band-active');
+      else                        b.classList.remove('band-active');
+    });
+
+    tireHint.textContent = `Diamètre effectif : ${d.toFixed(2)}″`;
+  }
+
+  document.getElementById('btn-preset').addEventListener('click', () => {
+    chRing.value = 44;
+    cog.value    = 16;
+    tireSel.value = '20x1.75';
+    recalc();
+  });
+
+  [chRing, cog, tireSel].forEach(el => {
+    el.addEventListener('input',  recalc);
+    el.addEventListener('change', recalc);
+  });
+
+  recalc();
+</script>
+{% endblock %}
