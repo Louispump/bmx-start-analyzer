@@ -1,0 +1,70 @@
+{% extends "_base.html" %}
+
+{% block title %}Athlètes — BMX Start Analyzer{% endblock %}
+{% set active = "athletes" %}
+
+{% block content %}
+  <header>
+    <h1>Athlètes</h1>
+    <p class="subtitle">Un dossier par athlète : retrouve toutes ses vidéos analysées au même endroit.</p>
+  </header>
+
+  {% if error %}
+  <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+
+  <section class="section">
+    <h2>Nouvel athlète</h2>
+    <div class="save-form">
+      <input type="text" id="new-athlete-name" class="rider-name-input"
+             placeholder="Nom (ex: Léo, Sarah…)" maxlength="40">
+      <button type="button" class="btn btn-primary" id="btn-create-athlete">Créer le dossier</button>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Dossiers <span class="section-tag">{{ athletes_list|length }}</span></h2>
+    {% if not athletes_list %}
+    <div class="empty-state">
+      Aucun athlète. Crée un premier dossier ci-dessus, puis upload une vidéo.
+    </div>
+    {% else %}
+    <div class="athletes-grid">
+      {% for a in athletes_list %}
+      <a href="/athletes/{{ a.id }}" class="athlete-card">
+        <div class="athlete-card-head">
+          <span class="athlete-avatar">{{ a.name[0]|upper }}</span>
+          <div>
+            <div class="athlete-card-name">{{ a.name }}</div>
+            <div class="athlete-card-meta">
+              {{ a.n_videos }} vidéo{{ "s" if a.n_videos != 1 else "" }}
+              {% if a.last_at %} · dernière {{ a.last_at }}{% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="athlete-card-arrow">→</div>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    document.getElementById('btn-create-athlete').addEventListener('click', async () => {
+      const input = document.getElementById('new-athlete-name');
+      const name  = input.value.trim();
+      if (!name) { input.focus(); return; }
+      const fd = new FormData();
+      fd.append('name', name);
+      const res = await fetch('/athletes', { method: 'POST', body: fd });
+      if (!res.ok) { alert('Erreur lors de la création.'); return; }
+      const data = await res.json();
+      window.location.href = '/athletes/' + data.id;
+    });
+    document.getElementById('new-athlete-name').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('btn-create-athlete').click();
+    });
+  </script>
+{% endblock %}

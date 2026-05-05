@@ -30,10 +30,11 @@ from audio_gate import detect_gate_drop
 from mahieu import analyze_video as mahieu_analyze, render_debug_frame as mahieu_render
 
 # ── Dossiers ──────────────────────────────────────────────────────────────────
-UPLOAD_DIR = Path("uploads")
-OUTPUT_DIR = Path("output")
-PROS_DB    = OUTPUT_DIR / "pros_db.json"
-JOBS_DB    = OUTPUT_DIR / "jobs_db.json"
+UPLOAD_DIR    = Path("uploads")
+OUTPUT_DIR    = Path("output")
+PROS_DB       = OUTPUT_DIR / "pros_db.json"
+JOBS_DB       = OUTPUT_DIR / "jobs_db.json"
+ATHLETES_DB   = OUTPUT_DIR / "athletes_db.json"
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -71,8 +72,62 @@ def save_jobs(jobs: dict):
     done = {k: v for k, v in jobs.items() if v.get("status") == "done"}
     JOBS_DB.write_text(json.dumps(done, indent=2, ensure_ascii=False))
 
-pros: dict = load_pros()
-jobs: dict = load_jobs()
+def load_athletes() -> dict:
+    if ATHLETES_DB.exists():
+        try:
+            return json.loads(ATHLETES_DB.read_text())
+        except Exception:
+            pass
+    return {}
+
+def save_athletes(athletes: dict):
+    ATHLETES_DB.write_text(json.dumps(athletes, indent=2, ensure_ascii=False))
+
+pros:     dict = load_pros()
+jobs:     dict = load_jobs()
+athletes: dict = load_athletes()
+
+
+def _athlete_jobs(athlete_id: str) -> list[dict]:
+    """Retourne tous les jobs (terminés) liés à cet athlète, triés du plus récent au plus ancien."""
+    out = []
+    for jid, j in jobs.items():
+        if j.get("status") != "done":
+            continue
+        if j.get("athlete_id") != athlete_id:
+            continue
+        out.append({
+            "job_id":      jid,
+            "video_name":  j.get("results", {}).get("video_name", "—"),
+            "added_at":    j.get("added_at", ""),
+            "fps":         j.get("results", {}).get("fps"),
+            "duration_s":  j.get("results", {}).get("duration_s"),
+            "reaction":    j.get("results", {}).get("reaction", {}),
+            "gate_drop_t": j.get("results", {}).get("gate_drop_t"),
+        })
+    out.sort(key=lambda x: x.get("added_at", ""), reverse=True)
+    return out
+
+
+def _athlete_stats(athlete_jobs: list[dict]) -> dict:
+    """Mini dashboard : nb de vidéos, meilleur / moyen temps de réaction (excluant les faux départs)."""
+    reactions_ms = []
+    for j in athlete_jobs:
+        r = j.get("reaction") or {}
+        if r.get("type") == "false_start":
+            continue
+        if r.get("type") == "bip" and r.get("from_bip1_ms") is not None:
+            reactions_ms.append(r["from_bip1_ms"])
+        elif r.get("from_gate_ms") is not None:
+            reactions_ms.append(r["from_gate_ms"])
+    return {
+        "n_videos":  len(athlete_jobs),
+        "best_ms":   min(reactions_ms) if reactions_ms else None,
+        "avg_ms":    round(sum(reactions_ms) / len(reactions_ms), 1) if reactions_ms else None,
+        "false_starts": sum(1 for j in athlete_jobs
+                            if (j.get("reaction") or {}).get("type") == "false_start"),
+        "history":   reactions_ms,  # pour le mini-graphique
+    }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -148,23 +203,32 @@ def run_pro_analysis(pro_id: str, video_path: Path, gate_drop: float):
 # ── Routes principales ────────────────────────────────────────────────────────
 @app.get("/")
 async def index(request: Request):
-    return templates.TemplateResponse(request, "index.html")
+    athletes_list = sorted(athletes.values(), key=lambda a: a.get("name", "").lower())
+    return templates.TemplateResponse(request, "index.html",
+                                      {"athletes_list": athletes_list})
 
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
-    """Sauvegarde la vidéo et retourne les infos (fps, durée) pour la sélection du gate."""
+async def upload(file: UploadFile = File(...),
+                 athlete_id: str = Form("")):
+    """Sauvegarde la vidéo et retourne les infos (fps, durée) pour la sélection du gate.
+    `athlete_id` est optionnel : la vidéo peut exister sans athlète."""
     job_id     = str(uuid.uuid4())[:8]
     video_path = UPLOAD_DIR / f"{job_id}_{file.filename}"
     with open(video_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
     info = get_video_info(video_path)
+    aid = athlete_id.strip() or None
+    if aid and aid not in athletes:
+        aid = None  # athlète invalide → on ignore
     jobs[job_id] = {
         "status":     "pending_gate",
         "filename":   file.filename,
         "video_path": str(video_path),
         "video_url":  f"/uploads/{job_id}_{file.filename}",
+        "athlete_id": aid,
+        "added_at":   datetime.now().strftime("%Y-%m-%d %H:%M"),
         **info,
     }
     return {
@@ -251,10 +315,78 @@ async def result(request: Request, job_id: str):
     if job["status"] != "done":
         return templates.TemplateResponse(request, "index.html",
                                           {"error": "Analyse pas encore terminée."})
+    aid = job.get("athlete_id")
+    athlete = athletes.get(aid) if aid else None
     return templates.TemplateResponse(request, "result.html", {
         "job_id":  job_id,
         "results": job["results"],
+        "athlete": athlete,
     })
+
+
+# ── Athlètes (dossiers) ───────────────────────────────────────────────────────
+@app.get("/athletes")
+async def athletes_page(request: Request):
+    """Liste de tous les athlètes avec un compte de vidéos par dossier."""
+    items = []
+    for a in athletes.values():
+        a_jobs = _athlete_jobs(a["id"])
+        last = a_jobs[0]["added_at"] if a_jobs else None
+        items.append({**a, "n_videos": len(a_jobs), "last_at": last})
+    items.sort(key=lambda x: x.get("name", "").lower())
+    return templates.TemplateResponse(request, "athletes.html",
+                                      {"athletes_list": items})
+
+
+@app.post("/athletes")
+async def athletes_create(name: str = Form(...), notes: str = Form("")):
+    """Crée un nouvel athlète. Retourne l'id pour usage immédiat (ex : depuis l'upload)."""
+    name = name.strip()
+    if not name:
+        return JSONResponse({"error": "Nom requis."}, status_code=400)
+    aid = str(uuid.uuid4())[:8]
+    athletes[aid] = {
+        "id":         aid,
+        "name":       name,
+        "notes":      notes.strip(),
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    save_athletes(athletes)
+    return {"id": aid, "name": name}
+
+
+@app.get("/athletes/{athlete_id}")
+async def athlete_detail(request: Request, athlete_id: str):
+    a = athletes.get(athlete_id)
+    if not a:
+        return templates.TemplateResponse(request, "athletes.html",
+                                          {"athletes_list": [],
+                                           "error": "Athlète introuvable."})
+    a_jobs = _athlete_jobs(athlete_id)
+    stats  = _athlete_stats(a_jobs)
+    return templates.TemplateResponse(request, "athlete_detail.html", {
+        "athlete":      a,
+        "athlete_jobs": a_jobs,
+        "stats":        stats,
+    })
+
+
+@app.delete("/athletes/{athlete_id}")
+async def athlete_delete(athlete_id: str):
+    """Supprime l'athlète. Les vidéos analysées restent (athlete_id mis à None)."""
+    if athlete_id not in athletes:
+        return JSONResponse({"error": "Athlète introuvable."}, status_code=404)
+    del athletes[athlete_id]
+    save_athletes(athletes)
+    # Désassigne les jobs liés
+    dirty = False
+    for j in jobs.values():
+        if j.get("athlete_id") == athlete_id:
+            j["athlete_id"] = None
+            dirty = True
+    if dirty:
+        save_jobs(jobs)
+    return {"ok": True}
 
 
 # ── Banque de pros ────────────────────────────────────────────────────────────
@@ -262,6 +394,17 @@ async def result(request: Request, job_id: str):
 async def pros_page(request: Request):
     return templates.TemplateResponse(request, "pros.html",
                                       {"pros": list(pros.values())})
+
+
+@app.get("/pros/{pro_id}/view")
+async def pro_view(request: Request, pro_id: str):
+    """Page de visionnage standalone d'un pro (pour montrer aux athlètes)."""
+    p = pros.get(pro_id)
+    if not p or p.get("status") != "done":
+        return templates.TemplateResponse(request, "pros.html",
+                                          {"pros": list(pros.values()),
+                                           "error": "Pro introuvable ou non analysé."})
+    return templates.TemplateResponse(request, "pro_view.html", {"pro": p})
 
 
 @app.post("/pros/upload")

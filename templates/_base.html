@@ -43,6 +43,10 @@
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M3 10v7h14v-7M10 2v12M5 7l5-5 5 5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>Nouvelle analyse</span>
       </a>
+      <a href="/athletes" class="nav-item {% if active == 'athletes' %}active{% endif %}">
+        <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 10a3 3 0 100-6 3 3 0 000 6zM4 17c0-3 2.7-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Athlètes</span>
+      </a>
       <a href="/pros" class="nav-item {% if active == 'pros' %}active{% endif %}">
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M5 17v-5l5-3 5 3v5M3 8l7-5 7 5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>Banque de pros</span>

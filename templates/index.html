@@ -15,6 +15,19 @@
 
   <!-- ÉTAPE 1 : Upload -->
   <div id="step-upload">
+    <div class="athlete-pick">
+      <label class="athlete-pick-label" for="athlete-select">Athlète <span class="athlete-pick-hint">(optionnel)</span></label>
+      <div class="athlete-pick-row">
+        <select id="athlete-select" class="pro-select">
+          <option value="">— Aucun athlète —</option>
+          {% for a in athletes_list %}
+          <option value="{{ a.id }}">{{ a.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" class="btn" id="btn-new-athlete">+ Nouveau</button>
+      </div>
+    </div>
+
     <div class="upload-zone" id="dropzone">
       <div class="upload-icon">🎬</div>
       <p class="upload-label">Glisse ta vidéo ici</p>
@@ -92,9 +105,27 @@
     });
     fileInput.addEventListener('change', e => { if (e.target.files[0]) startUpload(e.target.files[0]); });
 
+    const athleteSelect = document.getElementById('athlete-select');
+
+    document.getElementById('btn-new-athlete').addEventListener('click', async () => {
+      const name = prompt("Nom de l'athlète :");
+      if (!name || !name.trim()) return;
+      const fd = new FormData();
+      fd.append('name', name.trim());
+      const res  = await fetch('/athletes', { method: 'POST', body: fd });
+      if (!res.ok) { alert('Erreur lors de la création.'); return; }
+      const data = await res.json();
+      const opt  = document.createElement('option');
+      opt.value  = data.id;
+      opt.textContent = data.name;
+      opt.selected = true;
+      athleteSelect.appendChild(opt);
+    });
+
     async function startUpload(file) {
       const form = new FormData();
       form.append('file', file);
+      form.append('athlete_id', athleteSelect.value || '');
       const res  = await fetch('/upload', { method: 'POST', body: form });
       const data = await res.json();
       jobId    = data.job_id;

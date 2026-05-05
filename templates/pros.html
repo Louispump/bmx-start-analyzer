@@ -93,6 +93,11 @@
             <span class="status-badge status-processing">⟳ {{ pro.progress or 'En cours…' }}</span>
           {% endif %}
         </div>
+        {% if pro.status == 'done' %}
+        <a class="btn btn-pro-view" href="/pros/{{ pro.id }}/view">▶ Voir</a>
+        {% else %}
+        <span></span>
+        {% endif %}
         <button class="btn-delete" onclick="deletePro('{{ pro.id }}')" title="Retirer">✕</button>
       </div>
       {% endfor %}

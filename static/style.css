@@ -1421,6 +1421,201 @@ input[type="text"].rider-name-input {
 .save-confirm a { color: var(--accent); }
 
 /* ══════════════════════════════════════════════════════════════════════
+   ATHLÈTES — sélecteur upload + cards + détail
+   ══════════════════════════════════════════════════════════════════════ */
+.athlete-pick {
+  margin-bottom: 14px;
+}
+.athlete-pick-label {
+  display: block;
+  font-size: .76rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 7px;
+}
+.athlete-pick-hint {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: var(--subtle);
+}
+.athlete-pick-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.athlete-pick-row .pro-select { flex: 1; min-width: 0; }
+
+/* Grille de cards athlètes */
+.athletes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.athlete-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-decoration: none;
+  transition: var(--transition);
+}
+.athlete-card:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+  transform: translateY(-1px);
+}
+.athlete-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.athlete-card-name {
+  color: var(--text-strong);
+  font-weight: 600;
+  font-size: .95rem;
+  letter-spacing: -0.01em;
+}
+.athlete-card-meta {
+  color: var(--muted);
+  font-size: .76rem;
+  margin-top: 2px;
+}
+.athlete-card-arrow {
+  color: var(--muted);
+  font-size: 1.1rem;
+  transition: color var(--transition), transform var(--transition);
+}
+.athlete-card:hover .athlete-card-arrow { color: var(--accent); transform: translateX(2px); }
+
+/* Avatar (initiale) */
+.athlete-avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%);
+  color: #001820;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: .92rem;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px var(--accent-mid), 0 0 12px var(--accent-glow);
+}
+.athlete-avatar.lg {
+  width: 56px; height: 56px;
+  font-size: 1.3rem;
+}
+
+/* Pill (page result) : avatar + nom inline */
+.athlete-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px 3px 4px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: .82rem;
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+  margin-right: 8px;
+  vertical-align: middle;
+  transition: var(--transition);
+}
+.athlete-pill:hover { border-color: var(--accent); color: var(--accent); }
+.athlete-pill .athlete-avatar { width: 22px; height: 22px; font-size: .68rem; box-shadow: none; }
+
+/* Header de la page détail athlète */
+.athlete-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 6px;
+}
+.athlete-header-text { flex: 1; min-width: 0; }
+.athlete-header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Liste vidéos cliquables (athlete detail) */
+.pro-row-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  grid-template-columns: 1fr auto auto;
+}
+.pro-row-link:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+.pro-arrow {
+  color: var(--muted);
+  font-size: 1rem;
+  transition: color var(--transition), transform var(--transition);
+}
+.pro-row-link:hover .pro-arrow { color: var(--accent); transform: translateX(2px); }
+
+/* Mini graphique évolution */
+.mini-chart-wrap {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.mini-chart-wrap svg {
+  width: 100%;
+  height: 160px;
+  display: block;
+}
+.mini-chart-legend {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: .72rem;
+  color: var(--subtle);
+  font-family: var(--font-mono);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   PROS — bouton "Voir"
+   ══════════════════════════════════════════════════════════════════════ */
+.pro-row {
+  /* La row a maintenant 4 colonnes : info, status, voir, delete */
+  grid-template-columns: 1fr auto auto auto;
+}
+.btn-pro-view {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-mid);
+  font-size: .78rem;
+  font-weight: 600;
+  padding: 6px 13px;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: var(--transition);
+}
+.btn-pro-view:hover {
+  background: var(--accent);
+  color: #001820;
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
    SCROLLBAR
    ══════════════════════════════════════════════════════════════════════ */
 ::-webkit-scrollbar          { width: 8px; height: 8px; }

@@ -6,11 +6,21 @@
 {% block content %}
   <header>
     <div class="header-row">
-      <a href="/" class="back-link">← Nouvelle vidéo</a>
+      {% if athlete %}
+        <a href="/athletes/{{ athlete.id }}" class="back-link">← Dossier {{ athlete.name }}</a>
+      {% else %}
+        <a href="/" class="back-link">← Nouvelle vidéo</a>
+      {% endif %}
       <a href="/compare/{{ job_id }}" class="compare-link">Comparer les riders</a>
     </div>
     <h1>{{ results.video_name }}</h1>
     <p class="subtitle">
+      {% if athlete %}
+        <a href="/athletes/{{ athlete.id }}" class="athlete-pill">
+          <span class="athlete-avatar">{{ athlete.name[0]|upper }}</span>
+          {{ athlete.name }}
+        </a>
+      {% endif %}
       {{ results.fps }} fps · {{ results.total_frames }} frames · {{ results.duration_s }}s
       <span class="gate-badge gate-{{ results.gate_method }}">
         {{ "Audio" if results.gate_method == "audio" else "Visuel" }}

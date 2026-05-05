@@ -1,0 +1,66 @@
+{% extends "_base.html" %}
+
+{% block title %}{{ pro.name }} — Pro{% endblock %}
+{% set active = "pros" %}
+
+{% block content %}
+  <header>
+    <a href="/pros" class="back-link">← Banque de pros</a>
+    <h1>{{ pro.name }}</h1>
+    <p class="subtitle">
+      {{ pro.fps }} fps · {{ pro.duration_s }}s · ajouté {{ pro.added_at }}
+    </p>
+  </header>
+
+  <section class="section">
+    <div class="video-wrap">
+      <video id="pro-video" controls playsinline preload="metadata"
+             src="/output/{{ pro.video_file }}"></video>
+    </div>
+    <div class="video-controls">
+      <button class="btn-frame" id="btn-prev" title="Frame précédente (←)">&#9664;</button>
+      <span class="frame-counter" id="frame-counter">Frame —</span>
+      <button class="btn-frame" id="btn-next" title="Frame suivante (→)">&#9654;</button>
+      <span class="video-hint" style="margin-left:12px">← → frame · Espace play/pause</span>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const video    = document.getElementById('pro-video');
+    const counter  = document.getElementById('frame-counter');
+    const fps      = {{ pro.fps }};
+    const gateT    = {{ pro.gate_drop_t }};
+    const frameDur = 1 / fps;
+
+    function seekToStart() {
+      video.currentTime = Math.max(0, gateT - 0.5);
+      video.pause();
+    }
+    if (video.readyState >= 1) seekToStart();
+    else video.addEventListener('loadedmetadata', seekToStart, { once: true });
+
+    function updateUI() {
+      const f = Math.round(video.currentTime * fps);
+      counter.textContent = `Frame ${f}`;
+    }
+    video.addEventListener('timeupdate', updateUI);
+    video.addEventListener('seeked',     updateUI);
+
+    function stepFrame(dir) {
+      video.pause();
+      video.currentTime = Math.max(0,
+        Math.min(video.duration || 9999, video.currentTime + dir * frameDur));
+    }
+    document.getElementById('btn-prev').addEventListener('click', () => stepFrame(-1));
+    document.getElementById('btn-next').addEventListener('click', () => stepFrame(+1));
+
+    document.addEventListener('keydown', e => {
+      if (e.target.tagName === 'INPUT') return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(+1); }
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); stepFrame(-1); }
+      if (e.key === ' ')          { e.preventDefault(); video.paused ? video.play() : video.pause(); }
+    });
+  </script>
+{% endblock %}

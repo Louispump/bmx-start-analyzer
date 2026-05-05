@@ -1,0 +1,152 @@
+{% extends "_base.html" %}
+
+{% block title %}{{ athlete.name }} — BMX Start Analyzer{% endblock %}
+{% set active = "athletes" %}
+
+{% block content %}
+  <header>
+    <a href="/athletes" class="back-link">← Tous les athlètes</a>
+    <div class="athlete-header">
+      <span class="athlete-avatar lg">{{ athlete.name[0]|upper }}</span>
+      <div class="athlete-header-text">
+        <h1>{{ athlete.name }}</h1>
+        <p class="subtitle">Dossier créé le {{ athlete.created_at }}</p>
+      </div>
+      <div class="athlete-header-actions">
+        <a href="/" class="btn btn-primary">+ Nouvelle analyse</a>
+        <button type="button" class="btn-delete" title="Supprimer le dossier"
+                onclick="deleteAthlete('{{ athlete.id }}')">✕</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mini dashboard -->
+  <section class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-label">Vidéos analysées</div>
+      <div class="metric-value">{{ stats.n_videos }}</div>
+      <div class="metric-sub">au dossier</div>
+    </div>
+    <div class="metric-card {% if stats.best_ms is not none %}card-green{% endif %}">
+      <div class="metric-label">Meilleure réaction</div>
+      <div class="metric-value">
+        {% if stats.best_ms is not none %}{{ stats.best_ms }}<span class="metric-unit">ms</span>{% else %}—{% endif %}
+      </div>
+      <div class="metric-sub">depuis le gate / bip 1</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Moyenne</div>
+      <div class="metric-value">
+        {% if stats.avg_ms is not none %}{{ stats.avg_ms }}<span class="metric-unit">ms</span>{% else %}—{% endif %}
+      </div>
+      <div class="metric-sub">sur les analyses valides</div>
+    </div>
+    <div class="metric-card {% if stats.false_starts > 0 %}card-red{% endif %}">
+      <div class="metric-label">Faux départs</div>
+      <div class="metric-value">{{ stats.false_starts }}</div>
+      <div class="metric-sub">détectés</div>
+    </div>
+  </section>
+
+  {% if stats.history|length >= 2 %}
+  <!-- Mini graphique évolution -->
+  <section class="section">
+    <h2>Évolution du temps de réaction</h2>
+    <div class="mini-chart-wrap">
+      <svg id="mini-chart" viewBox="0 0 600 160" preserveAspectRatio="none"></svg>
+      <div class="mini-chart-legend">
+        <span>← plus ancien</span>
+        <span>plus récent →</span>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Liste des vidéos -->
+  <section class="section">
+    <h2>Vidéos <span class="section-tag">{{ athlete_jobs|length }}</span></h2>
+    {% if not athlete_jobs %}
+    <div class="empty-state">
+      Aucune vidéo encore. <a href="/" style="color:var(--accent)">Lance une nouvelle analyse</a> et choisis cet athlète dans le dropdown.
+    </div>
+    {% else %}
+    <div class="pros-list">
+      {% for j in athlete_jobs %}
+      <a class="pro-row pro-row-link" href="/result/{{ j.job_id }}">
+        <div class="pro-info">
+          <span class="pro-name-text">{{ j.video_name }}</span>
+          <span class="pro-meta">
+            {{ j.added_at }} · {{ j.fps }} fps · {{ j.duration_s }}s
+          </span>
+        </div>
+        <div class="pro-status">
+          {% if j.reaction.type == 'false_start' %}
+            <span class="status-badge status-error">⚠ Faux départ</span>
+          {% elif j.reaction.type == 'bip' %}
+            <span class="status-badge status-done">{{ j.reaction.from_bip1_ms }} ms · bip</span>
+          {% elif j.reaction.from_gate_ms is not none %}
+            <span class="status-badge status-done">{{ j.reaction.from_gate_ms }} ms</span>
+          {% else %}
+            <span class="status-badge">—</span>
+          {% endif %}
+        </div>
+        <span class="pro-arrow">→</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+
+  <!-- Données pour le graphique (chronologique : plus ancien à gauche) -->
+  <script id="history-data" type="application/json">{{ stats.history|tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    async function deleteAthlete(id) {
+      if (!confirm("Supprimer ce dossier ? Les vidéos analysées resteront accessibles mais ne seront plus rattachées à cet athlète.")) return;
+      const res = await fetch('/athletes/' + id, { method: 'DELETE' });
+      if (res.ok) { window.location.href = '/athletes'; }
+      else { alert('Erreur lors de la suppression.'); }
+    }
+
+    // Mini graphique : évolution du temps de réaction
+    const dataEl = document.getElementById('history-data');
+    if (dataEl) {
+      const raw = JSON.parse(dataEl.textContent || "[]");
+      // Inverser : on veut le plus ancien à gauche
+      const data = raw.slice().reverse();
+      const svg  = document.getElementById('mini-chart');
+      if (svg && data.length >= 2) {
+        const W = 600, H = 160, P = 20;
+        const max = Math.max(...data) * 1.05;
+        const min = Math.min(...data) * 0.95;
+        const range = (max - min) || 1;
+        const xStep = (W - 2*P) / (data.length - 1);
+        const pts = data.map((v, i) => {
+          const x = P + i * xStep;
+          const y = H - P - ((v - min) / range) * (H - 2*P);
+          return [x, y, v];
+        });
+        const path = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+        let svgInner = `
+          <defs>
+            <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.35"/>
+              <stop offset="100%" stop-color="#00d4ff" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path d="${path} L${pts[pts.length-1][0]},${H-P} L${pts[0][0]},${H-P} Z" fill="url(#g)"/>
+          <path d="${path}" fill="none" stroke="#00d4ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        `;
+        for (const [x, y, v] of pts) {
+          svgInner += `<circle cx="${x}" cy="${y}" r="4" fill="#00d4ff"/>
+                       <text x="${x}" y="${y - 10}" text-anchor="middle"
+                             font-size="10" font-family="JetBrains Mono, monospace"
+                             fill="#d8e0ee">${v}ms</text>`;
+        }
+        svg.innerHTML = svgInner;
+      }
+    }
+  </script>
+{% endblock %}
