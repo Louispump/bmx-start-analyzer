@@ -110,13 +110,15 @@ def _athlete_jobs(athlete_id: str) -> list[dict]:
 
 
 def _athlete_stats(athlete_jobs: list[dict]) -> dict:
-    """Mini dashboard : nb de vidéos, meilleur / moyen temps de réaction (excluant les faux départs)."""
+    """Mini dashboard : nb de vidéos, meilleur / moyen temps de réaction (excluant les faux départs).
+    Métrique = `from_bip1_ms` (bip 1 → premier mouvement) si l'audio a été détecté,
+    sinon fallback sur `from_gate_ms`."""
     reactions_ms = []
     for j in athlete_jobs:
         r = j.get("reaction") or {}
         if r.get("type") == "false_start":
             continue
-        if r.get("type") == "bip" and r.get("from_bip1_ms") is not None:
+        if r.get("from_bip1_ms") is not None:
             reactions_ms.append(r["from_bip1_ms"])
         elif r.get("from_gate_ms") is not None:
             reactions_ms.append(r["from_gate_ms"])
@@ -142,12 +144,14 @@ def get_video_info(video_path: Path) -> dict:
 
 
 # ── Analyse en arrière-plan ───────────────────────────────────────────────────
-def run_analysis(job_id: str, video_path: Path, gate_drop: float):
+def run_analysis(job_id: str, video_path: Path, gate_drop: float,
+                 bip1_time: float | None = None):
     try:
         jobs[job_id]["status"]   = "processing"
         jobs[job_id]["progress"] = "Pose estimation + tracking..."
 
-        results = analyze_main(str(video_path), gate_drop=gate_drop)
+        results = analyze_main(str(video_path), gate_drop=gate_drop,
+                                bip1_time=bip1_time)
 
         if results is None:
             raise ValueError("L'analyse n'a pas retourné de résultats.")
@@ -174,13 +178,15 @@ def run_analysis(job_id: str, video_path: Path, gate_drop: float):
         })
 
 
-def run_pro_analysis(pro_id: str, video_path: Path, gate_drop: float):
+def run_pro_analysis(pro_id: str, video_path: Path, gate_drop: float,
+                     bip1_time: float | None = None):
     try:
         pros[pro_id]["status"]   = "processing"
         pros[pro_id]["progress"] = "Génération du squelette..."
         save_pros(pros)
 
-        results = analyze_main(str(video_path), gate_drop=gate_drop)
+        results = analyze_main(str(video_path), gate_drop=gate_drop,
+                                bip1_time=bip1_time)
         if results is None:
             raise ValueError("L'analyse n'a pas retourné de résultats.")
 
@@ -263,8 +269,10 @@ async def detect_gate(job_id: str):
 @app.post("/start/{job_id}")
 async def start_analysis(background_tasks: BackgroundTasks,
                          job_id: str,
-                         gate_frame: int = Form(...)):
-    """Démarre l'analyse avec le gate frame choisi manuellement."""
+                         gate_frame: int = Form(...),
+                         bip1_time: float = Form(-1.0)):
+    """Démarre l'analyse avec le gate frame choisi et (optionnel) le temps du
+    1er bip pour ancrer le temps de réaction depuis le bip 1."""
     job = jobs.get(job_id)
     if not job:
         return JSONResponse({"error": "Job introuvable."}, status_code=404)
@@ -272,12 +280,14 @@ async def start_analysis(background_tasks: BackgroundTasks,
     fps       = job["fps"]
     gate_drop = gate_frame / fps
     video_path = Path(job["video_path"])
+    bip1 = bip1_time if bip1_time > 0 else None
 
     jobs[job_id]["status"]    = "queued"
     jobs[job_id]["progress"]  = "En attente..."
     jobs[job_id]["gate_drop"] = gate_drop
+    jobs[job_id]["bip1_time"] = bip1
 
-    background_tasks.add_task(run_analysis, job_id, video_path, gate_drop)
+    background_tasks.add_task(run_analysis, job_id, video_path, gate_drop, bip1)
     return {"ok": True}
 
 
@@ -459,8 +469,9 @@ async def pros_detect_gate(pro_id: str):
 @app.post("/pros/start/{pro_id}")
 async def pros_start(background_tasks: BackgroundTasks,
                      pro_id: str,
-                     gate_frame: int = Form(...)):
-    """Démarre la génération du squelette du pro avec le gate frame choisi."""
+                     gate_frame: int = Form(...),
+                     bip1_time: float = Form(-1.0)):
+    """Démarre la génération du squelette du pro avec gate frame + (optionnel) bip1."""
     p = pros.get(pro_id)
     if not p:
         return JSONResponse({"error": "Pro introuvable."}, status_code=404)
@@ -468,12 +479,14 @@ async def pros_start(background_tasks: BackgroundTasks,
     fps        = p["fps"]
     gate_drop  = gate_frame / fps
     video_path = Path(p["video_path"])
+    bip1 = bip1_time if bip1_time > 0 else None
 
     pros[pro_id]["status"]   = "queued"
     pros[pro_id]["progress"] = "En attente..."
+    pros[pro_id]["bip1_time"] = bip1
     save_pros(pros)
 
-    background_tasks.add_task(run_pro_analysis, pro_id, video_path, gate_drop)
+    background_tasks.add_task(run_pro_analysis, pro_id, video_path, gate_drop, bip1)
     return {"ok": True}
 
 

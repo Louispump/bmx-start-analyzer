@@ -31,6 +31,7 @@
   <!-- Métriques clés -->
   <section class="metrics-grid">
 
+    {% set has_bip = results.reaction.from_bip1_ms is not none %}
     <div class="metric-card
       {% if results.reaction.type == 'false_start' %} card-red
       {% elif results.reaction.type == 'bip' %}       card-orange
@@ -40,19 +41,24 @@
       <div class="metric-value">
         {% if results.reaction.type == 'false_start' %}
           ⚠ Faux départ
-        {% elif results.reaction.type == 'bip' %}
-          {{ results.reaction.from_bip1_ms }} ms
+        {% elif has_bip %}
+          {{ results.reaction.from_bip1_ms }}<span class="metric-unit">ms</span>
         {% else %}
-          {{ results.reaction.from_gate_ms }} ms
+          {{ results.reaction.from_gate_ms }}<span class="metric-unit">ms</span>
         {% endif %}
       </div>
       <div class="metric-sub">
         {% if results.reaction.type == 'false_start' %}
-          Mouvement avant le bip 1
-        {% elif results.reaction.type == 'bip' %}
-          Réaction aux bips · {{ results.reaction.from_gate_ms | abs }} ms avant le gate
+          Mouvement avant le bip 1 ({{ results.reaction.from_bip1_ms }} ms)
+        {% elif has_bip %}
+          Depuis le 1<sup>er</sup> bip ·
+          {% if results.reaction.from_gate_ms < 0 %}
+            {{ results.reaction.from_gate_ms | abs }} ms avant le gate
+          {% else %}
+            {{ results.reaction.from_gate_ms }} ms après le gate
+          {% endif %}
         {% else %}
-          Depuis le gate drop
+          Depuis le gate drop (audio non détecté)
         {% endif %}
       </div>
     </div>

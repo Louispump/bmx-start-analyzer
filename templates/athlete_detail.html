@@ -32,7 +32,7 @@
       <div class="metric-value">
         {% if stats.best_ms is not none %}{{ stats.best_ms }}<span class="metric-unit">ms</span>{% else %}—{% endif %}
       </div>
-      <div class="metric-sub">depuis le gate / bip 1</div>
+      <div class="metric-sub">depuis le 1<sup>er</sup> bip</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">Moyenne</div>
@@ -82,8 +82,8 @@
         <div class="pro-status">
           {% if j.reaction.type == 'false_start' %}
             <span class="status-badge status-error">⚠ Faux départ</span>
-          {% elif j.reaction.type == 'bip' %}
-            <span class="status-badge status-done">{{ j.reaction.from_bip1_ms }} ms · bip</span>
+          {% elif j.reaction.from_bip1_ms is not none %}
+            <span class="status-badge status-done">{{ j.reaction.from_bip1_ms }} ms</span>
           {% elif j.reaction.from_gate_ms is not none %}
             <span class="status-badge status-done">{{ j.reaction.from_gate_ms }} ms</span>
           {% else %}

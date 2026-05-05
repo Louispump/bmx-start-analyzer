@@ -89,6 +89,7 @@
     let jobId     = null;
     let videoFps  = 30;
     let gateFrame = null;
+    let bip1Time  = null;     // temps du 1er bip (depuis /detect_gate)
     let scrubbing = false;
 
     const gateVideo   = document.getElementById('gate-video');
@@ -152,13 +153,19 @@
           gateScrub.value         = f;
           gateCounter.textContent = `Frame ${f}`;
           gateFrame = f;
+          // Le 1er beep — utilisé comme ancrage du temps de réaction
+          if (data.beeps_t && data.beeps_t.length > 0) {
+            bip1Time = data.beeps_t[0];
+          }
           document.getElementById('gate-marker-val').textContent =
             `Frame ${f}  (t = ${(f / videoFps).toFixed(3)}s)`;
           document.getElementById('btn-confirm-gate').disabled = false;
           banner.className = 'detect-banner detect-success';
           banner.innerHTML =
             `🎯 Gate auto-détecté (4 beeps audio) à <strong>frame ${f}</strong> ` +
-            `(t = ${(f / videoFps).toFixed(3)}s). Confirme ou ajuste si besoin.`;
+            `(t = ${(f / videoFps).toFixed(3)}s)` +
+            (bip1Time !== null ? `, 1<sup>er</sup> bip à t = ${bip1Time.toFixed(3)}s.` : '.') +
+            ` Confirme ou ajuste si besoin.`;
         } else {
           banner.className = 'detect-banner detect-fail';
           banner.textContent = '🔇 Détection audio impossible — identifie manuellement.';
@@ -211,6 +218,7 @@
       document.getElementById('step-progress').style.display = 'block';
       const form = new FormData();
       form.append('gate_frame', gateFrame);
+      if (bip1Time !== null) form.append('bip1_time', bip1Time);
       await fetch(`/start/${jobId}`, { method: 'POST', body: form });
       pollStatus();
     }
