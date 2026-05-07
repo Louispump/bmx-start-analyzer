@@ -1768,6 +1768,106 @@ input[type="text"].rider-name-input {
   font-variant-numeric: tabular-nums;
 }
 
+/* Tabs (onglets dans la page outils) */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 18px;
+}
+.tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: .9rem;
+  font-weight: 600;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: var(--transition);
+  margin-bottom: -1px;
+}
+.tab:hover { color: var(--text); }
+.tab-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Presets piste (3 boutons en ligne) */
+.preset-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn-preset {
+  font-size: .8rem;
+  padding: 8px 13px;
+}
+
+/* Card "Cible" (onglet Recommander) */
+.metric-target {
+  background: linear-gradient(135deg, var(--accent-soft) 0%, transparent 70%);
+  border-color: var(--accent-mid);
+}
+.metric-target::before {
+  background: linear-gradient(90deg, var(--accent), transparent) !important;
+}
+
+/* Liste de combos recommandés */
+.combo-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.combo-card {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: var(--transition);
+}
+.combo-card:hover { border-color: var(--border-strong); }
+.combo-main {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent-mid), 0 0 18px var(--accent-glow);
+}
+.combo-tag {
+  font-size: .65rem;
+  font-weight: 800;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.combo-main .combo-tag { color: var(--accent); }
+.combo-combo {
+  font-family: var(--font-mono);
+  font-size: 1.55rem;
+  font-weight: 800;
+  color: var(--text-strong);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.combo-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.combo-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: .78rem;
+}
+.cs-label { color: var(--muted); }
+.cs-val   { color: var(--text); font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; }
+
 /* Liste des ajustements (page pression) */
 .adjust-list {
   list-style: none;

@@ -5,69 +5,156 @@
 
 {% block content %}
   <header>
-    <h1>Calcul gear ratio / rollout</h1>
-    <p class="subtitle">Plateau · pignon · pneu → gear inches et développement par tour. Comparaison avec la bande de référence par niveau.</p>
+    <h1>Gear ratio</h1>
+    <p class="subtitle">Recommandation de combo plateau / pignon selon le profil de la piste et du rider — ou vérification d'un combo précis.</p>
   </header>
 
-  <div class="section">
-    <div class="tool-grid">
-      <div class="tool-form">
-        <div class="tool-field">
-          <label class="tool-label" for="chainring">Plateau (chainring)</label>
-          <div class="tool-input-row">
-            <input type="number" id="chainring" class="rider-name-input tool-input" min="25" max="65" value="44" step="1">
-            <span class="tool-unit">dents</span>
+  <div class="tabs">
+    <button class="tab tab-active" data-tab="recommend">🎯 Recommander un combo</button>
+    <button class="tab" data-tab="check">🔧 Vérifier un combo</button>
+  </div>
+
+  <!-- ───── ONGLET RECOMMANDER ───── -->
+  <div class="tab-panel" id="panel-recommend">
+    <div class="section">
+      <div class="tool-grid">
+        <div class="tool-form">
+          <div class="tool-field">
+            <label class="tool-label" for="r-cat">Catégorie / niveau</label>
+            <select id="r-cat" class="pro-select tool-select"></select>
+          </div>
+
+          <div class="tool-field">
+            <label class="tool-label" for="r-tire">Pneu arrière</label>
+            <select id="r-tire" class="pro-select tool-select"></select>
+          </div>
+
+          <div class="tool-field">
+            <label class="tool-label">Presets piste</label>
+            <div class="preset-row">
+              <button type="button" class="btn btn-preset" data-preset="indoor">Indoor régional</button>
+              <button type="button" class="btn btn-preset" data-preset="outdoor">Outdoor 5m pro</button>
+              <button type="button" class="btn btn-preset" data-preset="sx">Supercross 8m</button>
+            </div>
+          </div>
+
+          <div class="tool-field">
+            <label class="tool-label">Hauteur de rampe</label>
+            <div class="radio-cards" id="hill">
+              <label class="radio-card"><input type="radio" name="hill" value="indoor"><span class="rc-name">Indoor / 5m flat</span><span class="rc-delta">−0.5"</span></label>
+              <label class="radio-card"><input type="radio" name="hill" value="5m-pro" checked><span class="rc-name">5m pro standard</span><span class="rc-delta">±0"</span></label>
+              <label class="radio-card"><input type="radio" name="hill" value="8m"><span class="rc-name">8m SX / Olympic</span><span class="rc-delta">+0.5"</span></label>
+            </div>
+          </div>
+
+          <div class="tool-field">
+            <label class="tool-label">Longueur straight 1</label>
+            <div class="radio-cards" id="straight">
+              <label class="radio-card"><input type="radio" name="straight" value="short"><span class="rc-name">Court (&lt;35m)</span><span class="rc-delta">−0.5"</span></label>
+              <label class="radio-card"><input type="radio" name="straight" value="std" checked><span class="rc-name">Standard</span><span class="rc-delta">±0"</span></label>
+              <label class="radio-card"><input type="radio" name="straight" value="long"><span class="rc-name">Long (&gt;40m)</span><span class="rc-delta">+0.5"</span></label>
+            </div>
+          </div>
+
+          <div class="tool-field">
+            <label class="tool-label">Surface</label>
+            <div class="radio-cards" id="surface">
+              <label class="radio-card"><input type="radio" name="surface" value="asphalt"><span class="rc-name">Asphalte / indoor lisse</span><span class="rc-delta">+0.3"</span></label>
+              <label class="radio-card"><input type="radio" name="surface" value="dirt-dry" checked><span class="rc-name">Dirt sec</span><span class="rc-delta">±0"</span></label>
+              <label class="radio-card"><input type="radio" name="surface" value="dirt-wet"><span class="rc-name">Dirt humide / lent</span><span class="rc-delta">−0.5"</span></label>
+            </div>
+          </div>
+
+          <div class="tool-field">
+            <label class="tool-label">Profil rider</label>
+            <div class="radio-cards" id="profile">
+              <label class="radio-card"><input type="radio" name="profile" value="puncher"><span class="rc-name">Puncher (gate fort)</span><span class="rc-delta">−0.5"</span></label>
+              <label class="radio-card"><input type="radio" name="profile" value="balanced" checked><span class="rc-name">Équilibré</span><span class="rc-delta">±0"</span></label>
+              <label class="radio-card"><input type="radio" name="profile" value="spinner"><span class="rc-name">Spinner (cadence haute)</span><span class="rc-delta">+0.5"</span></label>
+            </div>
           </div>
         </div>
 
-        <div class="tool-field">
-          <label class="tool-label" for="cog">Pignon arrière (cog)</label>
-          <div class="tool-input-row">
-            <input type="number" id="cog" class="rider-name-input tool-input" min="12" max="22" value="16" step="1">
-            <span class="tool-unit">dents</span>
+        <div class="tool-result">
+          <div class="metric-card metric-target">
+            <div class="metric-label">Cible gear inches</div>
+            <div class="metric-value"><span id="r-target">—</span><span class="metric-unit">"</span></div>
+            <div class="metric-sub" id="r-target-sub">—</div>
           </div>
-        </div>
 
-        <div class="tool-field">
-          <label class="tool-label" for="tire">Pneu arrière</label>
-          <select id="tire" class="pro-select tool-select"></select>
-          <p class="tool-hint" id="tire-hint">Diamètre effectif utilisé pour le calcul.</p>
-        </div>
+          <div class="combo-list" id="combo-list"></div>
 
-        <div class="tool-field">
-          <button type="button" class="btn" id="btn-preset">⚡ Standard Pro · 44/16 · 20×1.75</button>
+          <div class="tool-bands">
+            <div class="tool-bands-label">Détail du calcul</div>
+            <ul class="adjust-list" id="r-adjust"></ul>
+            <p class="tool-hint">Bandes par catégorie issues de Lux BMX et Supercross BMX (44/16 = 54.8" = standard pro 8m). Ajustements piste/rider construits à partir des principes du forum BMX Museum (track layout, rider profile) — ce sont des recommandations indicatives à ajuster avec le ressenti du rider.</p>
+          </div>
         </div>
       </div>
+    </div>
+  </div>
 
-      <div class="tool-result">
-        <div class="metrics-grid tool-metrics">
-          <div class="metric-card">
-            <div class="metric-label">Gear ratio</div>
-            <div class="metric-value" id="out-ratio">—</div>
-            <div class="metric-sub" id="out-ratio-sub">tours de roue / tour de pédalier</div>
+  <!-- ───── ONGLET VÉRIFIER ───── -->
+  <div class="tab-panel" id="panel-check" style="display:none">
+    <div class="section">
+      <div class="tool-grid">
+        <div class="tool-form">
+          <div class="tool-field">
+            <label class="tool-label" for="chainring">Plateau (chainring)</label>
+            <div class="tool-input-row">
+              <input type="number" id="chainring" class="rider-name-input tool-input" min="25" max="65" value="44" step="1">
+              <span class="tool-unit">dents</span>
+            </div>
           </div>
-          <div class="metric-card" id="card-gi">
-            <div class="metric-label">Gear inches</div>
-            <div class="metric-value"><span id="out-gi">—</span><span class="metric-unit">"</span></div>
-            <div class="metric-sub" id="out-gi-sub">—</div>
+
+          <div class="tool-field">
+            <label class="tool-label" for="cog">Pignon arrière (cog)</label>
+            <div class="tool-input-row">
+              <input type="number" id="cog" class="rider-name-input tool-input" min="12" max="22" value="16" step="1">
+              <span class="tool-unit">dents</span>
+            </div>
           </div>
-          <div class="metric-card">
-            <div class="metric-label">Rollout</div>
-            <div class="metric-value"><span id="out-rollout">—</span><span class="metric-unit">m</span></div>
-            <div class="metric-sub">développement par tour de pédalier</div>
+
+          <div class="tool-field">
+            <label class="tool-label" for="tire">Pneu arrière</label>
+            <select id="tire" class="pro-select tool-select"></select>
+            <p class="tool-hint" id="tire-hint">Diamètre effectif utilisé pour le calcul.</p>
+          </div>
+
+          <div class="tool-field">
+            <button type="button" class="btn" id="btn-preset-check">⚡ Standard Pro · 44/16 · 20×1.75</button>
           </div>
         </div>
 
-        <div class="tool-bands">
-          <div class="tool-bands-label">Bande de référence par niveau</div>
-          <div class="band-row" id="band-row">
-            <div class="band" data-min="45" data-max="47"><span class="band-name">Micro</span><span class="band-range">45 – 47"</span></div>
-            <div class="band" data-min="47" data-max="49"><span class="band-name">Mini</span><span class="band-range">47 – 49"</span></div>
-            <div class="band" data-min="49" data-max="52"><span class="band-name">Junior</span><span class="band-range">49 – 52"</span></div>
-            <div class="band" data-min="51" data-max="53"><span class="band-name">Expert</span><span class="band-range">51 – 53"</span></div>
-            <div class="band" data-min="52" data-max="55"><span class="band-name">Pro</span><span class="band-range">52 – 55"</span></div>
+        <div class="tool-result">
+          <div class="metrics-grid tool-metrics">
+            <div class="metric-card">
+              <div class="metric-label">Gear ratio</div>
+              <div class="metric-value" id="out-ratio">—</div>
+              <div class="metric-sub">tours roue / tour pédalier</div>
+            </div>
+            <div class="metric-card" id="card-gi">
+              <div class="metric-label">Gear inches</div>
+              <div class="metric-value"><span id="out-gi">—</span><span class="metric-unit">"</span></div>
+              <div class="metric-sub" id="out-gi-sub">—</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Rollout</div>
+              <div class="metric-value"><span id="out-rollout">—</span><span class="metric-unit">m</span></div>
+              <div class="metric-sub">développement par tour</div>
+            </div>
           </div>
-          <p class="tool-hint">Bandes issues de Lux BMX et Supercross BMX. Le combo standard pro 44/16 sur 20×1.75 = 54.8".</p>
+
+          <div class="tool-bands">
+            <div class="tool-bands-label">Bande de référence par niveau</div>
+            <div class="band-row" id="band-row">
+              <div class="band" data-min="45" data-max="47"><span class="band-name">Micro</span><span class="band-range">45 – 47"</span></div>
+              <div class="band" data-min="47" data-max="49"><span class="band-name">Mini</span><span class="band-range">47 – 49"</span></div>
+              <div class="band" data-min="49" data-max="52"><span class="band-name">Junior</span><span class="band-range">49 – 52"</span></div>
+              <div class="band" data-min="51" data-max="53"><span class="band-name">Expert</span><span class="band-range">51 – 53"</span></div>
+              <div class="band" data-min="52" data-max="55"><span class="band-name">Pro</span><span class="band-range">52 – 55"</span></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -76,49 +163,213 @@
 
 {% block scripts %}
 <script>
-  // Diamètres effectifs (in) — médiane des sources : bmxultra, danscomp, crupi.
-  // Le 1.75 réel mesuré varie de 19.48 à 19.92 selon la marque ; on prend 19.5".
+  // ═════════════════════════════════════════════════════════════════════
+  // Données partagées
+  // ═════════════════════════════════════════════════════════════════════
   const TIRES = [
-    { id: '20x1-1/8',  label: '20 × 1-1/8 (skinny race)', diam: 19.375 },
-    { id: '20x1.60',   label: '20 × 1.60 (PowerBlock slim)', diam: 19.4 },
-    { id: '20x1.75',   label: '20 × 1.75 (PowerBlock / DTH)', diam: 19.5 },
-    { id: '20x1.95',   label: '20 × 1.95', diam: 20.0 },
-    { id: '20x2.10',   label: '20 × 2.10', diam: 20.3 },
-    { id: '24x1.75',   label: '24 × 1.75 (cruiser)', diam: 23.5 },
+    { id: '20x1-1/8',  label: '20 × 1-1/8 (skinny race)',     diam: 19.375 },
+    { id: '20x1.60',   label: '20 × 1.60 (PowerBlock slim)',  diam: 19.4  },
+    { id: '20x1.75',   label: '20 × 1.75 (PowerBlock / DTH)', diam: 19.5  },
+    { id: '20x1.95',   label: '20 × 1.95',                    diam: 20.0  },
+    { id: '20x2.10',   label: '20 × 2.10',                    diam: 20.3  },
+    { id: '24x1.75',   label: '24 × 1.75 (cruiser)',          diam: 23.5  },
   ];
 
-  const tireSel  = document.getElementById('tire');
-  const tireHint = document.getElementById('tire-hint');
-  const chRing   = document.getElementById('chainring');
-  const cog      = document.getElementById('cog');
-
-  TIRES.forEach((t, i) => {
-    const opt = document.createElement('option');
-    opt.value = t.id;
-    opt.textContent = t.label;
-    if (t.id === '20x1.75') opt.selected = true;
-    tireSel.appendChild(opt);
-  });
-
-  function tireDiam() {
-    const t = TIRES.find(t => t.id === tireSel.value);
+  function fillTireSelect(sel, defaultId='20x1.75') {
+    TIRES.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.label;
+      if (t.id === defaultId) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+  function tireDiam(sel) {
+    const t = TIRES.find(t => t.id === sel.value);
     return t ? t.diam : 19.5;
   }
 
-  function bandLabel(gi) {
-    if (gi < 45)        return { name: 'Sous-Micro',  cls: 'band-low' };
-    if (gi < 47)        return { name: 'Micro',       cls: 'band-micro' };
-    if (gi < 49)        return { name: 'Mini',        cls: 'band-mini' };
-    if (gi < 52)        return { name: 'Junior',      cls: 'band-junior' };
-    if (gi <= 53)       return { name: 'Expert',      cls: 'band-expert' };
-    if (gi <= 55)       return { name: 'Pro',         cls: 'band-pro' };
-    return                     { name: 'Au-dessus du Pro', cls: 'band-high' };
+  // ═════════════════════════════════════════════════════════════════════
+  // Onglets
+  // ═════════════════════════════════════════════════════════════════════
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active'));
+      tab.classList.add('tab-active');
+      const target = tab.dataset.tab;
+      document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+      document.getElementById('panel-' + target).style.display = 'block';
+    });
+  });
+
+  // ═════════════════════════════════════════════════════════════════════
+  // ONGLET RECOMMANDER
+  // ═════════════════════════════════════════════════════════════════════
+  const CATEGORIES = {
+    'micro':     { label: 'Micro 18"',              base: 46.0, range: [45, 47] },
+    'mini':      { label: 'Mini',                   base: 48.0, range: [47, 49] },
+    'junior':    { label: 'Junior',                 base: 50.5, range: [49, 52] },
+    'expert':    { label: 'Expert',                 base: 52.0, range: [51, 53] },
+    'pro-men':   { label: 'Pro / Élite Hommes',     base: 53.5, range: [52, 55] },
+    'pro-women': { label: 'Pro / Élite Femmes',     base: 52.5, range: [51, 54] },
+    'cruiser':   { label: 'Cruiser 24"',            base: 53.0, range: [52, 55] },
+  };
+  const HILL_DELTA     = { 'indoor': -0.5, '5m-pro': 0, '8m': +0.5 };
+  const HILL_LABEL     = { 'indoor': 'Indoor / 5m flat', '5m-pro': '5m pro standard', '8m': '8m SX / Olympic' };
+  const STRAIGHT_DELTA = { 'short': -0.5, 'std': 0, 'long': +0.5 };
+  const STRAIGHT_LABEL = { 'short': 'Court (<35m)', 'std': 'Standard', 'long': 'Long (>40m, pédalable)' };
+  const SURFACE_DELTA  = { 'asphalt': +0.3, 'dirt-dry': 0, 'dirt-wet': -0.5 };
+  const SURFACE_LABEL  = { 'asphalt': 'Asphalte / indoor lisse', 'dirt-dry': 'Dirt sec', 'dirt-wet': 'Dirt humide / lent' };
+  const PROFILE_DELTA  = { 'puncher': -0.5, 'balanced': 0, 'spinner': +0.5 };
+  const PROFILE_LABEL  = { 'puncher': 'Puncher (gate fort)', 'balanced': 'Équilibré', 'spinner': 'Spinner (cadence haute)' };
+
+  const PRESETS = {
+    indoor:  { hill: 'indoor', straight: 'std',  surface: 'asphalt'  },
+    outdoor: { hill: '5m-pro', straight: 'std',  surface: 'dirt-dry' },
+    sx:      { hill: '8m',     straight: 'long', surface: 'dirt-dry' },
+  };
+
+  const STD_CHAINRINGS = new Set([43, 44, 45]);
+  const STD_COGS       = new Set([16, 17]);
+
+  // Init catégories
+  const rCat = document.getElementById('r-cat');
+  Object.entries(CATEGORIES).forEach(([id, c]) => {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = c.label;
+    if (id === 'expert') opt.selected = true;
+    rCat.appendChild(opt);
+  });
+  fillTireSelect(document.getElementById('r-tire'));
+
+  // Presets piste
+  document.querySelectorAll('.btn-preset').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = PRESETS[btn.dataset.preset];
+      if (!p) return;
+      document.querySelector(`input[name="hill"][value="${p.hill}"]`).checked = true;
+      document.querySelector(`input[name="straight"][value="${p.straight}"]`).checked = true;
+      document.querySelector(`input[name="surface"][value="${p.surface}"]`).checked = true;
+      recommendRecalc();
+    });
+  });
+
+  function searchCombos(targetGI, diam, n=3) {
+    const chainrings = [39, 40, 41, 42, 43, 44, 45, 46];
+    const cogs       = [14, 15, 16, 17, 18];
+    const all = [];
+    for (const c of chainrings) {
+      for (const r of cogs) {
+        const gi      = (c / r) * diam;
+        const delta   = gi - targetGI;
+        const stdPen  = (STD_CHAINRINGS.has(c) ? 0 : 0.05) + (STD_COGS.has(r) ? 0 : 0.05);
+        const score   = Math.abs(delta) + stdPen;
+        all.push({ chainring: c, cog: r, gi, delta, score });
+      }
+    }
+    all.sort((a, b) => a.score - b.score);
+    // Dédupliquer les combos avec gear inches quasi-identiques
+    const seen = new Set();
+    const out  = [];
+    for (const c of all) {
+      const key = c.gi.toFixed(2);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(c);
+      if (out.length === n) break;
+    }
+    return out;
   }
 
-  function recalc() {
+  function getRadio(name) {
+    return document.querySelector(`input[name="${name}"]:checked`)?.value;
+  }
+
+  function recommendRecalc() {
+    const cat       = CATEGORIES[rCat.value];
+    const hill      = getRadio('hill');
+    const straight  = getRadio('straight');
+    const surface   = getRadio('surface');
+    const profile   = getRadio('profile');
+    const dHill     = HILL_DELTA[hill]         ?? 0;
+    const dStraight = STRAIGHT_DELTA[straight] ?? 0;
+    const dSurface  = SURFACE_DELTA[surface]   ?? 0;
+    const dProfile  = PROFILE_DELTA[profile]   ?? 0;
+
+    const target = cat.base + dHill + dStraight + dSurface + dProfile;
+    document.getElementById('r-target').textContent = target.toFixed(1);
+    document.getElementById('r-target-sub').textContent =
+      `${cat.label} · bande ${cat.range[0]}–${cat.range[1]}" · base ${cat.base.toFixed(1)}"`;
+
+    // Combos
+    const diam   = tireDiam(document.getElementById('r-tire'));
+    const combos = searchCombos(target, diam, 3);
+    const list   = document.getElementById('combo-list');
+    const labels = ['Recommandé', 'Alternative −', 'Alternative +'];
+    const sorted = [...combos].sort((a, b) => a.gi - b.gi);
+    // Identifier qui est "−" et qui est "+" par rapport au principal
+    const main   = combos[0];
+    list.innerHTML = combos.map((c, i) => {
+      let tag = labels[0];
+      if (i > 0) tag = (c.gi < main.gi) ? 'Alternative −' : 'Alternative +';
+      const rollout = (c.chainring / c.cog) * Math.PI * diam * 0.0254;
+      const deltaStr = (c.delta >= 0 ? '+' : '') + c.delta.toFixed(1);
+      const cls = (i === 0) ? 'combo-card combo-main' : 'combo-card';
+      return `
+        <div class="${cls}">
+          <div class="combo-tag">${tag}</div>
+          <div class="combo-combo">${c.chainring} / ${c.cog}</div>
+          <div class="combo-stats">
+            <div class="combo-stat"><span class="cs-label">Gear inches</span><span class="cs-val">${c.gi.toFixed(1)}"</span></div>
+            <div class="combo-stat"><span class="cs-label">Écart cible</span><span class="cs-val">${deltaStr}"</span></div>
+            <div class="combo-stat"><span class="cs-label">Rollout</span><span class="cs-val">${rollout.toFixed(2)} m</span></div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Détail
+    const sgn = v => (v >= 0 ? '+' : '') + v.toFixed(1);
+    const items = [
+      `<strong>Base catégorie</strong> ${cat.label} <em>${cat.base.toFixed(1)}"</em>`,
+      `<strong>Rampe</strong> ${HILL_LABEL[hill]} <em>${sgn(dHill)}"</em>`,
+      `<strong>Straight 1</strong> ${STRAIGHT_LABEL[straight]} <em>${sgn(dStraight)}"</em>`,
+      `<strong>Surface</strong> ${SURFACE_LABEL[surface]} <em>${sgn(dSurface)}"</em>`,
+      `<strong>Profil</strong> ${PROFILE_LABEL[profile]} <em>${sgn(dProfile)}"</em>`,
+      `<strong>Cible finale</strong> <em>${target.toFixed(1)}"</em>`,
+    ];
+    document.getElementById('r-adjust').innerHTML = items.map(i => `<li>${i}</li>`).join('');
+  }
+
+  document.querySelectorAll('#panel-recommend select, #panel-recommend input[type="radio"]').forEach(el => {
+    el.addEventListener('input',  recommendRecalc);
+    el.addEventListener('change', recommendRecalc);
+  });
+
+  // ═════════════════════════════════════════════════════════════════════
+  // ONGLET VÉRIFIER
+  // ═════════════════════════════════════════════════════════════════════
+  fillTireSelect(document.getElementById('tire'));
+  const tireHint = document.getElementById('tire-hint');
+  const chRing   = document.getElementById('chainring');
+  const cog      = document.getElementById('cog');
+  const tireSel  = document.getElementById('tire');
+
+  function bandLabel(gi) {
+    if (gi < 45)  return { name: 'Sous-Micro',          cls: 'band-low' };
+    if (gi < 47)  return { name: 'Micro',               cls: 'band-micro' };
+    if (gi < 49)  return { name: 'Mini',                cls: 'band-mini' };
+    if (gi < 52)  return { name: 'Junior',              cls: 'band-junior' };
+    if (gi <= 53) return { name: 'Expert',              cls: 'band-expert' };
+    if (gi <= 55) return { name: 'Pro',                 cls: 'band-pro' };
+    return        { name: 'Au-dessus du Pro',           cls: 'band-high' };
+  }
+
+  function checkRecalc() {
     const c = parseFloat(chRing.value);
     const r = parseFloat(cog.value);
-    const d = tireDiam();
+    const d = tireDiam(tireSel);
     const giRatio = c / r;
     const gi      = giRatio * d;
     const rollout = giRatio * Math.PI * d * 0.0254;
@@ -128,39 +379,39 @@
     document.getElementById('out-rollout').textContent = rollout.toFixed(2);
 
     const bl = bandLabel(gi);
-    const sub = document.getElementById('out-gi-sub');
-    sub.innerHTML = `<span class="section-tag">${bl.name}</span>`;
+    document.getElementById('out-gi-sub').innerHTML = `<span class="section-tag">${bl.name}</span>`;
 
     const card = document.getElementById('card-gi');
     card.classList.remove('card-green', 'card-yellow', 'card-orange', 'card-red');
-    if (bl.cls === 'band-pro')        card.classList.add('card-green');
+    if      (bl.cls === 'band-pro')    card.classList.add('card-green');
     else if (bl.cls === 'band-expert') card.classList.add('card-yellow');
-    else if (bl.cls === 'band-high')   card.classList.add('card-red');
-    else if (bl.cls === 'band-low')    card.classList.add('card-red');
+    else if (bl.cls === 'band-high' || bl.cls === 'band-low') card.classList.add('card-red');
     else                                card.classList.add('card-orange');
 
     document.querySelectorAll('#band-row .band').forEach(b => {
       const min = parseFloat(b.dataset.min);
       const max = parseFloat(b.dataset.max);
-      if (gi >= min && gi <= max) b.classList.add('band-active');
-      else                        b.classList.remove('band-active');
+      b.classList.toggle('band-active', gi >= min && gi <= max);
     });
 
     tireHint.textContent = `Diamètre effectif : ${d.toFixed(2)}″`;
   }
 
-  document.getElementById('btn-preset').addEventListener('click', () => {
-    chRing.value = 44;
-    cog.value    = 16;
+  document.getElementById('btn-preset-check').addEventListener('click', () => {
+    chRing.value  = 44;
+    cog.value     = 16;
     tireSel.value = '20x1.75';
-    recalc();
+    checkRecalc();
   });
-
   [chRing, cog, tireSel].forEach(el => {
-    el.addEventListener('input',  recalc);
-    el.addEventListener('change', recalc);
+    el.addEventListener('input',  checkRecalc);
+    el.addEventListener('change', checkRecalc);
   });
 
-  recalc();
+  // ═════════════════════════════════════════════════════════════════════
+  // Init
+  // ═════════════════════════════════════════════════════════════════════
+  recommendRecalc();
+  checkRecalc();
 </script>
 {% endblock %}
