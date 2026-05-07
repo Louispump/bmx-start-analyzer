@@ -28,20 +28,19 @@
         <div class="tool-field">
           <label class="tool-label">Surface de piste</label>
           <div class="radio-cards" id="surface">
-            <label class="radio-card"><input type="radio" name="surface" value="indoor" checked><span class="rc-name">Indoor lisse</span><span class="rc-delta">+5 PSI</span></label>
-            <label class="radio-card"><input type="radio" name="surface" value="asphalt"><span class="rc-name">Asphalte</span><span class="rc-delta">+3 PSI</span></label>
+            <label class="radio-card"><input type="radio" name="surface" value="hard" checked><span class="rc-name">Asphalte / indoor lisse</span><span class="rc-delta">+10 PSI</span></label>
             <label class="radio-card"><input type="radio" name="surface" value="dirt-dry"><span class="rc-name">Dirt sec</span><span class="rc-delta">±0 PSI</span></label>
-            <label class="radio-card"><input type="radio" name="surface" value="dirt-wet"><span class="rc-name">Dirt humide</span><span class="rc-delta">−5 PSI</span></label>
+            <label class="radio-card"><input type="radio" name="surface" value="dirt-wet"><span class="rc-name">Dirt humide / lent</span><span class="rc-delta">−15 PSI</span></label>
           </div>
         </div>
 
         <div class="tool-field">
           <label class="tool-label">Niveau</label>
           <div class="radio-cards" id="level">
-            <label class="radio-card"><input type="radio" name="level" value="loisir"><span class="rc-name">Loisir</span><span class="rc-delta">−3 PSI</span></label>
+            <label class="radio-card"><input type="radio" name="level" value="loisir"><span class="rc-name">Loisir</span><span class="rc-delta">−10 PSI</span></label>
             <label class="radio-card"><input type="radio" name="level" value="regional" checked><span class="rc-name">Régional</span><span class="rc-delta">±0 PSI</span></label>
-            <label class="radio-card"><input type="radio" name="level" value="national"><span class="rc-name">National</span><span class="rc-delta">+2 PSI</span></label>
-            <label class="radio-card"><input type="radio" name="level" value="pro"><span class="rc-name">Pro</span><span class="rc-delta">+4 PSI</span></label>
+            <label class="radio-card"><input type="radio" name="level" value="national"><span class="rc-name">National</span><span class="rc-delta">+5 PSI</span></label>
+            <label class="radio-card"><input type="radio" name="level" value="pro"><span class="rc-name">Pro</span><span class="rc-delta">+10 PSI</span></label>
           </div>
         </div>
 
@@ -71,7 +70,7 @@
         <div class="tool-bands">
           <div class="tool-bands-label">Détail des ajustements</div>
           <ul class="adjust-list" id="adjust-list"></ul>
-          <p class="tool-hint">Modèle paramétrique : base 30 + 0.4×(poids−50) PSI à l'arrière, avant = arrière−3, plage ±3 PSI. À calibrer avec ton ressenti terrain — ce n'est pas un standard sourcé.</p>
+          <p class="tool-hint">⚠️ Vérifie le PSI max imprimé sur le sidewall de ton pneu — beaucoup de pneus race sont notés 65–110 PSI selon la version. Modèle : base = poids_kg + 15 (clamp 60–110), avant = arrière + 5 (anti-roll steering), plage ±5 PSI, clamp final 50–115. Sources : forums BMX Museum & Rotorburn, BMX Dude tire pressure guide.</p>
         </div>
       </div>
     </div>
@@ -97,14 +96,13 @@
     tireSel.appendChild(opt);
   });
 
-  const SURFACE = { 'indoor': 5, 'asphalt': 3, 'dirt-dry': 0, 'dirt-wet': -5 };
+  const SURFACE = { 'hard': 10, 'dirt-dry': 0, 'dirt-wet': -15 };
   const SURFACE_LABEL = {
-    'indoor':   'Indoor lisse',
-    'asphalt':  'Asphalte',
+    'hard':     'Asphalte / indoor lisse',
     'dirt-dry': 'Dirt sec',
-    'dirt-wet': 'Dirt humide',
+    'dirt-wet': 'Dirt humide / lent',
   };
-  const LEVEL = { 'loisir': -3, 'regional': 0, 'national': 2, 'pro': 4 };
+  const LEVEL = { 'loisir': -10, 'regional': 0, 'national': 5, 'pro': 10 };
   const LEVEL_LABEL = {
     'loisir':   'Loisir',
     'regional': 'Régional',
@@ -121,37 +119,37 @@
     const tempStr = document.getElementById('temp').value;
     const temp    = tempStr === '' ? 20 : parseFloat(tempStr);
 
-    // Base : 30 + 0.4 × (poids − 50), borné [30, 65]
-    const baseRear = clamp(30 + 0.4 * (w - 50), 30, 65);
+    // Base : poids_kg + 15, clampé [60, 110]
+    const baseRear = clamp(w + 15, 60, 110);
     const dSurf = SURFACE[surface];
     const dLvl  = LEVEL[level];
     let dTemp   = 0;
-    if (temp < 10)       dTemp = +2;
-    else if (temp > 25)  dTemp = -2;
+    if (temp < 10)       dTemp = +3;
+    else if (temp > 25)  dTemp = -3;
 
-    const rear  = clamp(baseRear + dSurf + dLvl + dTemp, 25, 75);
-    const front = clamp(rear - 3, 25, 75);
+    const rear  = clamp(baseRear + dSurf + dLvl + dTemp, 50, 115);
+    const front = clamp(rear + 5, 50, 115);
 
     document.getElementById('psi-rear').textContent  = rear.toFixed(0);
     document.getElementById('psi-front').textContent = front.toFixed(0);
     document.getElementById('psi-rear-range').textContent =
-      `plage ${(rear - 3).toFixed(0)} – ${(rear + 3).toFixed(0)} PSI`;
+      `plage ${(rear - 5).toFixed(0)} – ${(rear + 5).toFixed(0)} PSI`;
     document.getElementById('psi-front-range').textContent =
-      `plage ${(front - 3).toFixed(0)} – ${(front + 3).toFixed(0)} PSI`;
+      `plage ${(front - 5).toFixed(0)} – ${(front + 5).toFixed(0)} PSI`;
 
     // Détail des ajustements
     const items = [
-      `<strong>Base poids</strong> (${w} kg) → <em>${baseRear.toFixed(1)} PSI</em>`,
-      `<strong>Surface</strong> ${SURFACE_LABEL[surface]} → <em>${dSurf >= 0 ? '+' : ''}${dSurf} PSI</em>`,
-      `<strong>Niveau</strong> ${LEVEL_LABEL[level]} → <em>${dLvl >= 0 ? '+' : ''}${dLvl} PSI</em>`,
+      `<strong>Base poids</strong> (${w} kg + 15) <em>${baseRear.toFixed(0)} PSI</em>`,
+      `<strong>Surface</strong> ${SURFACE_LABEL[surface]} <em>${dSurf >= 0 ? '+' : ''}${dSurf} PSI</em>`,
+      `<strong>Niveau</strong> ${LEVEL_LABEL[level]} <em>${dLvl >= 0 ? '+' : ''}${dLvl} PSI</em>`,
     ];
     if (dTemp !== 0) {
       const tag = temp < 10 ? 'froid (<10°C)' : 'chaud (>25°C)';
-      items.push(`<strong>Température</strong> ${tag} → <em>${dTemp >= 0 ? '+' : ''}${dTemp} PSI</em>`);
+      items.push(`<strong>Température</strong> ${tag} <em>${dTemp >= 0 ? '+' : ''}${dTemp} PSI</em>`);
     } else {
-      items.push(`<strong>Température</strong> tempérée → <em>±0 PSI</em>`);
+      items.push(`<strong>Température</strong> tempérée (10–25°C) <em>±0 PSI</em>`);
     }
-    items.push(`<strong>Avant</strong> = arrière − 3 PSI (grip direction)`);
+    items.push(`<strong>Avant</strong> = arrière + 5 PSI <em>anti-roll steering</em>`);
 
     document.getElementById('adjust-list').innerHTML =
       items.map(i => `<li>${i}</li>`).join('');
