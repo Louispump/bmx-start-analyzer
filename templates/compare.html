@@ -34,6 +34,7 @@
       <div class="panel-label" onclick="setActive('rider')">
         <span class="panel-tag rider-tag">RIDER</span>
         <span class="panel-name">{{ rider.video_name }}</span>
+        <span class="shift-badge" id="badge-rider-shift"></span>
       </div>
       <div class="panel-video-wrap">
         <video id="video-rider" playsinline preload="auto"
@@ -54,6 +55,7 @@
       <div class="panel-label" onclick="setActive('pro')">
         <span class="panel-tag pro-tag">PRO</span>
         <span class="panel-name" id="pro-name">Sélectionne un pro</span>
+        <span class="shift-badge" id="badge-pro-shift"></span>
       </div>
       <div class="panel-video-wrap" id="pro-video-wrap">
         <div class="panel-empty" id="pro-empty">Sélectionne un pro<br>dans le menu ci-dessus</div>
@@ -73,12 +75,13 @@
   <!-- Barre SYNC -->
   <div class="sync-bar-wrap" id="sync-bar-wrap">
     <div class="sync-label">
-      SYNC <span class="sync-hint">Les 2 vidéos alignées sur le gate drop (T=0)</span>
+      SYNC <span class="sync-hint">Les 2 vidéos alignées sur le gate drop (T=0). Si tu décales une vidéo seule, le calage est conservé.</span>
     </div>
     <div class="sync-controls">
       <button class="btn-frame btn-frame-sync" onclick="syncStep(-1)">&#9664;</button>
       <span class="frame-counter sync-counter" id="sync-counter">T — —</span>
       <button class="btn-frame btn-frame-sync" onclick="syncStep(+1)">&#9654;</button>
+      <button class="btn btn-sync-reset" onclick="resetSyncRefs()" title="Réinitialise le calage manuel sur le gate drop">↻ Reset calage</button>
     </div>
     <div class="sync-scrubber-wrap">
       <span class="sync-tick">-0.5s</span>
@@ -143,6 +146,39 @@
     let   active     = 'rider';
     const scrubbing  = { rider: false, pro: false, sync: false };
 
+    // Points de référence ajustables : démarrent sur le gate drop, mais
+    // se recalibrent chaque fois que l'utilisateur bouge une vidéo seule.
+    // Comme ça le décalage manuel est préservé quand on retire le slider sync.
+    let riderRefT         = riderGateT;
+    let proRefT           = null;
+    let currentSyncOffset = 0;
+
+    function recalibrateRef(which) {
+      const v = videos[which];
+      if (v.readyState < 1) return;
+      if (which === 'rider')           riderRefT = v.currentTime - currentSyncOffset;
+      else if (proGateT !== null)      proRefT   = v.currentTime - currentSyncOffset;
+      updateRefBadges();
+    }
+
+    function updateRefBadges() {
+      const riderShift = (riderRefT - riderGateT) * riderFps;
+      const riderBadge = document.getElementById('badge-rider-shift');
+      if (riderBadge) {
+        riderBadge.textContent = Math.abs(riderShift) < 0.5
+          ? '' : `Calé gate ${riderShift > 0 ? '+' : ''}${riderShift.toFixed(0)}f`;
+      }
+      const proBadge = document.getElementById('badge-pro-shift');
+      if (proBadge) {
+        if (proGateT === null) proBadge.textContent = '';
+        else {
+          const proShift = (proRefT - proGateT) * proFps;
+          proBadge.textContent = Math.abs(proShift) < 0.5
+            ? '' : `Calé gate ${proShift > 0 ? '+' : ''}${proShift.toFixed(0)}f`;
+        }
+      }
+    }
+
     const vRider = document.getElementById('video-rider');
     const vPro   = document.getElementById('video-pro');
     const videos = { rider: vRider, pro: vPro };
@@ -167,6 +203,7 @@
       if (v.readyState < 1) return;
       v.pause();
       v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + dir / fps));
+      recalibrateRef(which);
     }
 
     function syncUI(which) {
@@ -192,6 +229,7 @@
         if (v.readyState < 1 || !isFinite(v.duration)) return;
         v.currentTime = (s.value / 1000) * v.duration;
         syncUI(which);
+        recalibrateRef(which);
       });
       s.addEventListener('mouseup',  () => { scrubbing[which] = false; });
       s.addEventListener('touchend', () => { scrubbing[which] = false; });
@@ -206,11 +244,12 @@
       return SYNC_OFFSET_START + (scrubSync.value / 500) * SYNC_TOTAL;
     }
     function applySyncOffset(offset) {
+      currentSyncOffset = offset;
       if (vRider.readyState >= 1) {
-        vRider.currentTime = Math.max(0, Math.min(vRider.duration, riderGateT + offset));
+        vRider.currentTime = Math.max(0, Math.min(vRider.duration, riderRefT + offset));
       }
-      if (proGateT !== null && vPro.readyState >= 1) {
-        vPro.currentTime = Math.max(0, Math.min(vPro.duration, proGateT + offset));
+      if (proRefT !== null && vPro.readyState >= 1) {
+        vPro.currentTime = Math.max(0, Math.min(vPro.duration, proRefT + offset));
       }
       const t = offset >= 0 ? `T +${offset.toFixed(2)}s` : `T ${offset.toFixed(2)}s`;
       syncCounter.textContent = t;
@@ -220,6 +259,13 @@
     scrubSync.addEventListener('input', () => { applySyncOffset(getSyncOffset()); });
     scrubSync.addEventListener('mouseup',  () => { scrubbing.sync = false; });
     scrubSync.addEventListener('touchend', () => { scrubbing.sync = false; });
+
+    function resetSyncRefs() {
+      riderRefT = riderGateT;
+      if (proGateT !== null) proRefT = proGateT;
+      applySyncOffset(getSyncOffset());
+      updateRefBadges();
+    }
 
     function syncStep(dir) {
       const frameStep = 1 / riderFps;
@@ -262,6 +308,9 @@
       }
       proFps   = parseFloat(opt.dataset.fps)  || riderFps;
       proGateT = parseFloat(opt.dataset.gate) || 0;
+      proRefT  = proGateT;
+      riderRefT = riderGateT;
+      currentSyncOffset = 0;
       currentProId = opt.dataset.proId || null;
       document.getElementById('pro-name').textContent = opt.dataset.name;
       empty.style.display  = 'none';
