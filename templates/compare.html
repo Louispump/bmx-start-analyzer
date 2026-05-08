@@ -221,6 +221,18 @@
       vPro.addEventListener(ev,   () => syncUI('pro'));
     });
 
+    // Applique le ratio source réel de la vidéo au wrap → plus aucune
+    // bande noire quel que soit le format (16/9, 9/16, 4/3, …).
+    function applyNativeRatio(which) {
+      const v = videos[which];
+      const wrap = v.parentElement;
+      if (v.videoWidth && v.videoHeight) {
+        wrap.style.aspectRatio = `${v.videoWidth} / ${v.videoHeight}`;
+      }
+    }
+    vRider.addEventListener('loadedmetadata', () => applyNativeRatio('rider'));
+    vPro.addEventListener('loadedmetadata',   () => applyNativeRatio('pro'));
+
     function initScrubber(which) {
       const s = scrubs[which];
       const v = videos[which];

@@ -1011,6 +1011,7 @@ input[type="text"].rider-name-input {
   grid-template-columns: 1fr 1fr;
   gap: 0;
   margin-bottom: 10px;
+  align-items: start;
 }
 
 /* Sur la page compare, on cache la sidebar pour récupérer toute la
@@ -1092,8 +1093,8 @@ input[type="text"].rider-name-input {
 .panel-video-wrap {
   position: relative;
   background: #000;
-  aspect-ratio: 4 / 3;
-  max-height: 82vh;
+  aspect-ratio: 16 / 9; /* fallback ; surchargé en JS au ratio source réel */
+  max-height: 88vh;
   flex-shrink: 0;
 }
 .panel-video-wrap video {
