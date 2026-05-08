@@ -1013,14 +1013,18 @@ input[type="text"].rider-name-input {
   margin-bottom: 10px;
 }
 
-/* Sur la page compare, on serre le padding au max pour donner toute la
-   largeur possible aux vidéos. Les deux panneaux sont collés (gap: 0). */
-.compare-shell .content { padding: 12px 8px 18px; }
+/* Sur la page compare, on cache la sidebar pour récupérer toute la
+   largeur d'écran (mode focus comparaison). Lien "Retour analyse"
+   dans le header. Les deux panneaux vidéo sont collés (gap: 0). */
+.app-shell.compare-shell { grid-template-columns: 1fr; }
+.compare-shell .sidebar { display: none; }
+.compare-shell .content { padding: 12px 10px 18px; }
 .compare-shell header.compare-header { margin-bottom: 8px; padding: 0 8px; }
 .compare-shell .sync-bar-wrap,
 .compare-shell .angles-compare-wrap,
-.compare-shell .compare-footer { margin-left: 8px; margin-right: 8px; }
+.compare-shell .compare-footer { margin-left: 10px; margin-right: 10px; }
 .compare-shell .video-panel:first-child { border-right: 1px solid var(--border); }
+.compare-shell .back-link { display: inline-block; margin-bottom: 4px; }
 
 /* Badge de calage manuel (rider/pro shifté du gate) */
 .shift-badge {
