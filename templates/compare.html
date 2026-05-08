@@ -230,6 +230,13 @@
         const ratio = v.videoWidth / v.videoHeight;
         wrap.style.setProperty('--ratio', ratio);
         wrap.style.aspectRatio = `${v.videoWidth} / ${v.videoHeight}`;
+        // Tant qu'aucun pro n'est chargé, on aligne son wrap sur le ratio
+        // du rider pour que les deux rectangles aient la même taille.
+        if (which === 'rider' && !vPro.videoWidth) {
+          const proWrap = vPro.parentElement;
+          proWrap.style.setProperty('--ratio', ratio);
+          proWrap.style.aspectRatio = `${v.videoWidth} / ${v.videoHeight}`;
+        }
       }
     }
     vRider.addEventListener('loadedmetadata', () => applyNativeRatio('rider'));
