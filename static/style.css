@@ -1015,8 +1015,11 @@ input[type="text"].rider-name-input {
 
 /* Sur la page compare, on serre le padding au max pour donner toute la
    largeur possible aux vidéos. Les deux panneaux sont collés (gap: 0). */
-.compare-shell .content { padding: 14px 16px 22px; }
-.compare-shell header.compare-header { margin-bottom: 10px; }
+.compare-shell .content { padding: 12px 8px 18px; }
+.compare-shell header.compare-header { margin-bottom: 8px; padding: 0 8px; }
+.compare-shell .sync-bar-wrap,
+.compare-shell .angles-compare-wrap,
+.compare-shell .compare-footer { margin-left: 8px; margin-right: 8px; }
 .compare-shell .video-panel:first-child { border-right: 1px solid var(--border); }
 
 /* Badge de calage manuel (rider/pro shifté du gate) */
@@ -1085,8 +1088,8 @@ input[type="text"].rider-name-input {
 .panel-video-wrap {
   position: relative;
   background: #000;
-  aspect-ratio: 3 / 2;
-  max-height: 78vh;
+  aspect-ratio: 4 / 3;
+  max-height: 82vh;
   flex-shrink: 0;
 }
 .panel-video-wrap video {
