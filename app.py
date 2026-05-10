@@ -810,6 +810,142 @@ async def compare_angles(job_id: str,
     }
 
 
+# ── Séquence animée des angles (rider vs pro sur une fenêtre de temps) ───────
+def _compute_sequence(csv_path: Path, gate_t: float, side: str,
+                      t_start: float, t_end: float) -> list[dict]:
+    """Retourne la liste {T, frame, t, angles, skeleton} pour toutes les frames
+    du CSV dont le temps est dans [gate_t + t_start, gate_t + t_end]. T est le
+    temps relatif au gate drop (T=0 = chute des grilles)."""
+    if not csv_path.exists():
+        return []
+    df = pd.read_csv(csv_path)
+    if "time" not in df.columns or len(df) == 0:
+        return []
+    t_lo = gate_t + t_start
+    t_hi = gate_t + t_end
+    sub  = df[(df["time"] >= t_lo) & (df["time"] <= t_hi)]
+    if sub.empty:
+        return []
+
+    # Direction (face droite/gauche) : on prend la médiane sur la fenêtre pour
+    # éviter les flips ponctuels dus au bruit de pose detection.
+    nose_x = sub.get("nose_x")
+    L_hi_x = sub.get("L_hip_x")
+    R_hi_x = sub.get("R_hip_x")
+    direction = 1
+    if nose_x is not None and L_hi_x is not None and R_hi_x is not None:
+        center_hip = (L_hi_x + R_hi_x) / 2.0
+        diff = (nose_x - center_hip).dropna()
+        if len(diff) > 0:
+            direction = 1 if float(diff.median()) > 0 else -1
+
+    out: list[dict] = []
+    for idx, row in sub.iterrows():
+        t = float(row["time"])
+        T = round(t - gate_t, 3)
+
+        def _pt(part: str):
+            x = row.get(f"{side}_{part}_x", np.nan)
+            y = row.get(f"{side}_{part}_y", np.nan)
+            return (float(x), float(y))
+
+        sh = _pt("shoulder"); el = _pt("elbow"); wr = _pt("wrist")
+        hi = _pt("hip");      kn = _pt("knee");  an = _pt("ankle")
+
+        def _safe_angle(p1, p2, p3):
+            if any(np.isnan(p[0]) or np.isnan(p[1]) for p in (p1, p2, p3)):
+                return None
+            a = float(calculate_angle(p1, p2, p3))
+            return round(a, 1) if not np.isnan(a) else None
+
+        knee_a     = _safe_angle(hi, kn, an)
+        hip_a      = _safe_angle(sh, hi, kn)
+        elbow_a    = _safe_angle(sh, el, wr)
+        shoulder_a = _safe_angle(hi, sh, el)
+        ankle_a = None
+        if not (np.isnan(an[0]) or np.isnan(kn[0])):
+            toe_proxy = (an[0] + 30 * direction, an[1])
+            ankle_a   = _safe_angle(kn, an, toe_proxy)
+        trunk_a = None
+        if not (np.isnan(sh[0]) or np.isnan(hi[0])):
+            dx = sh[0] - hi[0]
+            dy = sh[1] - hi[1]
+            trunk_a = round(float(np.degrees(np.arctan2(direction * dx, -dy))), 1)
+
+        out.append({
+            "T":        T,
+            "t":        round(t, 3),
+            "frame":    int(idx),
+            "knee":     knee_a,
+            "hip":      hip_a,
+            "ankle":    ankle_a,
+            "shoulder": shoulder_a,
+            "elbow":    elbow_a,
+            "trunk":    trunk_a,
+            "skeleton": _normalized_skeleton(row, side, direction),
+        })
+    return out
+
+
+@app.post("/compare_angles_sequence/{job_id}")
+async def compare_angles_sequence(job_id: str,
+                                  pro_id:  str   = Form(...),
+                                  t_start: float = Form(-0.5),
+                                  t_end:   float = Form(2.5)):
+    """Retourne la séquence complète des squelettes + angles pour rider et pro
+    sur une fenêtre [gate_t + t_start, gate_t + t_end]. T = 0 = gate drop.
+    Permet d'animer une comparaison vidéo des squelettes superposés."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return JSONResponse({"error": "Job introuvable ou non terminé."},
+                            status_code=404)
+    pro = pros.get(pro_id)
+    if not pro or pro.get("status") != "done":
+        return JSONResponse({"error": "Pro introuvable ou non analysé."},
+                            status_code=404)
+
+    rider_results = job["results"]
+    rider_csv     = OUTPUT_DIR / rider_results["files"]["landmarks_csv"]
+    rider_side    = rider_results.get("front_foot") or "L"
+    rider_gate_t  = float(rider_results.get("gate_drop_t", 0.0))
+
+    pro_csv_name = pro.get("landmarks_csv") \
+                   or pro["video_file"].replace("_annotated.mp4", "_landmarks.csv")
+    pro_csv      = OUTPUT_DIR / pro_csv_name
+    pro_side     = pro.get("front_foot")
+    if not pro_side and pro_csv.exists():
+        pro_side = _infer_front_foot_from_csv(pd.read_csv(pro_csv))
+    pro_side    = pro_side or "L"
+    pro_gate_t  = float(pro.get("gate_drop_t", 0.0))
+
+    rider_seq = _compute_sequence(rider_csv, rider_gate_t, rider_side,
+                                  t_start, t_end)
+    pro_seq   = _compute_sequence(pro_csv,   pro_gate_t,   pro_side,
+                                  t_start, t_end)
+
+    if not rider_seq or not pro_seq:
+        return JSONResponse(
+            {"error": f"Lecture CSV impossible (rider={rider_csv.exists()}, pro={pro_csv.exists()})"},
+            status_code=500,
+        )
+
+    # FPS approximatif (pour le client)
+    def _est_fps(seq):
+        if len(seq) < 2: return 30.0
+        dt = seq[-1]["t"] - seq[0]["t"]
+        return round((len(seq) - 1) / dt, 2) if dt > 0 else 30.0
+
+    return {
+        "rider":      rider_seq,
+        "pro":        pro_seq,
+        "rider_fps":  _est_fps(rider_seq),
+        "pro_fps":    _est_fps(pro_seq),
+        "t_start":    t_start,
+        "t_end":      t_end,
+        "pro_name":   pro.get("name", "Pro"),
+    }
+
+
 # ── Comparaison ───────────────────────────────────────────────────────────────
 @app.get("/compare/{job_id}")
 async def compare(request: Request, job_id: str):

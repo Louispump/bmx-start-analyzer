@@ -98,9 +98,50 @@
       <button class="btn btn-compare-angles" id="btn-compare-angles" disabled>
         📐 Comparer les angles ici
       </button>
+      <button class="btn btn-animate-angles" id="btn-animate-angles" disabled>
+        🎬 Animer la séquence
+      </button>
       <span class="angles-compare-hint" id="angles-hint">
         Sélectionne un pro, place les 2 vidéos sur la frame voulue, puis clique.
       </span>
+    </div>
+
+    <!-- Animation des squelettes superposés (gate −0.5s à +2.5s) -->
+    <div class="angles-anim-panel" id="angles-anim-panel" style="display:none">
+      <div class="angles-compare-row">
+        <div class="overlay-box">
+          <div class="overlay-legend">
+            <span><span class="dot dot-rider"></span> Rider</span>
+            <span><span class="dot dot-pro"></span> <span id="anim-pro-name">Pro</span></span>
+            <span class="anim-T-tag" id="anim-T">T +0.000s</span>
+          </div>
+          <canvas id="anim-canvas" width="320" height="400"></canvas>
+          <div class="anim-controls">
+            <button class="btn-frame btn-frame-dark" onclick="animStep(-1)">&#9664;</button>
+            <button class="btn-frame btn-frame-dark" onclick="animTogglePlay()" id="btn-anim-play">▶</button>
+            <button class="btn-frame btn-frame-dark" onclick="animStep(+1)">&#9654;</button>
+          </div>
+          <input type="range" class="scrubber scrubber-light" id="anim-scrub"
+                 min="0" max="100" value="0" step="1">
+          <p class="overlay-note">Lecture synchronisée sur le gate drop (T=0 = chute des grilles).</p>
+        </div>
+        <div class="angles-table-box">
+          <table class="angles-compare-table">
+            <thead>
+              <tr>
+                <th>Articulation</th>
+                <th>Rider</th>
+                <th><span id="anim-pro-name-2">Pro</span></th>
+                <th>Écart</th>
+              </tr>
+            </thead>
+            <tbody id="anim-tbody"></tbody>
+          </table>
+          <p class="ac-note">
+            Les angles se mettent à jour image par image. Espace = play/pause, ←/→ = frame par frame quand l'animation a le focus.
+          </p>
+        </div>
+      </div>
     </div>
     <div class="angles-compare-panel" id="angles-panel" style="display:none">
       <div class="angles-compare-row">
@@ -326,6 +367,8 @@
         proGateT = null;
         currentProId = null;
         btnAngles.disabled = true;
+        const btnAnimReset = document.getElementById('btn-animate-angles');
+        if (btnAnimReset) btnAnimReset.disabled = true;
         return;
       }
       proFps   = parseFloat(opt.dataset.fps)  || riderFps;
@@ -341,6 +384,8 @@
       scrubSync.disabled   = true;
       counters.pro.textContent = 'Chargement…';
       btnAngles.disabled = !currentProId;
+      const btnAnim = document.getElementById('btn-animate-angles');
+      if (btnAnim) btnAnim.disabled = !currentProId;
       vPro.src = '/output/' + videoFile;
       vPro.load();
       vPro.addEventListener('loadedmetadata', () => {
@@ -463,6 +508,143 @@
         ctx.arc(p[0], p[1], name === "nose" ? 6 : 4, 0, Math.PI * 2);
         ctx.fill();
       }
+    }
+
+    // ── Animation des squelettes (séquence rider+pro) ───────────────
+    let animSeq = null;     // { rider:[…], pro:[…], rider_fps, pro_fps }
+    let animIdx = 0;
+    let animPlaying = false;
+    let animTimer = null;
+
+    document.getElementById('btn-animate-angles').addEventListener('click', async () => {
+      if (!currentProId) return;
+      const btn  = document.getElementById('btn-animate-angles');
+      const hint = document.getElementById('angles-hint');
+      btn.disabled = true; hint.textContent = "Chargement de la séquence…";
+      const fd = new FormData();
+      fd.append('pro_id', currentProId);
+      try {
+        const res  = await fetch(`/compare_angles_sequence/{{ job_id }}`, { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+          hint.textContent = "Erreur : " + (data.error || res.status);
+          btn.disabled = false;
+          return;
+        }
+        animSeq = data;
+        animIdx = 0;
+        document.getElementById('anim-pro-name').textContent   = data.pro_name || 'Pro';
+        document.getElementById('anim-pro-name-2').textContent = data.pro_name || 'Pro';
+        const scrub = document.getElementById('anim-scrub');
+        const N = Math.max(data.rider.length, data.pro.length) - 1;
+        scrub.max = Math.max(1, N);
+        scrub.value = 0;
+        document.getElementById('angles-anim-panel').style.display = 'block';
+        hint.textContent = `Séquence chargée (${data.rider.length} frames rider · ${data.pro.length} frames pro · ${data.t_start}s à +${data.t_end}s).`;
+        animRender();
+      } catch (e) {
+        hint.textContent = "Erreur réseau : " + e.message;
+      }
+      btn.disabled = false;
+    });
+
+    function animFrameAtIdx(seq, idx) {
+      if (!seq || seq.length === 0) return null;
+      return seq[Math.max(0, Math.min(seq.length - 1, idx))];
+    }
+
+    function animRender() {
+      if (!animSeq) return;
+      // On utilise idx du rider comme référence ; le pro est aligné par T (gate=0)
+      const rFrame = animFrameAtIdx(animSeq.rider, animIdx);
+      if (!rFrame) return;
+      // Trouver la frame pro la plus proche en T
+      let pBest = animSeq.pro[0];
+      let bestDiff = Infinity;
+      for (const f of animSeq.pro) {
+        const d = Math.abs(f.T - rFrame.T);
+        if (d < bestDiff) { bestDiff = d; pBest = f; }
+      }
+      drawOverlayCanvas('anim-canvas', rFrame.skeleton, pBest.skeleton);
+      // Tag T
+      const t = rFrame.T;
+      document.getElementById('anim-T').textContent =
+        `T ${t >= 0 ? '+' : ''}${t.toFixed(3)}s`;
+      // Table angles live
+      animRenderTable(rFrame, pBest);
+    }
+
+    function animRenderTable(r, p) {
+      const tbody = document.getElementById('anim-tbody');
+      tbody.innerHTML = '';
+      JOINT_ORDER.forEach(joint => {
+        const rv = r[joint], pv = p[joint];
+        const d  = (rv !== null && pv !== null) ? +(rv - pv).toFixed(1) : null;
+        const cls = (d === null) ? "" : deltaClass(d);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${JOINT_LABELS[joint]}</strong></td>
+          <td>${fmt(rv)}</td>
+          <td>${fmt(pv)}</td>
+          <td class="ac-delta ${cls}">${d === null ? "—" : (d >= 0 ? "+" : "") + d + "°"}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function animStep(dir) {
+      if (!animSeq) return;
+      animPause();
+      animIdx = Math.max(0, Math.min(animSeq.rider.length - 1, animIdx + dir));
+      document.getElementById('anim-scrub').value = animIdx;
+      animRender();
+    }
+
+    function animTogglePlay() {
+      if (!animSeq) return;
+      if (animPlaying) animPause(); else animPlay();
+    }
+    function animPlay() {
+      if (!animSeq) return;
+      animPlaying = true;
+      document.getElementById('btn-anim-play').textContent = '⏸';
+      const dt = 1000 / (animSeq.rider_fps || 30);
+      animTimer = setInterval(() => {
+        animIdx++;
+        if (animIdx >= animSeq.rider.length) { animPause(); return; }
+        document.getElementById('anim-scrub').value = animIdx;
+        animRender();
+      }, dt);
+    }
+    function animPause() {
+      animPlaying = false;
+      document.getElementById('btn-anim-play').textContent = '▶';
+      if (animTimer) { clearInterval(animTimer); animTimer = null; }
+    }
+
+    document.getElementById('anim-scrub').addEventListener('input', e => {
+      animPause();
+      animIdx = parseInt(e.target.value, 10) || 0;
+      animRender();
+    });
+
+    function drawOverlayCanvas(canvasId, riderSkel, proSkel) {
+      const canvas = document.getElementById(canvasId);
+      const ctx    = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = "#0a0a0a";
+      ctx.fillRect(0, 0, W, H);
+      const cx = W / 2;
+      const cy = H * 0.55;
+      ctx.strokeStyle = "#222";
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10); ctx.stroke();
+      const SCALE = 90;
+      drawSkeleton(ctx, proSkel,   "#ff3b9b", SCALE, cx, cy);
+      drawSkeleton(ctx, riderSkel, "#00d4ff", SCALE, cx, cy);
     }
 
     function drawOverlay(riderSkel, proSkel) {
