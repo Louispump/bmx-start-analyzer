@@ -1111,6 +1111,14 @@ input[type="text"].rider-name-input {
 .rider-tag { background: var(--rider); color: #00131a; }
 .pro-tag   { background: var(--pro);   color: #fff; }
 .panel-name { color: var(--text); font-weight: 500; }
+.panel-date {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.panel-date:empty { display: none; }
 
 .panel-video-wrap {
   position: relative;

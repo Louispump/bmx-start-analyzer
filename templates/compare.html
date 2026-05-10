@@ -9,22 +9,58 @@
     <div class="compare-header-left">
       <a href="/result/{{ job_id }}" class="back-link">← Retour analyse</a>
       <h1>Comparaison</h1>
-      <p class="subtitle">Rider en cyan, pro en magenta. Scrub indépendamment ou via la sync sur le gate drop.</p>
+      <p class="subtitle">Rider en cyan, référence en magenta (pro · autre départ de l'athlète · autre athlète). Scrub indépendamment ou via la sync sur le gate drop.</p>
     </div>
     <div class="pro-selector">
-      <select id="pro-select" onchange="changePro(this)" class="pro-select">
-        <option value="">— Choisir un pro —</option>
-        {% for pro in pros_list %}
-        <option value="{{ pro.video_file }}"
-                data-pro-id="{{ pro.id }}"
-                data-fps="{{ pro.fps }}"
-                data-gate="{{ pro.gate_drop_t }}"
-                data-name="{{ pro.name }}">
-          {{ pro.name }}
-        </option>
-        {% endfor %}
+      <select id="ref-select" onchange="changeReference(this)" class="pro-select">
+        <option value="">— Comparer avec —</option>
+        {% if pros_list %}
+        <optgroup label="Pros">
+          {% for pro in pros_list %}
+          <option value="{{ pro.video_file }}"
+                  data-ref-type="pro"
+                  data-ref-id="{{ pro.id }}"
+                  data-fps="{{ pro.fps }}"
+                  data-gate="{{ pro.gate_drop_t }}"
+                  data-name="{{ pro.name }}"
+                  data-date="">
+            {{ pro.name }}
+          </option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+        {% if same_athlete_jobs %}
+        <optgroup label="{{ current_athlete }} — autres départs">
+          {% for j in same_athlete_jobs %}
+          <option value="{{ j.annotated_video }}"
+                  data-ref-type="job"
+                  data-ref-id="{{ j.id }}"
+                  data-fps="{{ j.fps }}"
+                  data-gate="{{ j.gate_drop_t }}"
+                  data-name="{{ current_athlete }}"
+                  data-date="{{ j.added_at.split(' ')[0] if j.added_at else '' }}">
+            {{ j.added_at.split(' ')[0] if j.added_at else j.video_name }}
+          </option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+        {% if other_jobs %}
+        <optgroup label="Autres athlètes">
+          {% for j in other_jobs %}
+          <option value="{{ j.annotated_video }}"
+                  data-ref-type="job"
+                  data-ref-id="{{ j.id }}"
+                  data-fps="{{ j.fps }}"
+                  data-gate="{{ j.gate_drop_t }}"
+                  data-name="{{ j.athlete_name or 'Sans athlète' }}"
+                  data-date="{{ j.added_at.split(' ')[0] if j.added_at else '' }}">
+            {{ j.athlete_name or 'Sans athlète' }}{% if j.added_at %} — {{ j.added_at.split(' ')[0] }}{% endif %}
+          </option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
       </select>
-      <a href="/pros" class="btn-manage-pros">Gérer</a>
+      <a href="/pros" class="btn-manage-pros">Gérer pros</a>
     </div>
   </header>
 
@@ -54,12 +90,13 @@
     <!-- PRO -->
     <div class="video-panel" id="panel-pro">
       <div class="panel-label" onclick="setActive('pro')">
-        <span class="panel-tag pro-tag">PRO</span>
-        <span class="panel-name" id="pro-name">Sélectionne un pro</span>
+        <span class="panel-tag pro-tag">RÉFÉRENCE</span>
+        <span class="panel-name" id="pro-name">Choisir une référence</span>
+        <span class="panel-date" id="pro-date"></span>
         <span class="shift-badge" id="badge-pro-shift"></span>
       </div>
       <div class="panel-video-wrap" id="pro-video-wrap">
-        <div class="panel-empty" id="pro-empty">Sélectionne un pro<br>dans le menu ci-dessus</div>
+        <div class="panel-empty" id="pro-empty">Choisis une référence dans le menu en haut :<br>pro · autre départ de l'athlète · autre athlète</div>
         <video id="video-pro" playsinline preload="auto" style="display:none"></video>
       </div>
       <div class="panel-scrubber-wrap" onclick="event.stopPropagation()">
@@ -350,12 +387,15 @@
       if (e.key === 'Tab') { e.preventDefault(); setActive(active === 'rider' ? 'pro' : 'rider'); }
     });
 
-    let currentProId = null;
-    function changePro(select) {
+    let currentRefType = null;   // 'pro' | 'job'
+    let currentRefId   = null;
+    function changeReference(select) {
       const opt       = select.options[select.selectedIndex];
       const videoFile = select.value;
       const empty     = document.getElementById('pro-empty');
       const btnAngles = document.getElementById('btn-compare-angles');
+      const btnAnim   = document.getElementById('btn-animate-angles');
+      const dateEl    = document.getElementById('pro-date');
 
       if (!videoFile) {
         vPro.style.display = 'none'; vPro.src = '';
@@ -363,12 +403,13 @@
         scrubs.pro.disabled = true; scrubs.pro.value = 0;
         scrubSync.disabled  = true; scrubSync.value  = 0;
         counters.pro.textContent = 'Frame —';
-        document.getElementById('pro-name').textContent = 'Sélectionne un pro';
+        document.getElementById('pro-name').textContent = 'Choisir une référence';
+        if (dateEl) dateEl.textContent = '';
         proGateT = null;
-        currentProId = null;
+        currentRefType = null;
+        currentRefId   = null;
         btnAngles.disabled = true;
-        const btnAnimReset = document.getElementById('btn-animate-angles');
-        if (btnAnimReset) btnAnimReset.disabled = true;
+        if (btnAnim) btnAnim.disabled = true;
         return;
       }
       proFps   = parseFloat(opt.dataset.fps)  || riderFps;
@@ -376,16 +417,18 @@
       proRefT  = proGateT;
       riderRefT = riderGateT;
       currentSyncOffset = 0;
-      currentProId = opt.dataset.proId || null;
-      document.getElementById('pro-name').textContent = opt.dataset.name;
+      currentRefType = opt.dataset.refType || null;
+      currentRefId   = opt.dataset.refId   || null;
+      document.getElementById('pro-name').textContent = opt.dataset.name || '—';
+      if (dateEl) dateEl.textContent = opt.dataset.date || '';
       empty.style.display  = 'none';
       vPro.style.display   = 'block';
       scrubs.pro.disabled  = true;
       scrubSync.disabled   = true;
       counters.pro.textContent = 'Chargement…';
-      btnAngles.disabled = !currentProId;
-      const btnAnim = document.getElementById('btn-animate-angles');
-      if (btnAnim) btnAnim.disabled = !currentProId;
+      const ok = !!(currentRefType && currentRefId);
+      btnAngles.disabled = !ok;
+      if (btnAnim) btnAnim.disabled = !ok;
       vPro.src = '/output/' + videoFile;
       vPro.load();
       vPro.addEventListener('loadedmetadata', () => {
@@ -418,14 +461,15 @@
     }
 
     document.getElementById('btn-compare-angles').addEventListener('click', async () => {
-      if (!currentProId) return;
+      if (!currentRefId) return;
       const btn  = document.getElementById('btn-compare-angles');
       const hint = document.getElementById('angles-hint');
       btn.disabled = true; hint.textContent = "Calcul en cours…";
       const fd = new FormData();
-      fd.append('pro_id',  currentProId);
-      fd.append('rider_t', vRider.currentTime);
-      fd.append('pro_t',   vPro.currentTime);
+      fd.append('ref_type', currentRefType);
+      fd.append('ref_id',   currentRefId);
+      fd.append('rider_t',  vRider.currentTime);
+      fd.append('pro_t',    vPro.currentTime);
       try {
         const res  = await fetch(`/compare_angles/{{ job_id }}`, { method: "POST", body: fd });
         const data = await res.json();
@@ -517,12 +561,13 @@
     let animTimer = null;
 
     document.getElementById('btn-animate-angles').addEventListener('click', async () => {
-      if (!currentProId) return;
+      if (!currentRefId) return;
       const btn  = document.getElementById('btn-animate-angles');
       const hint = document.getElementById('angles-hint');
       btn.disabled = true; hint.textContent = "Chargement de la séquence…";
       const fd = new FormData();
-      fd.append('pro_id', currentProId);
+      fd.append('ref_type', currentRefType);
+      fd.append('ref_id',   currentRefId);
       try {
         const res  = await fetch(`/compare_angles_sequence/{{ job_id }}`, { method: "POST", body: fd });
         const data = await res.json();

@@ -88,6 +88,24 @@ jobs:     dict = load_jobs()
 athletes: dict = load_athletes()
 
 
+def _job_compare_entry(jid: str, j: dict, athlete_name: str | None = None) -> dict:
+    """Format compact d'un job pour le sélecteur "Comparer avec" sur la page
+    Compare. Retourne tout ce qu'il faut pour piloter le panneau référence."""
+    r = j.get("results", {})
+    return {
+        "id":               jid,
+        "video_name":       r.get("video_name", j.get("filename", "—")),
+        "annotated_video":  r.get("files", {}).get("annotated_video", ""),
+        "landmarks_csv":    r.get("files", {}).get("landmarks_csv", ""),
+        "fps":              r.get("fps"),
+        "gate_drop_t":      r.get("gate_drop_t"),
+        "front_foot":       r.get("front_foot"),
+        "added_at":         j.get("added_at", ""),
+        "athlete_id":       j.get("athlete_id"),
+        "athlete_name":     athlete_name,
+    }
+
+
 def _athlete_jobs(athlete_id: str) -> list[dict]:
     """Retourne tous les jobs (terminés) liés à cet athlète, triés du plus récent au plus ancien."""
     out = []
@@ -761,52 +779,84 @@ def _compute_angles_at_time(csv_path: Path, t: float, side: str) -> dict | None:
     }
 
 
+def _resolve_reference(ref_type: str, ref_id: str) -> dict | None:
+    """Résout une référence (pro ou autre job) en un dict commun :
+    {csv_path, side, gate_t, name}. Retourne None si introuvable / invalide."""
+    if ref_type == "pro":
+        pro = pros.get(ref_id)
+        if not pro or pro.get("status") != "done":
+            return None
+        csv_name = pro.get("landmarks_csv") \
+                   or pro["video_file"].replace("_annotated.mp4", "_landmarks.csv")
+        csv_path = OUTPUT_DIR / csv_name
+        side = pro.get("front_foot")
+        if not side and csv_path.exists():
+            side = _infer_front_foot_from_csv(pd.read_csv(csv_path))
+        return {
+            "csv_path": csv_path,
+            "side":     side or "L",
+            "gate_t":   float(pro.get("gate_drop_t", 0.0)),
+            "name":     pro.get("name", "Pro"),
+        }
+    if ref_type == "job":
+        j = jobs.get(ref_id)
+        if not j or j.get("status") != "done":
+            return None
+        r = j.get("results", {})
+        csv_name = r.get("files", {}).get("landmarks_csv")
+        if not csv_name:
+            return None
+        aid = j.get("athlete_id")
+        ath = athletes.get(aid, {}).get("name") if aid else None
+        date = j.get("added_at", "").split(" ")[0] if j.get("added_at") else ""
+        name = f"{ath} — {date}" if ath else (r.get("video_name") or date or "Référence")
+        return {
+            "csv_path": OUTPUT_DIR / csv_name,
+            "side":     r.get("front_foot") or "L",
+            "gate_t":   float(r.get("gate_drop_t", 0.0)),
+            "name":     name,
+        }
+    return None
+
+
 @app.post("/compare_angles/{job_id}")
-async def compare_angles(job_id: str,
-                         pro_id:    str   = Form(...),
+async def compare_angles(job_id:    str,
                          rider_t:   float = Form(...),
-                         pro_t:     float = Form(...)):
-    """Calcule et compare les 6 angles articulaires (rider vs pro) aux instants
-    spécifiés. Lit les CSV landmarks déjà générés par l'analyse — pas de
-    ré-analyse ni de re-pose-detection."""
+                         pro_t:     float = Form(...),
+                         pro_id:    str   = Form(""),
+                         ref_type:  str   = Form(""),
+                         ref_id:    str   = Form("")):
+    """Calcule les 6 angles articulaires (rider vs référence) aux instants
+    spécifiés. Référence = pro de la banque OU autre job déjà analysé.
+    Compatibilité : `pro_id` seul est encore accepté (= ref_type=pro)."""
     job = get_job_or_recover(job_id)
     if not job or job.get("status") != "done":
         return JSONResponse({"error": "Job introuvable ou non terminé."},
                             status_code=404)
-    pro = pros.get(pro_id)
-    if not pro or pro.get("status") != "done":
-        return JSONResponse({"error": "Pro introuvable ou non analysé."},
+    if not ref_type and pro_id:
+        ref_type, ref_id = "pro", pro_id
+    ref = _resolve_reference(ref_type, ref_id)
+    if not ref:
+        return JSONResponse({"error": "Référence introuvable ou non analysée."},
                             status_code=404)
 
     rider_results = job["results"]
     rider_csv     = OUTPUT_DIR / rider_results["files"]["landmarks_csv"]
     rider_side    = rider_results.get("front_foot") or "L"
 
-    pro_csv_name  = pro.get("landmarks_csv")
-    if not pro_csv_name:
-        # Pro analysé avant l'ajout du champ — on dérive depuis la vidéo annotée
-        pro_csv_name = pro["video_file"].replace("_annotated.mp4", "_landmarks.csv")
-    pro_csv = OUTPUT_DIR / pro_csv_name
-
-    # Fallback : déduire le côté pied avant si non stocké côté pro
-    pro_side = pro.get("front_foot")
-    if not pro_side and pro_csv.exists():
-        pro_side = _infer_front_foot_from_csv(pd.read_csv(pro_csv))
-    pro_side = pro_side or "L"
-
     rider_angles = _compute_angles_at_time(rider_csv, rider_t, rider_side)
-    pro_angles   = _compute_angles_at_time(pro_csv,   pro_t,   pro_side)
+    ref_angles   = _compute_angles_at_time(ref["csv_path"], pro_t, ref["side"])
 
-    if rider_angles is None or pro_angles is None:
+    if rider_angles is None or ref_angles is None:
         return JSONResponse(
-            {"error": f"Lecture CSV impossible (rider={rider_csv.exists()}, pro={pro_csv.exists()})"},
+            {"error": f"Lecture CSV impossible (rider={rider_csv.exists()}, ref={ref['csv_path'].exists()})"},
             status_code=500,
         )
 
     return {
-        "rider":   rider_angles,
-        "pro":     pro_angles,
-        "pro_name": pro.get("name", "Pro"),
+        "rider":    rider_angles,
+        "pro":      ref_angles,    # clé conservée pour compat front
+        "pro_name": ref["name"],
     }
 
 
@@ -889,19 +939,23 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
 
 @app.post("/compare_angles_sequence/{job_id}")
 async def compare_angles_sequence(job_id: str,
-                                  pro_id:  str   = Form(...),
-                                  t_start: float = Form(-0.5),
-                                  t_end:   float = Form(2.5)):
-    """Retourne la séquence complète des squelettes + angles pour rider et pro
-    sur une fenêtre [gate_t + t_start, gate_t + t_end]. T = 0 = gate drop.
-    Permet d'animer une comparaison vidéo des squelettes superposés."""
+                                  pro_id:   str   = Form(""),
+                                  ref_type: str   = Form(""),
+                                  ref_id:   str   = Form(""),
+                                  t_start:  float = Form(-0.5),
+                                  t_end:    float = Form(2.5)):
+    """Séquence complète squelettes + angles, rider vs référence (pro ou autre
+    job). Fenêtre [gate_t + t_start, gate_t + t_end] alignée sur le gate drop
+    de chaque vidéo (T=0 = chute des grilles)."""
     job = get_job_or_recover(job_id)
     if not job or job.get("status") != "done":
         return JSONResponse({"error": "Job introuvable ou non terminé."},
                             status_code=404)
-    pro = pros.get(pro_id)
-    if not pro or pro.get("status") != "done":
-        return JSONResponse({"error": "Pro introuvable ou non analysé."},
+    if not ref_type and pro_id:
+        ref_type, ref_id = "pro", pro_id
+    ref = _resolve_reference(ref_type, ref_id)
+    if not ref:
+        return JSONResponse({"error": "Référence introuvable ou non analysée."},
                             status_code=404)
 
     rider_results = job["results"]
@@ -909,27 +963,17 @@ async def compare_angles_sequence(job_id: str,
     rider_side    = rider_results.get("front_foot") or "L"
     rider_gate_t  = float(rider_results.get("gate_drop_t", 0.0))
 
-    pro_csv_name = pro.get("landmarks_csv") \
-                   or pro["video_file"].replace("_annotated.mp4", "_landmarks.csv")
-    pro_csv      = OUTPUT_DIR / pro_csv_name
-    pro_side     = pro.get("front_foot")
-    if not pro_side and pro_csv.exists():
-        pro_side = _infer_front_foot_from_csv(pd.read_csv(pro_csv))
-    pro_side    = pro_side or "L"
-    pro_gate_t  = float(pro.get("gate_drop_t", 0.0))
-
     rider_seq = _compute_sequence(rider_csv, rider_gate_t, rider_side,
                                   t_start, t_end)
-    pro_seq   = _compute_sequence(pro_csv,   pro_gate_t,   pro_side,
+    ref_seq   = _compute_sequence(ref["csv_path"], ref["gate_t"], ref["side"],
                                   t_start, t_end)
 
-    if not rider_seq or not pro_seq:
+    if not rider_seq or not ref_seq:
         return JSONResponse(
-            {"error": f"Lecture CSV impossible (rider={rider_csv.exists()}, pro={pro_csv.exists()})"},
+            {"error": f"Lecture CSV impossible (rider={rider_csv.exists()}, ref={ref['csv_path'].exists()})"},
             status_code=500,
         )
 
-    # FPS approximatif (pour le client)
     def _est_fps(seq):
         if len(seq) < 2: return 30.0
         dt = seq[-1]["t"] - seq[0]["t"]
@@ -937,12 +981,12 @@ async def compare_angles_sequence(job_id: str,
 
     return {
         "rider":      rider_seq,
-        "pro":        pro_seq,
+        "pro":        ref_seq,    # clé conservée pour compat front
         "rider_fps":  _est_fps(rider_seq),
-        "pro_fps":    _est_fps(pro_seq),
+        "pro_fps":    _est_fps(ref_seq),
         "t_start":    t_start,
         "t_end":      t_end,
-        "pro_name":   pro.get("name", "Pro"),
+        "pro_name":   ref["name"],
     }
 
 
@@ -954,9 +998,36 @@ async def compare(request: Request, job_id: str):
         return templates.TemplateResponse(request, "index.html",
                                           {"error": "Job introuvable."})
     pros_done = [p for p in pros.values() if p.get("status") == "done"]
+
+    # Sélecteur élargi : jobs du même athlète + jobs d'autres athlètes (ou sans athlète),
+    # tous filtrés sur status=done et ayant un landmarks_csv exploitable.
+    cur_athlete_id = job.get("athlete_id")
+    same_athlete_jobs: list[dict] = []
+    other_jobs: list[dict] = []
+    for jid, j in jobs.items():
+        if jid == job_id:
+            continue
+        if j.get("status") != "done":
+            continue
+        r = j.get("results", {})
+        if not r.get("files", {}).get("landmarks_csv"):
+            continue
+        aid = j.get("athlete_id")
+        athlete_name = athletes.get(aid, {}).get("name") if aid else None
+        entry = _job_compare_entry(jid, j, athlete_name)
+        if cur_athlete_id and aid == cur_athlete_id:
+            same_athlete_jobs.append(entry)
+        else:
+            other_jobs.append(entry)
+    same_athlete_jobs.sort(key=lambda x: x.get("added_at", ""), reverse=True)
+    other_jobs.sort(key=lambda x: x.get("added_at", ""), reverse=True)
+
     return templates.TemplateResponse(request, "compare.html", {
-        "job_id":    job_id,
-        "rider":     job["results"],
-        "pros_list": pros_done,
+        "job_id":             job_id,
+        "rider":              job["results"],
+        "pros_list":          pros_done,
+        "same_athlete_jobs":  same_athlete_jobs,
+        "other_jobs":         other_jobs,
+        "current_athlete":    athletes.get(cur_athlete_id, {}).get("name") if cur_athlete_id else None,
     })
 
