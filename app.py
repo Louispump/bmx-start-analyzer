@@ -662,13 +662,24 @@ def _infer_front_foot_from_csv(df: pd.DataFrame) -> str:
     return "L"
 
 
-def _arm_side_from_direction(direction: int) -> str:
-    """En BMX (rider en profil), le bras face caméra est mieux tracké par
-    la pose detection que celui à l'arrière, souvent occulté par le corps.
-    On découple donc le choix du bras de celui du pied avant :
-    - direction > 0 = rider face droite → caméra à sa gauche → bras L visible
-    - direction < 0 = rider face gauche → caméra à sa droite → bras R visible"""
-    return "L" if direction > 0 else "R"
+def _pick_arm_side_by_confidence(df_or_sub) -> str:
+    """Choisit le bras le mieux tracké par la pose detection sur la fenêtre
+    fournie : celui dont la confiance moyenne (épaule + coude + poignet) est
+    la plus haute. En BMX vue profil, c'est presque toujours le bras face
+    caméra (l'autre est occulté par le corps).
+
+    Plus fiable que de déduire le côté à partir de la direction du rider :
+    les labels L/R de la pose detection peuvent s'inverser sur certaines
+    vues profil, alors que la confiance reste un signal direct."""
+    cols_L = ["L_shoulder_conf", "L_elbow_conf", "L_wrist_conf"]
+    cols_R = ["R_shoulder_conf", "R_elbow_conf", "R_wrist_conf"]
+    has_L = all(c in df_or_sub.columns for c in cols_L)
+    has_R = all(c in df_or_sub.columns for c in cols_R)
+    if not (has_L and has_R):
+        return "L"
+    L_conf = float(df_or_sub[cols_L].mean().mean())
+    R_conf = float(df_or_sub[cols_R].mean().mean())
+    return "L" if L_conf >= R_conf else "R"
 
 
 def _normalized_skeleton_anchored(row, side: str, direction: int,
@@ -682,7 +693,7 @@ def _normalized_skeleton_anchored(row, side: str, direction: int,
     if not (np.isfinite(hip0_x) and np.isfinite(hip0_y) and scale0 > 1.0):
         return None
     if arm_side is None:
-        arm_side = _arm_side_from_direction(direction)
+        arm_side = side  # fallback si aucune info de confiance dispo
     other_leg = "R" if side     == "L" else "L"
     other_arm = "R" if arm_side == "L" else "L"
 
@@ -729,7 +740,7 @@ def _normalized_skeleton(row, side: str, direction: int,
         return None
 
     if arm_side is None:
-        arm_side = _arm_side_from_direction(direction)
+        arm_side = side  # fallback si aucune info de confiance dispo
     other_leg = "R" if side     == "L" else "L"
     other_arm = "R" if arm_side == "L" else "L"
 
@@ -787,9 +798,9 @@ def _compute_angles_at_time(csv_path: Path, t: float, side: str,
     else:
         direction = 1
 
-    # Bras : on prend toujours le côté face caméra (mieux tracké en profil),
-    # indépendamment du pied avant qui définit la jambe analysée.
-    arm_side = _arm_side_from_direction(direction)
+    # Bras : côté le mieux tracké (confiance moyenne du CSV entier), figé pour
+    # toute la séquence. C'est ~toujours le bras face caméra en BMX profil.
+    arm_side = _pick_arm_side_by_confidence(df)
 
     def _pt_arm(part: str):
         x = row.get(f"{arm_side}_{part}_x", np.nan)
@@ -846,7 +857,7 @@ def _compute_angles_at_time(csv_path: Path, t: float, side: str,
         scale0 = float(np.hypot(sh0_x - hip0_x, sh0_y - hip0_y)) \
                  if np.isfinite(hip0_x) and np.isfinite(sh0_x) else 0.0
         skeleton_free = _normalized_skeleton_anchored(
-            row, side, direction, hip0_x, hip0_y, scale0)
+            row, side, direction, hip0_x, hip0_y, scale0, arm_side=arm_side)
 
     return {
         "frame":         int(idx),
@@ -858,7 +869,7 @@ def _compute_angles_at_time(csv_path: Path, t: float, side: str,
         "shoulder":      shoulder_a,
         "elbow":         elbow_a,
         "trunk":         trunk_a,
-        "skeleton":      _normalized_skeleton(row, side, direction),
+        "skeleton":      _normalized_skeleton(row, side, direction, arm_side=arm_side),
         "skeleton_free": skeleton_free,
     }
 
@@ -995,8 +1006,9 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
     scale0  = float(np.hypot(sh0_x - hip0_x, sh0_y - hip0_y)) \
               if np.isfinite(hip0_x) and np.isfinite(sh0_x) else 0.0
 
-    # Bras toujours côté caméra (mieux tracké), jambe = front_foot
-    arm_side = _arm_side_from_direction(direction)
+    # Bras = côté le mieux tracké (confiance moyenne sur la fenêtre), figé
+    # pour toute la séquence. La jambe garde le front_foot du coach.
+    arm_side = _pick_arm_side_by_confidence(sub)
 
     out: list[dict] = []
     for idx, row in sub.iterrows():
@@ -1046,9 +1058,10 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
             "shoulder":      shoulder_a,
             "elbow":         elbow_a,
             "trunk":         trunk_a,
-            "skeleton":      _normalized_skeleton(row, side, direction),
+            "skeleton":      _normalized_skeleton(row, side, direction, arm_side=arm_side),
             "skeleton_free": _normalized_skeleton_anchored(
-                                  row, side, direction, hip0_x, hip0_y, scale0),
+                                  row, side, direction, hip0_x, hip0_y, scale0,
+                                  arm_side=arm_side),
         })
     return out
 
