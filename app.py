@@ -662,6 +662,41 @@ def _infer_front_foot_from_csv(df: pd.DataFrame) -> str:
     return "L"
 
 
+def _normalized_skeleton_anchored(row, side: str, direction: int,
+                                  hip0_x: float, hip0_y: float,
+                                  scale0: float) -> dict | None:
+    """Comme _normalized_skeleton mais ancré sur (hip0, scale0) fixés à un
+    instant de référence (T = −0.5s par défaut). La hanche n'est PAS remise à
+    (0,0) à chaque frame ; elle bouge avec le rider depuis sa position
+    initiale, ce qui révèle le déplacement réel pendant la séquence."""
+    if not (np.isfinite(hip0_x) and np.isfinite(hip0_y) and scale0 > 1.0):
+        return None
+    other = "R" if side == "L" else "L"
+
+    def _n(col_x: str, col_y: str):
+        x = row.get(col_x, np.nan)
+        y = row.get(col_y, np.nan)
+        if np.isnan(x) or np.isnan(y):
+            return None
+        nx = (x - hip0_x) / scale0
+        ny = (y - hip0_y) / scale0
+        if direction < 0:
+            nx = -nx
+        return [round(float(nx), 3), round(float(ny), 3)]
+
+    return {
+        "nose":          _n("nose_x",                "nose_y"),
+        "shoulder":      _n(f"{side}_shoulder_x",    f"{side}_shoulder_y"),
+        "elbow":         _n(f"{side}_elbow_x",       f"{side}_elbow_y"),
+        "wrist":         _n(f"{side}_wrist_x",       f"{side}_wrist_y"),
+        "hip":           _n(f"{side}_hip_x",         f"{side}_hip_y"),
+        "knee":          _n(f"{side}_knee_x",        f"{side}_knee_y"),
+        "ankle":         _n(f"{side}_ankle_x",       f"{side}_ankle_y"),
+        "back_shoulder": _n(f"{other}_shoulder_x",   f"{other}_shoulder_y"),
+        "back_hip":      _n(f"{other}_hip_x",        f"{other}_hip_y"),
+    }
+
+
 def _normalized_skeleton(row, side: str, direction: int) -> dict | None:
     """Normalise le squelette pour overlay : hanche à l'origine, échelle = 1.0
     sur la longueur hanche→épaule, mirror si le rider est tourné à gauche
@@ -862,10 +897,17 @@ async def compare_angles(job_id:    str,
 
 # ── Séquence animée des angles (rider vs pro sur une fenêtre de temps) ───────
 def _compute_sequence(csv_path: Path, gate_t: float, side: str,
-                      t_start: float, t_end: float) -> list[dict]:
-    """Retourne la liste {T, frame, t, angles, skeleton} pour toutes les frames
-    du CSV dont le temps est dans [gate_t + t_start, gate_t + t_end]. T est le
-    temps relatif au gate drop (T=0 = chute des grilles)."""
+                      t_start: float, t_end: float,
+                      anchor_T: float = -0.5) -> list[dict]:
+    """Retourne la liste {T, frame, t, angles, skeleton, skeleton_free} pour
+    toutes les frames du CSV dont le temps est dans [gate_t + t_start,
+    gate_t + t_end]. T = temps relatif au gate drop (T=0 = chute des grilles).
+
+    `anchor_T` = instant de référence pour le mode "mouvement libre" : on fige
+    la position des hanches et l'échelle hanche→épaule à cet instant (par
+    défaut T = −0.5s, juste avant la chute des grilles → position statique
+    parfaite comme référence). Les squelettes des deux ridens s'alignent
+    exactement à anchor_T puis divergent en suivant leur mouvement réel."""
     if not csv_path.exists():
         return []
     df = pd.read_csv(csv_path)
@@ -888,6 +930,18 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
         diff = (nose_x - center_hip).dropna()
         if len(diff) > 0:
             direction = 1 if float(diff.median()) > 0 else -1
+
+    # Ancrage T = anchor_T : on cherche dans le CSV complet (pas seulement la
+    # fenêtre) la frame la plus proche pour récupérer hip0 et scale0.
+    anchor_t_abs = gate_t + anchor_T
+    anchor_idx   = int((df["time"] - anchor_t_abs).abs().idxmin())
+    anchor_row   = df.loc[anchor_idx]
+    hip0_x  = float(anchor_row.get(f"{side}_hip_x",      np.nan))
+    hip0_y  = float(anchor_row.get(f"{side}_hip_y",      np.nan))
+    sh0_x   = float(anchor_row.get(f"{side}_shoulder_x", np.nan))
+    sh0_y   = float(anchor_row.get(f"{side}_shoulder_y", np.nan))
+    scale0  = float(np.hypot(sh0_x - hip0_x, sh0_y - hip0_y)) \
+              if np.isfinite(hip0_x) and np.isfinite(sh0_x) else 0.0
 
     out: list[dict] = []
     for idx, row in sub.iterrows():
@@ -923,16 +977,18 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
             trunk_a = round(float(np.degrees(np.arctan2(direction * dx, -dy))), 1)
 
         out.append({
-            "T":        T,
-            "t":        round(t, 3),
-            "frame":    int(idx),
-            "knee":     knee_a,
-            "hip":      hip_a,
-            "ankle":    ankle_a,
-            "shoulder": shoulder_a,
-            "elbow":    elbow_a,
-            "trunk":    trunk_a,
-            "skeleton": _normalized_skeleton(row, side, direction),
+            "T":             T,
+            "t":             round(t, 3),
+            "frame":         int(idx),
+            "knee":          knee_a,
+            "hip":           hip_a,
+            "ankle":         ankle_a,
+            "shoulder":      shoulder_a,
+            "elbow":         elbow_a,
+            "trunk":         trunk_a,
+            "skeleton":      _normalized_skeleton(row, side, direction),
+            "skeleton_free": _normalized_skeleton_anchored(
+                                  row, side, direction, hip0_x, hip0_y, scale0),
         })
     return out
 

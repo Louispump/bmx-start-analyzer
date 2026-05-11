@@ -152,6 +152,10 @@
             <span><span class="dot dot-pro"></span> <span id="anim-pro-name">Pro</span></span>
             <span class="anim-T-tag" id="anim-T">T +0.000s</span>
           </div>
+          <div class="anchor-toggle">
+            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="hip" checked><span>Hanches liées</span></label>
+            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="free"><span>Mouvement libre depuis T=−0.5s</span></label>
+          </div>
           <canvas id="anim-canvas" width="320" height="400"></canvas>
           <div class="anim-controls">
             <button class="btn-frame btn-frame-dark" onclick="animStep(-1)">&#9664;</button>
@@ -160,7 +164,7 @@
           </div>
           <input type="range" class="scrubber scrubber-light" id="anim-scrub"
                  min="0" max="100" value="0" step="1">
-          <p class="overlay-note">Lecture synchronisée sur le gate drop (T=0 = chute des grilles).</p>
+          <p class="overlay-note">Hanches liées : les 2 squelettes superposés image par image (pour comparer la posture). Mouvement libre : alignés à T=−0.5s puis chacun bouge depuis sa position de départ (pour voir qui avance/redresse en premier).</p>
         </div>
         <div class="angles-table-box">
           <table class="angles-compare-table">
@@ -598,26 +602,34 @@
       return seq[Math.max(0, Math.min(seq.length - 1, idx))];
     }
 
+    function getAnchorMode() {
+      const r = document.querySelector('input[name="anchor-mode"]:checked');
+      return r ? r.value : 'hip';
+    }
+
     function animRender() {
       if (!animSeq) return;
-      // On utilise idx du rider comme référence ; le pro est aligné par T (gate=0)
       const rFrame = animFrameAtIdx(animSeq.rider, animIdx);
       if (!rFrame) return;
-      // Trouver la frame pro la plus proche en T
+      // Trouver la frame pro la plus proche en T (gate=0)
       let pBest = animSeq.pro[0];
       let bestDiff = Infinity;
       for (const f of animSeq.pro) {
         const d = Math.abs(f.T - rFrame.T);
         if (d < bestDiff) { bestDiff = d; pBest = f; }
       }
-      drawOverlayCanvas('anim-canvas', rFrame.skeleton, pBest.skeleton);
-      // Tag T
+      const mode = getAnchorMode();
+      const rSkel = mode === 'free' ? (rFrame.skeleton_free || rFrame.skeleton) : rFrame.skeleton;
+      const pSkel = mode === 'free' ? (pBest.skeleton_free  || pBest.skeleton)  : pBest.skeleton;
+      drawOverlayCanvas('anim-canvas', rSkel, pSkel, mode);
       const t = rFrame.T;
       document.getElementById('anim-T').textContent =
         `T ${t >= 0 ? '+' : ''}${t.toFixed(3)}s`;
-      // Table angles live
       animRenderTable(rFrame, pBest);
     }
+
+    document.querySelectorAll('input[name="anchor-mode"]').forEach(r =>
+      r.addEventListener('change', animRender));
 
     function animRenderTable(r, p) {
       const tbody = document.getElementById('anim-tbody');
@@ -673,21 +685,24 @@
       animRender();
     });
 
-    function drawOverlayCanvas(canvasId, riderSkel, proSkel) {
+    function drawOverlayCanvas(canvasId, riderSkel, proSkel, mode='hip') {
       const canvas = document.getElementById(canvasId);
       const ctx    = canvas.getContext('2d');
       const W = canvas.width, H = canvas.height;
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = "#0a0a0a";
       ctx.fillRect(0, 0, W, H);
-      const cx = W / 2;
+      // En mode "libre" les squelettes peuvent s'écarter de l'origine ; on
+      // recule l'origine vers la gauche et on rétrécit un peu l'échelle pour
+      // que le mouvement reste dans le cadre.
+      const cx = mode === 'free' ? W * 0.30 : W / 2;
       const cy = H * 0.55;
       ctx.strokeStyle = "#222";
       ctx.lineWidth = 1;
       ctx.globalAlpha = 1;
       ctx.beginPath(); ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10); ctx.stroke();
-      const SCALE = 90;
+      const SCALE = mode === 'free' ? 70 : 90;
       drawSkeleton(ctx, proSkel,   "#ff3b9b", SCALE, cx, cy);
       drawSkeleton(ctx, riderSkel, "#00d4ff", SCALE, cx, cy);
     }

@@ -1363,6 +1363,33 @@ input[type="text"].rider-name-input {
 
 #anim-scrub { margin-top: 8px; }
 
+/* Toggle ancrage hanches liées / mouvement libre */
+.anchor-toggle {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+  font-size: .76rem;
+}
+.anchor-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-elevated);
+  cursor: pointer;
+  transition: var(--transition);
+  user-select: none;
+}
+.anchor-opt:hover { border-color: var(--border-strong); }
+.anchor-opt:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.anchor-opt input { accent-color: var(--accent); }
+
 .anim-T-tag {
   margin-left: auto;
   font-family: var(--font-mono);
