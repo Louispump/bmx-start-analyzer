@@ -719,6 +719,11 @@
       const fd = new FormData();
       fd.append('ref_type', currentRefType);
       fd.append('ref_id',   currentRefId);
+      // On envoie les points de référence ACTUELS (calage manuel inclus),
+      // pas les gate drops d'origine — comme ça si on a décalé une vidéo
+      // pour mieux aligner les chutes de gate, l'animation suit ce timing.
+      fd.append('rider_gate_t', riderRefT);
+      fd.append('ref_gate_t',   proRefT !== null ? proRefT : -1);
       try {
         const res  = await fetch(`/compare_angles_sequence/{{ job_id }}`, { method: "POST", body: fd });
         const data = await res.json();
@@ -847,20 +852,41 @@
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = "#0a0a0a";
       ctx.fillRect(0, 0, W, H);
-      // On place l'origine d'ancrage là où l'articulation choisie se trouve
-      // naturellement dans le corps, pour que le squelette tienne dans le
-      // cadre. Hanche au milieu, pieds en bas, épaules / mains en haut.
-      let cx = W / 2, cy = H * 0.55, SCALE = 90;
-      if      (mode === 'free')     { cx = W * 0.30; cy = H * 0.55; SCALE = 70; }
-      else if (mode === 'ankle')    { cy = H * 0.88; }
-      else if (mode === 'shoulder') { cy = H * 0.25; }
-      else if (mode === 'wrist')    { cy = H * 0.30; }
 
+      const SCALE = (mode === 'free') ? 70 : 90;
+
+      // Bounding box combinée des deux squelettes (en coords normalisées)
+      // pour centrer toujours le couple rider+pro au milieu du cadre, quel
+      // que soit le point d'ancrage choisi.
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      const addBbox = (skel) => {
+        if (!skel) return;
+        for (const v of Object.values(skel)) {
+          if (v == null) continue;
+          if (v[0] < minX) minX = v[0];
+          if (v[0] > maxX) maxX = v[0];
+          if (v[1] < minY) minY = v[1];
+          if (v[1] > maxY) maxY = v[1];
+        }
+      };
+      addBbox(riderSkel); addBbox(proSkel);
+
+      let cx, cy;
+      if (isFinite(minX)) {
+        const bodyCx = (minX + maxX) / 2;
+        const bodyCy = (minY + maxY) / 2;
+        cx = W / 2 - bodyCx * SCALE;
+        cy = H / 2 - bodyCy * SCALE;
+      } else {
+        cx = W / 2; cy = H / 2;
+      }
+
+      // Petit repère au centre exact du canvas (pas à l'origine ancre).
       ctx.strokeStyle = "#222";
       ctx.lineWidth = 1;
-      ctx.globalAlpha = 1;
-      ctx.beginPath(); ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(W/2 - 8, H/2); ctx.lineTo(W/2 + 8, H/2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(W/2, H/2 - 8); ctx.lineTo(W/2, H/2 + 8); ctx.stroke();
+
       drawSkeleton(ctx, proSkel,   "#ff3b9b", SCALE, cx, cy);
       drawSkeleton(ctx, riderSkel, "#00d4ff", SCALE, cx, cy);
     }

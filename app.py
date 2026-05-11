@@ -1021,11 +1021,13 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
 
 @app.post("/compare_angles_sequence/{job_id}")
 async def compare_angles_sequence(job_id: str,
-                                  pro_id:   str   = Form(""),
-                                  ref_type: str   = Form(""),
-                                  ref_id:   str   = Form(""),
-                                  t_start:  float = Form(-0.5),
-                                  t_end:    float = Form(2.5)):
+                                  pro_id:        str   = Form(""),
+                                  ref_type:      str   = Form(""),
+                                  ref_id:        str   = Form(""),
+                                  rider_gate_t:  float = Form(-1.0),
+                                  ref_gate_t:    float = Form(-1.0),
+                                  t_start:       float = Form(-0.5),
+                                  t_end:         float = Form(2.5)):
     """Séquence complète squelettes + angles, rider vs référence (pro ou autre
     job). Fenêtre [gate_t + t_start, gate_t + t_end] alignée sur le gate drop
     de chaque vidéo (T=0 = chute des grilles)."""
@@ -1043,11 +1045,17 @@ async def compare_angles_sequence(job_id: str,
     rider_results = job["results"]
     rider_csv     = OUTPUT_DIR / rider_results["files"]["landmarks_csv"]
     rider_side    = rider_results.get("front_foot") or "L"
-    rider_gate_t  = float(rider_results.get("gate_drop_t", 0.0))
 
-    rider_seq = _compute_sequence(rider_csv, rider_gate_t, rider_side,
+    # Si le client a passé un gate calibré manuellement (via les flèches de
+    # calage solo), on l'utilise comme T=0 plutôt que le gate stocké au
+    # moment de l'analyse. -1 = pas de surcharge, on garde le gate d'origine.
+    rider_t0 = rider_gate_t if rider_gate_t >= 0 \
+               else float(rider_results.get("gate_drop_t", 0.0))
+    ref_t0   = ref_gate_t   if ref_gate_t   >= 0 else ref["gate_t"]
+
+    rider_seq = _compute_sequence(rider_csv, rider_t0, rider_side,
                                   t_start, t_end)
-    ref_seq   = _compute_sequence(ref["csv_path"], ref["gate_t"], ref["side"],
+    ref_seq   = _compute_sequence(ref["csv_path"], ref_t0, ref["side"],
                                   t_start, t_end)
 
     if not rider_seq or not ref_seq:
