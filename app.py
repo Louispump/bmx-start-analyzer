@@ -662,40 +662,16 @@ def _infer_front_foot_from_csv(df: pd.DataFrame) -> str:
     return "L"
 
 
-def _pick_arm_side_by_confidence(df_or_sub) -> str:
-    """Choisit le bras le mieux tracké par la pose detection sur la fenêtre
-    fournie : celui dont la confiance moyenne (épaule + coude + poignet) est
-    la plus haute. En BMX vue profil, c'est presque toujours le bras face
-    caméra (l'autre est occulté par le corps).
-
-    Plus fiable que de déduire le côté à partir de la direction du rider :
-    les labels L/R de la pose detection peuvent s'inverser sur certaines
-    vues profil, alors que la confiance reste un signal direct."""
-    cols_L = ["L_shoulder_conf", "L_elbow_conf", "L_wrist_conf"]
-    cols_R = ["R_shoulder_conf", "R_elbow_conf", "R_wrist_conf"]
-    has_L = all(c in df_or_sub.columns for c in cols_L)
-    has_R = all(c in df_or_sub.columns for c in cols_R)
-    if not (has_L and has_R):
-        return "L"
-    L_conf = float(df_or_sub[cols_L].mean().mean())
-    R_conf = float(df_or_sub[cols_R].mean().mean())
-    return "L" if L_conf >= R_conf else "R"
-
-
 def _normalized_skeleton_anchored(row, side: str, direction: int,
                                   hip0_x: float, hip0_y: float,
-                                  scale0: float,
-                                  arm_side: str | None = None) -> dict | None:
+                                  scale0: float) -> dict | None:
     """Comme _normalized_skeleton mais ancré sur (hip0, scale0) fixés à un
     instant de référence (T = −0.5s par défaut). La hanche n'est PAS remise à
     (0,0) à chaque frame ; elle bouge avec le rider depuis sa position
     initiale, ce qui révèle le déplacement réel pendant la séquence."""
     if not (np.isfinite(hip0_x) and np.isfinite(hip0_y) and scale0 > 1.0):
         return None
-    if arm_side is None:
-        arm_side = side  # fallback si aucune info de confiance dispo
-    other_leg = "R" if side     == "L" else "L"
-    other_arm = "R" if arm_side == "L" else "L"
+    other = "R" if side == "L" else "L"
 
     def _n(col_x: str, col_y: str):
         x = row.get(col_x, np.nan)
@@ -709,20 +685,19 @@ def _normalized_skeleton_anchored(row, side: str, direction: int,
         return [round(float(nx), 3), round(float(ny), 3)]
 
     return {
-        "nose":          _n("nose_x",                    "nose_y"),
-        "shoulder":      _n(f"{arm_side}_shoulder_x",    f"{arm_side}_shoulder_y"),
-        "elbow":         _n(f"{arm_side}_elbow_x",       f"{arm_side}_elbow_y"),
-        "wrist":         _n(f"{arm_side}_wrist_x",       f"{arm_side}_wrist_y"),
-        "hip":           _n(f"{side}_hip_x",             f"{side}_hip_y"),
-        "knee":          _n(f"{side}_knee_x",            f"{side}_knee_y"),
-        "ankle":         _n(f"{side}_ankle_x",           f"{side}_ankle_y"),
-        "back_shoulder": _n(f"{other_arm}_shoulder_x",   f"{other_arm}_shoulder_y"),
-        "back_hip":      _n(f"{other_leg}_hip_x",        f"{other_leg}_hip_y"),
+        "nose":          _n("nose_x",                "nose_y"),
+        "shoulder":      _n(f"{side}_shoulder_x",    f"{side}_shoulder_y"),
+        "elbow":         _n(f"{side}_elbow_x",       f"{side}_elbow_y"),
+        "wrist":         _n(f"{side}_wrist_x",       f"{side}_wrist_y"),
+        "hip":           _n(f"{side}_hip_x",         f"{side}_hip_y"),
+        "knee":          _n(f"{side}_knee_x",        f"{side}_knee_y"),
+        "ankle":         _n(f"{side}_ankle_x",       f"{side}_ankle_y"),
+        "back_shoulder": _n(f"{other}_shoulder_x",   f"{other}_shoulder_y"),
+        "back_hip":      _n(f"{other}_hip_x",        f"{other}_hip_y"),
     }
 
 
-def _normalized_skeleton(row, side: str, direction: int,
-                         arm_side: str | None = None) -> dict | None:
+def _normalized_skeleton(row, side: str, direction: int) -> dict | None:
     """Normalise le squelette pour overlay : hanche à l'origine, échelle = 1.0
     sur la longueur hanche→épaule, mirror si le rider est tourné à gauche
     (pour que les 2 squelettes soient comparables face à droite).
@@ -739,10 +714,7 @@ def _normalized_skeleton(row, side: str, direction: int,
     if scale < 1.0:
         return None
 
-    if arm_side is None:
-        arm_side = side  # fallback si aucune info de confiance dispo
-    other_leg = "R" if side     == "L" else "L"
-    other_arm = "R" if arm_side == "L" else "L"
+    other = "R" if side == "L" else "L"
 
     def _n(col_x: str, col_y: str):
         x = row.get(col_x, np.nan)
@@ -756,22 +728,21 @@ def _normalized_skeleton(row, side: str, direction: int,
         return [round(float(nx), 3), round(float(ny), 3)]
 
     return {
-        "nose":          _n("nose_x",                    "nose_y"),
-        "shoulder":      _n(f"{arm_side}_shoulder_x",    f"{arm_side}_shoulder_y"),
-        "elbow":         _n(f"{arm_side}_elbow_x",       f"{arm_side}_elbow_y"),
-        "wrist":         _n(f"{arm_side}_wrist_x",       f"{arm_side}_wrist_y"),
-        "hip":           _n(f"{side}_hip_x",             f"{side}_hip_y"),    # → [0, 0]
-        "knee":          _n(f"{side}_knee_x",            f"{side}_knee_y"),
-        "ankle":         _n(f"{side}_ankle_x",           f"{side}_ankle_y"),
-        "back_shoulder": _n(f"{other_arm}_shoulder_x",   f"{other_arm}_shoulder_y"),
-        "back_hip":      _n(f"{other_leg}_hip_x",        f"{other_leg}_hip_y"),
+        "nose":          _n("nose_x",                "nose_y"),
+        "shoulder":      _n(f"{side}_shoulder_x",    f"{side}_shoulder_y"),
+        "elbow":         _n(f"{side}_elbow_x",       f"{side}_elbow_y"),
+        "wrist":         _n(f"{side}_wrist_x",       f"{side}_wrist_y"),
+        "hip":           _n(f"{side}_hip_x",         f"{side}_hip_y"),    # → [0, 0]
+        "knee":          _n(f"{side}_knee_x",        f"{side}_knee_y"),
+        "ankle":         _n(f"{side}_ankle_x",       f"{side}_ankle_y"),
+        "back_shoulder": _n(f"{other}_shoulder_x",   f"{other}_shoulder_y"),
+        "back_hip":      _n(f"{other}_hip_x",        f"{other}_hip_y"),
     }
 
 
 def _compute_angles_at_time(csv_path: Path, t: float, side: str,
                             gate_t: float | None = None,
-                            anchor_T: float = -0.5,
-                            arm_swap: bool = False) -> dict | None:
+                            anchor_T: float = -0.5) -> dict | None:
     """Lit les keypoints au frame le plus proche de l'instant `t` dans le CSV
     landmarks et calcule 6 angles : knee, hip, ankle, shoulder, elbow, trunk.
 
@@ -799,30 +770,17 @@ def _compute_angles_at_time(csv_path: Path, t: float, side: str,
     else:
         direction = 1
 
-    # Bras : côté le mieux tracké (confiance moyenne du CSV entier), figé pour
-    # toute la séquence. C'est ~toujours le bras face caméra en BMX profil.
-    # Si l'auto-détection se trompe, le client peut envoyer arm_swap=True pour
-    # forcer l'autre côté.
-    arm_side = _pick_arm_side_by_confidence(df)
-    if arm_swap:
-        arm_side = "R" if arm_side == "L" else "L"
-
-    def _pt_arm(part: str):
-        x = row.get(f"{arm_side}_{part}_x", np.nan)
-        y = row.get(f"{arm_side}_{part}_y", np.nan)
-        return (float(x), float(y))
-
-    def _pt_leg(part: str):
+    def _pt(part: str):
         x = row.get(f"{side}_{part}_x", np.nan)
         y = row.get(f"{side}_{part}_y", np.nan)
         return (float(x), float(y))
 
-    sh = _pt_arm("shoulder")
-    el = _pt_arm("elbow")
-    wr = _pt_arm("wrist")
-    hi = _pt_leg("hip")
-    kn = _pt_leg("knee")
-    an = _pt_leg("ankle")
+    sh = _pt("shoulder")
+    el = _pt("elbow")
+    wr = _pt("wrist")
+    hi = _pt("hip")
+    kn = _pt("knee")
+    an = _pt("ankle")
 
     def _safe_angle(p1, p2, p3):
         if any(np.isnan(p[0]) or np.isnan(p[1]) for p in (p1, p2, p3)):
@@ -862,20 +820,19 @@ def _compute_angles_at_time(csv_path: Path, t: float, side: str,
         scale0 = float(np.hypot(sh0_x - hip0_x, sh0_y - hip0_y)) \
                  if np.isfinite(hip0_x) and np.isfinite(sh0_x) else 0.0
         skeleton_free = _normalized_skeleton_anchored(
-            row, side, direction, hip0_x, hip0_y, scale0, arm_side=arm_side)
+            row, side, direction, hip0_x, hip0_y, scale0)
 
     return {
         "frame":         int(idx),
         "t":             round(float(row["time"]), 3),
         "side":          side,
-        "arm_side":      arm_side,
         "knee":          knee_a,
         "hip":           hip_a,
         "ankle":         ankle_a,
         "shoulder":      shoulder_a,
         "elbow":         elbow_a,
         "trunk":         trunk_a,
-        "skeleton":      _normalized_skeleton(row, side, direction, arm_side=arm_side),
+        "skeleton":      _normalized_skeleton(row, side, direction),
         "skeleton_free": skeleton_free,
     }
 
@@ -926,9 +883,7 @@ async def compare_angles(job_id:    str,
                          pro_t:     float = Form(...),
                          pro_id:    str   = Form(""),
                          ref_type:  str   = Form(""),
-                         ref_id:    str   = Form(""),
-                         rider_arm_swap: bool = Form(False),
-                         ref_arm_swap:   bool = Form(False)):
+                         ref_id:    str   = Form("")):
     """Calcule les 6 angles articulaires (rider vs référence) aux instants
     spécifiés. Référence = pro de la banque OU autre job déjà analysé.
     Compatibilité : `pro_id` seul est encore accepté (= ref_type=pro)."""
@@ -949,11 +904,9 @@ async def compare_angles(job_id:    str,
     rider_gate_t  = float(rider_results.get("gate_drop_t", 0.0))
 
     rider_angles = _compute_angles_at_time(rider_csv, rider_t, rider_side,
-                                           gate_t=rider_gate_t,
-                                           arm_swap=rider_arm_swap)
+                                           gate_t=rider_gate_t)
     ref_angles   = _compute_angles_at_time(ref["csv_path"], pro_t, ref["side"],
-                                           gate_t=ref["gate_t"],
-                                           arm_swap=ref_arm_swap)
+                                           gate_t=ref["gate_t"])
 
     if rider_angles is None or ref_angles is None:
         return JSONResponse(
@@ -971,8 +924,7 @@ async def compare_angles(job_id:    str,
 # ── Séquence animée des angles (rider vs pro sur une fenêtre de temps) ───────
 def _compute_sequence(csv_path: Path, gate_t: float, side: str,
                       t_start: float, t_end: float,
-                      anchor_T: float = -0.5,
-                      arm_swap: bool = False) -> list[dict]:
+                      anchor_T: float = -0.5) -> list[dict]:
     """Retourne la liste {T, frame, t, angles, skeleton, skeleton_free} pour
     toutes les frames du CSV dont le temps est dans [gate_t + t_start,
     gate_t + t_end]. T = temps relatif au gate drop (T=0 = chute des grilles).
@@ -1017,30 +969,18 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
     scale0  = float(np.hypot(sh0_x - hip0_x, sh0_y - hip0_y)) \
               if np.isfinite(hip0_x) and np.isfinite(sh0_x) else 0.0
 
-    # Bras = côté le mieux tracké (confiance moyenne sur la fenêtre), figé
-    # pour toute la séquence. La jambe garde le front_foot du coach. Si le
-    # client envoie arm_swap=True, on force l'autre côté.
-    arm_side = _pick_arm_side_by_confidence(sub)
-    if arm_swap:
-        arm_side = "R" if arm_side == "L" else "L"
-
     out: list[dict] = []
     for idx, row in sub.iterrows():
         t = float(row["time"])
         T = round(t - gate_t, 3)
 
-        def _pt_arm(part: str):
-            x = row.get(f"{arm_side}_{part}_x", np.nan)
-            y = row.get(f"{arm_side}_{part}_y", np.nan)
-            return (float(x), float(y))
-
-        def _pt_leg(part: str):
+        def _pt(part: str):
             x = row.get(f"{side}_{part}_x", np.nan)
             y = row.get(f"{side}_{part}_y", np.nan)
             return (float(x), float(y))
 
-        sh = _pt_arm("shoulder"); el = _pt_arm("elbow"); wr = _pt_arm("wrist")
-        hi = _pt_leg("hip");      kn = _pt_leg("knee");  an = _pt_leg("ankle")
+        sh = _pt("shoulder"); el = _pt("elbow"); wr = _pt("wrist")
+        hi = _pt("hip");      kn = _pt("knee");  an = _pt("ankle")
 
         def _safe_angle(p1, p2, p3):
             if any(np.isnan(p[0]) or np.isnan(p[1]) for p in (p1, p2, p3)):
@@ -1066,17 +1006,15 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
             "T":             T,
             "t":             round(t, 3),
             "frame":         int(idx),
-            "arm_side":      arm_side,
             "knee":          knee_a,
             "hip":           hip_a,
             "ankle":         ankle_a,
             "shoulder":      shoulder_a,
             "elbow":         elbow_a,
             "trunk":         trunk_a,
-            "skeleton":      _normalized_skeleton(row, side, direction, arm_side=arm_side),
+            "skeleton":      _normalized_skeleton(row, side, direction),
             "skeleton_free": _normalized_skeleton_anchored(
-                                  row, side, direction, hip0_x, hip0_y, scale0,
-                                  arm_side=arm_side),
+                                  row, side, direction, hip0_x, hip0_y, scale0),
         })
     return out
 
@@ -1089,9 +1027,7 @@ async def compare_angles_sequence(job_id: str,
                                   rider_gate_t:  float = Form(-1.0),
                                   ref_gate_t:    float = Form(-1.0),
                                   t_start:       float = Form(-0.5),
-                                  t_end:         float = Form(2.5),
-                                  rider_arm_swap: bool  = Form(False),
-                                  ref_arm_swap:   bool  = Form(False)):
+                                  t_end:         float = Form(2.5)):
     """Séquence complète squelettes + angles, rider vs référence (pro ou autre
     job). Fenêtre [gate_t + t_start, gate_t + t_end] alignée sur le gate drop
     de chaque vidéo (T=0 = chute des grilles)."""
@@ -1118,9 +1054,9 @@ async def compare_angles_sequence(job_id: str,
     ref_t0   = ref_gate_t   if ref_gate_t   >= 0 else ref["gate_t"]
 
     rider_seq = _compute_sequence(rider_csv, rider_t0, rider_side,
-                                  t_start, t_end, arm_swap=rider_arm_swap)
+                                  t_start, t_end)
     ref_seq   = _compute_sequence(ref["csv_path"], ref_t0, ref["side"],
-                                  t_start, t_end, arm_swap=ref_arm_swap)
+                                  t_start, t_end)
 
     if not rider_seq or not ref_seq:
         return JSONResponse(

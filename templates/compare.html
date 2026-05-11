@@ -160,10 +160,6 @@
             <label class="anchor-opt"><input type="radio" name="anchor-mode" value="wrist"><span>Mains</span></label>
             <label class="anchor-opt"><input type="radio" name="anchor-mode" value="free"><span>Mouvement libre (T=−0.5s)</span></label>
           </div>
-          <div class="arm-swap-row">
-            <button class="btn btn-arm-swap" id="btn-arm-swap-anim" type="button">↔ Inverser le bras</button>
-            <span class="arm-swap-info" id="arm-swap-anim-info"></span>
-          </div>
           <canvas id="anim-canvas" width="320" height="400"></canvas>
           <div class="anim-controls">
             <button class="btn-frame btn-frame-dark" onclick="animStep(-1)">&#9664;</button>
@@ -205,10 +201,6 @@
             <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="ankle"><span>Pieds</span></label>
             <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="shoulder"><span>Épaules</span></label>
             <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="wrist"><span>Mains</span></label>
-          </div>
-          <div class="arm-swap-row">
-            <button class="btn btn-arm-swap" id="btn-arm-swap-static" type="button">↔ Inverser le bras</button>
-            <span class="arm-swap-info" id="arm-swap-static-info"></span>
           </div>
           <canvas id="overlay-canvas" width="320" height="400"></canvas>
           <p class="overlay-note">Choisis quel point on aligne entre rider et référence : <em>Hanches</em> = posture pure / <em>Pieds</em> = position du corps sur la pédale / <em>Épaules</em> = position des bras sur le guidon.</p>
@@ -501,8 +493,6 @@
       fd.append('ref_id',   currentRefId);
       fd.append('rider_t',  vRider.currentTime);
       fd.append('pro_t',    vPro.currentTime);
-      fd.append('rider_arm_swap', staticArmSwap.rider ? 'true' : 'false');
-      fd.append('ref_arm_swap',   staticArmSwap.ref   ? 'true' : 'false');
       try {
         const res  = await fetch(`/compare_angles/{{ job_id }}`, { method: "POST", body: fd });
         const data = await res.json();
@@ -512,7 +502,6 @@
           return;
         }
         renderAnglesTable(data);
-        updateArmSwapInfo('static', data);
         hint.textContent = "Reclique après avoir bougé une vidéo pour rafraîchir.";
       } catch (e) {
         hint.textContent = "Erreur réseau : " + e.message;
@@ -521,34 +510,7 @@
     }
     document.getElementById('btn-compare-angles').addEventListener('click', fetchSnapshotCompare);
 
-    document.getElementById('btn-arm-swap-static').addEventListener('click', () => {
-      // Si on n'a pas encore comparé une fois, on déclenche un compare avec swap rider.
-      if (!lastSnapshotData) {
-        staticArmSwap.rider = !staticArmSwap.rider;
-        staticArmSwap.ref   = !staticArmSwap.ref;
-        fetchSnapshotCompare();
-        return;
-      }
-      // Sinon on flip les deux côtés (rider et référence) et on re-fetch.
-      staticArmSwap.rider = !staticArmSwap.rider;
-      staticArmSwap.ref   = !staticArmSwap.ref;
-      fetchSnapshotCompare();
-    });
-
-    function updateArmSwapInfo(which, data) {
-      const id = which === 'static' ? 'arm-swap-static-info' : 'arm-swap-anim-info';
-      const el = document.getElementById(id);
-      if (!el) return;
-      const rSide = data.rider?.arm_side || (data.rider?.[0]?.arm_side) || '?';
-      const pSide = data.pro?.arm_side   || (data.pro?.[0]?.arm_side)   || '?';
-      el.textContent = `Bras analysé · Rider = ${rSide} · Réf = ${pSide}`;
-    }
-
     let lastSnapshotData = null;
-    // Inverser le bras (auto-détection vs forçage de l'autre côté).
-    // Séparé pour la photo statique et l'animation.
-    let staticArmSwap = { rider: false, ref: false };
-    let animArmSwap   = { rider: false, ref: false };
 
     function renderAnglesTable(data) {
       lastSnapshotData = data;
@@ -763,8 +725,6 @@
       // pour mieux aligner les chutes de gate, l'animation suit ce timing.
       fd.append('rider_gate_t', riderRefT);
       fd.append('ref_gate_t',   proRefT !== null ? proRefT : -1);
-      fd.append('rider_arm_swap', animArmSwap.rider ? 'true' : 'false');
-      fd.append('ref_arm_swap',   animArmSwap.ref   ? 'true' : 'false');
       try {
         const res  = await fetch(`/compare_angles_sequence/{{ job_id }}`, { method: "POST", body: fd });
         const data = await res.json();
@@ -783,7 +743,6 @@
         scrub.value = 0;
         document.getElementById('angles-anim-panel').style.display = 'block';
         hint.textContent = `Séquence chargée (${data.rider.length} frames rider · ${data.pro.length} frames pro · ${data.t_start}s à +${data.t_end}s).`;
-        updateArmSwapInfo('anim', data);
         animRender();
       } catch (e) {
         hint.textContent = "Erreur réseau : " + e.message;
@@ -791,14 +750,6 @@
       btn.disabled = false;
     }
     document.getElementById('btn-animate-angles').addEventListener('click', fetchAnimSequence);
-
-    document.getElementById('btn-arm-swap-anim').addEventListener('click', () => {
-      animArmSwap.rider = !animArmSwap.rider;
-      animArmSwap.ref   = !animArmSwap.ref;
-      if (animSeq) {
-        fetchAnimSequence();
-      }
-    });
 
     function animFrameAtIdx(seq, idx) {
       if (!seq || seq.length === 0) return null;
