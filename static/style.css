@@ -1430,6 +1430,25 @@ input[type="text"].rider-name-input {
 }
 .anchor-opt input { accent-color: var(--accent); }
 
+/* Bouton "Inverser le bras" + info côté analysé */
+.arm-swap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.btn-arm-swap {
+  font-size: .78rem;
+  padding: 6px 12px;
+}
+.arm-swap-info {
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .anim-T-tag {
   margin-left: auto;
   font-family: var(--font-mono);

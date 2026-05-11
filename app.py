@@ -770,7 +770,8 @@ def _normalized_skeleton(row, side: str, direction: int,
 
 def _compute_angles_at_time(csv_path: Path, t: float, side: str,
                             gate_t: float | None = None,
-                            anchor_T: float = -0.5) -> dict | None:
+                            anchor_T: float = -0.5,
+                            arm_swap: bool = False) -> dict | None:
     """Lit les keypoints au frame le plus proche de l'instant `t` dans le CSV
     landmarks et calcule 6 angles : knee, hip, ankle, shoulder, elbow, trunk.
 
@@ -800,7 +801,11 @@ def _compute_angles_at_time(csv_path: Path, t: float, side: str,
 
     # Bras : côté le mieux tracké (confiance moyenne du CSV entier), figé pour
     # toute la séquence. C'est ~toujours le bras face caméra en BMX profil.
+    # Si l'auto-détection se trompe, le client peut envoyer arm_swap=True pour
+    # forcer l'autre côté.
     arm_side = _pick_arm_side_by_confidence(df)
+    if arm_swap:
+        arm_side = "R" if arm_side == "L" else "L"
 
     def _pt_arm(part: str):
         x = row.get(f"{arm_side}_{part}_x", np.nan)
@@ -863,6 +868,7 @@ def _compute_angles_at_time(csv_path: Path, t: float, side: str,
         "frame":         int(idx),
         "t":             round(float(row["time"]), 3),
         "side":          side,
+        "arm_side":      arm_side,
         "knee":          knee_a,
         "hip":           hip_a,
         "ankle":         ankle_a,
@@ -920,7 +926,9 @@ async def compare_angles(job_id:    str,
                          pro_t:     float = Form(...),
                          pro_id:    str   = Form(""),
                          ref_type:  str   = Form(""),
-                         ref_id:    str   = Form("")):
+                         ref_id:    str   = Form(""),
+                         rider_arm_swap: bool = Form(False),
+                         ref_arm_swap:   bool = Form(False)):
     """Calcule les 6 angles articulaires (rider vs référence) aux instants
     spécifiés. Référence = pro de la banque OU autre job déjà analysé.
     Compatibilité : `pro_id` seul est encore accepté (= ref_type=pro)."""
@@ -941,9 +949,11 @@ async def compare_angles(job_id:    str,
     rider_gate_t  = float(rider_results.get("gate_drop_t", 0.0))
 
     rider_angles = _compute_angles_at_time(rider_csv, rider_t, rider_side,
-                                           gate_t=rider_gate_t)
+                                           gate_t=rider_gate_t,
+                                           arm_swap=rider_arm_swap)
     ref_angles   = _compute_angles_at_time(ref["csv_path"], pro_t, ref["side"],
-                                           gate_t=ref["gate_t"])
+                                           gate_t=ref["gate_t"],
+                                           arm_swap=ref_arm_swap)
 
     if rider_angles is None or ref_angles is None:
         return JSONResponse(
@@ -961,7 +971,8 @@ async def compare_angles(job_id:    str,
 # ── Séquence animée des angles (rider vs pro sur une fenêtre de temps) ───────
 def _compute_sequence(csv_path: Path, gate_t: float, side: str,
                       t_start: float, t_end: float,
-                      anchor_T: float = -0.5) -> list[dict]:
+                      anchor_T: float = -0.5,
+                      arm_swap: bool = False) -> list[dict]:
     """Retourne la liste {T, frame, t, angles, skeleton, skeleton_free} pour
     toutes les frames du CSV dont le temps est dans [gate_t + t_start,
     gate_t + t_end]. T = temps relatif au gate drop (T=0 = chute des grilles).
@@ -1007,8 +1018,11 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
               if np.isfinite(hip0_x) and np.isfinite(sh0_x) else 0.0
 
     # Bras = côté le mieux tracké (confiance moyenne sur la fenêtre), figé
-    # pour toute la séquence. La jambe garde le front_foot du coach.
+    # pour toute la séquence. La jambe garde le front_foot du coach. Si le
+    # client envoie arm_swap=True, on force l'autre côté.
     arm_side = _pick_arm_side_by_confidence(sub)
+    if arm_swap:
+        arm_side = "R" if arm_side == "L" else "L"
 
     out: list[dict] = []
     for idx, row in sub.iterrows():
@@ -1052,6 +1066,7 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
             "T":             T,
             "t":             round(t, 3),
             "frame":         int(idx),
+            "arm_side":      arm_side,
             "knee":          knee_a,
             "hip":           hip_a,
             "ankle":         ankle_a,
@@ -1074,7 +1089,9 @@ async def compare_angles_sequence(job_id: str,
                                   rider_gate_t:  float = Form(-1.0),
                                   ref_gate_t:    float = Form(-1.0),
                                   t_start:       float = Form(-0.5),
-                                  t_end:         float = Form(2.5)):
+                                  t_end:         float = Form(2.5),
+                                  rider_arm_swap: bool  = Form(False),
+                                  ref_arm_swap:   bool  = Form(False)):
     """Séquence complète squelettes + angles, rider vs référence (pro ou autre
     job). Fenêtre [gate_t + t_start, gate_t + t_end] alignée sur le gate drop
     de chaque vidéo (T=0 = chute des grilles)."""
@@ -1101,9 +1118,9 @@ async def compare_angles_sequence(job_id: str,
     ref_t0   = ref_gate_t   if ref_gate_t   >= 0 else ref["gate_t"]
 
     rider_seq = _compute_sequence(rider_csv, rider_t0, rider_side,
-                                  t_start, t_end)
+                                  t_start, t_end, arm_swap=rider_arm_swap)
     ref_seq   = _compute_sequence(ref["csv_path"], ref_t0, ref["side"],
-                                  t_start, t_end)
+                                  t_start, t_end, arm_swap=ref_arm_swap)
 
     if not rider_seq or not ref_seq:
         return JSONResponse(
