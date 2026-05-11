@@ -1363,12 +1363,52 @@ input[type="text"].rider-name-input {
 
 #anim-scrub { margin-top: 8px; }
 
-/* Toggle ancrage hanches liées / mouvement libre */
+/* Toggle ancrage (Hanches/Pieds/Épaules sur la photo, ou Hanches/Libre sur la vidéo) */
 .anchor-toggle {
   display: flex;
+  align-items: center;
   gap: 8px;
   margin: 8px 0;
   font-size: .76rem;
+  flex-wrap: wrap;
+}
+.anchor-toggle-label {
+  color: var(--muted);
+  font-weight: 600;
+  margin-right: 2px;
+}
+
+/* Radar des angles à côté de l'overlay squelette */
+.radar-box {
+  flex: 0 0 auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.radar-legend {
+  display: flex;
+  gap: 16px;
+  font-size: .8rem;
+  color: var(--text);
+  align-items: center;
+}
+.radar-legend .dot {
+  display: inline-block;
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+#radar-canvas {
+  display: block;
+  border-radius: 6px;
+  background: var(--bg);
+  max-width: 100%;
+  height: auto;
 }
 .anchor-opt {
   display: inline-flex;
