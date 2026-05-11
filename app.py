@@ -740,13 +740,19 @@ def _normalized_skeleton(row, side: str, direction: int) -> dict | None:
     }
 
 
-def _compute_angles_at_time(csv_path: Path, t: float, side: str) -> dict | None:
+def _compute_angles_at_time(csv_path: Path, t: float, side: str,
+                            gate_t: float | None = None,
+                            anchor_T: float = -0.5) -> dict | None:
     """Lit les keypoints au frame le plus proche de l'instant `t` dans le CSV
     landmarks et calcule 6 angles : knee, hip, ankle, shoulder, elbow, trunk.
 
     `side` ∈ {'L','R'} = côté du rider (pied avant). Le tronc est signé selon
     la direction du rider (positif = penché en avant). Le squelette normalisé
-    pour l'overlay est inclus dans la réponse."""
+    pour l'overlay est inclus dans la réponse.
+
+    Si `gate_t` est fourni, on calcule aussi `skeleton_free` ancré à
+    `gate_t + anchor_T` (par défaut T=−0.5s) — utile pour la photo statique
+    avec le toggle "Mouvement libre depuis T=−0.5s"."""
     if not csv_path.exists():
         return None
     df = pd.read_csv(csv_path)
@@ -800,17 +806,34 @@ def _compute_angles_at_time(csv_path: Path, t: float, side: str) -> dict | None:
         dy = sh[1] - hi[1]   # négatif = épaule au-dessus (image y vers le bas)
         trunk_a = round(float(np.degrees(np.arctan2(direction * dx, -dy))), 1)
 
+    # Mode "Mouvement libre depuis T=−0.5s" : si on connaît le gate_t, on
+    # trouve la frame à gate_t + anchor_T et on en tire hip0, scale0 fixes.
+    skeleton_free = None
+    if gate_t is not None:
+        anchor_t_abs = gate_t + anchor_T
+        anchor_idx   = int((df["time"] - anchor_t_abs).abs().idxmin())
+        anchor_row   = df.loc[anchor_idx]
+        hip0_x = float(anchor_row.get(f"{side}_hip_x",      np.nan))
+        hip0_y = float(anchor_row.get(f"{side}_hip_y",      np.nan))
+        sh0_x  = float(anchor_row.get(f"{side}_shoulder_x", np.nan))
+        sh0_y  = float(anchor_row.get(f"{side}_shoulder_y", np.nan))
+        scale0 = float(np.hypot(sh0_x - hip0_x, sh0_y - hip0_y)) \
+                 if np.isfinite(hip0_x) and np.isfinite(sh0_x) else 0.0
+        skeleton_free = _normalized_skeleton_anchored(
+            row, side, direction, hip0_x, hip0_y, scale0)
+
     return {
-        "frame":    int(idx),
-        "t":        round(float(row["time"]), 3),
-        "side":     side,
-        "knee":     knee_a,
-        "hip":      hip_a,
-        "ankle":    ankle_a,
-        "shoulder": shoulder_a,
-        "elbow":    elbow_a,
-        "trunk":    trunk_a,
-        "skeleton": _normalized_skeleton(row, side, direction),
+        "frame":         int(idx),
+        "t":             round(float(row["time"]), 3),
+        "side":          side,
+        "knee":          knee_a,
+        "hip":           hip_a,
+        "ankle":         ankle_a,
+        "shoulder":      shoulder_a,
+        "elbow":         elbow_a,
+        "trunk":         trunk_a,
+        "skeleton":      _normalized_skeleton(row, side, direction),
+        "skeleton_free": skeleton_free,
     }
 
 
@@ -878,9 +901,12 @@ async def compare_angles(job_id:    str,
     rider_results = job["results"]
     rider_csv     = OUTPUT_DIR / rider_results["files"]["landmarks_csv"]
     rider_side    = rider_results.get("front_foot") or "L"
+    rider_gate_t  = float(rider_results.get("gate_drop_t", 0.0))
 
-    rider_angles = _compute_angles_at_time(rider_csv, rider_t, rider_side)
-    ref_angles   = _compute_angles_at_time(ref["csv_path"], pro_t, ref["side"])
+    rider_angles = _compute_angles_at_time(rider_csv, rider_t, rider_side,
+                                           gate_t=rider_gate_t)
+    ref_angles   = _compute_angles_at_time(ref["csv_path"], pro_t, ref["side"],
+                                           gate_t=ref["gate_t"])
 
     if rider_angles is None or ref_angles is None:
         return JSONResponse(

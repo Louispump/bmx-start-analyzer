@@ -191,8 +191,12 @@
             <span><span class="dot dot-rider"></span> Rider</span>
             <span><span class="dot dot-pro"></span> <span id="ovl-pro-name">Pro</span></span>
           </div>
+          <div class="anchor-toggle">
+            <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="hip" checked><span>Hanches liées</span></label>
+            <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="free"><span>Mouvement libre depuis T=−0.5s</span></label>
+          </div>
           <canvas id="overlay-canvas" width="320" height="400"></canvas>
-          <p class="overlay-note">Hanches alignées · échelle normalisée sur hanche→épaule · 2 riders tournés vers la droite.</p>
+          <p class="overlay-note">Hanches liées : posture pure, hanches alignées. Mouvement libre : alignement figé à T=−0.5s, on voit le déplacement réel de chaque rider depuis la position de set.</p>
         </div>
         <div class="angles-table-box">
           <table class="angles-compare-table">
@@ -490,7 +494,10 @@
       btn.disabled = false;
     });
 
+    let lastSnapshotData = null;
+
     function renderAnglesTable(data) {
+      lastSnapshotData = data;
       const panel = document.getElementById('angles-panel');
       const tbody = document.getElementById('angles-tbody');
       document.getElementById('ac-pro-name').textContent  = data.pro_name || "Pro";
@@ -515,8 +522,28 @@
         tbody.appendChild(tr);
       });
       panel.style.display = "block";
-      drawOverlay(data.rider.skeleton, data.pro.skeleton);
+      redrawStaticOverlay();
     }
+
+    function getStaticAnchorMode() {
+      const r = document.querySelector('input[name="static-anchor-mode"]:checked');
+      return r ? r.value : 'hip';
+    }
+
+    function redrawStaticOverlay() {
+      if (!lastSnapshotData) return;
+      const mode = getStaticAnchorMode();
+      const rSkel = mode === 'free'
+                    ? (lastSnapshotData.rider.skeleton_free || lastSnapshotData.rider.skeleton)
+                    : lastSnapshotData.rider.skeleton;
+      const pSkel = mode === 'free'
+                    ? (lastSnapshotData.pro.skeleton_free || lastSnapshotData.pro.skeleton)
+                    : lastSnapshotData.pro.skeleton;
+      drawOverlayCanvas('overlay-canvas', rSkel, pSkel, mode);
+    }
+
+    document.querySelectorAll('input[name="static-anchor-mode"]').forEach(r =>
+      r.addEventListener('change', redrawStaticOverlay));
 
     // ── Overlay des squelettes ──────────────────────────────────────
     const SKEL_BONES = [
@@ -707,23 +734,5 @@
       drawSkeleton(ctx, riderSkel, "#00d4ff", SCALE, cx, cy);
     }
 
-    function drawOverlay(riderSkel, proSkel) {
-      const canvas = document.getElementById('overlay-canvas');
-      const ctx    = canvas.getContext('2d');
-      const W = canvas.width, H = canvas.height;
-      ctx.clearRect(0, 0, W, H);
-      ctx.fillStyle = "#0a0a0a";
-      ctx.fillRect(0, 0, W, H);
-      const cx = W / 2;
-      const cy = H * 0.55;
-      ctx.strokeStyle = "#222";
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 1;
-      ctx.beginPath(); ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10); ctx.stroke();
-      const SCALE = 90;
-      drawSkeleton(ctx, proSkel,   "#ff3b9b", SCALE, cx, cy);
-      drawSkeleton(ctx, riderSkel, "#00d4ff", SCALE, cx, cy);
-    }
   </script>
 {% endblock %}
