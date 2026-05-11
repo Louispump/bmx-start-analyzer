@@ -693,6 +693,8 @@ def _normalized_skeleton_anchored(row, side: str, direction: int,
         "knee":          _n(f"{side}_knee_x",        f"{side}_knee_y"),
         "ankle":         _n(f"{side}_ankle_x",       f"{side}_ankle_y"),
         "back_shoulder": _n(f"{other}_shoulder_x",   f"{other}_shoulder_y"),
+        "back_elbow":    _n(f"{other}_elbow_x",      f"{other}_elbow_y"),
+        "back_wrist":    _n(f"{other}_wrist_x",      f"{other}_wrist_y"),
         "back_hip":      _n(f"{other}_hip_x",        f"{other}_hip_y"),
     }
 
@@ -736,6 +738,8 @@ def _normalized_skeleton(row, side: str, direction: int) -> dict | None:
         "knee":          _n(f"{side}_knee_x",        f"{side}_knee_y"),
         "ankle":         _n(f"{side}_ankle_x",       f"{side}_ankle_y"),
         "back_shoulder": _n(f"{other}_shoulder_x",   f"{other}_shoulder_y"),
+        "back_elbow":    _n(f"{other}_elbow_x",      f"{other}_elbow_y"),
+        "back_wrist":    _n(f"{other}_wrist_x",      f"{other}_wrist_y"),
         "back_hip":      _n(f"{other}_hip_x",        f"{other}_hip_y"),
     }
 

@@ -671,13 +671,14 @@
       ["shoulder", "elbow"], ["elbow", "wrist"],
       ["shoulder", "hip"],
       ["hip", "knee"], ["knee", "ankle"],
+      ["back_shoulder", "back_elbow"], ["back_elbow", "back_wrist"],
       ["back_shoulder", "shoulder"],
       ["back_hip", "hip"],
       ["back_shoulder", "back_hip"],
     ];
     const SKEL_JOINTS = [
       "shoulder", "elbow", "wrist", "hip", "knee", "ankle",
-      "back_shoulder", "back_hip", "nose",
+      "back_shoulder", "back_elbow", "back_wrist", "back_hip", "nose",
     ];
 
     function drawSkeleton(ctx, skel, color, scalePx, cx, cy) {
