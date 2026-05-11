@@ -29,6 +29,15 @@ from analyze import main as analyze_main, calculate_angle
 from audio_gate import detect_gate_drop
 from mahieu import analyze_video as mahieu_analyze, render_debug_frame as mahieu_render
 
+# ── Constantes ────────────────────────────────────────────────────────────────
+# Cadence UCI BMX officielle (Random Cadence 2007, doc rad-gate) :
+#   beep 1 (60ms) · pause 60ms · beep 2 (60ms) · pause 60ms · beep 3 (60ms)
+#   · pause 60ms · beep 4 / gate drop
+# Soit 3 × 60 + 3 × 60 = 360 ms entre le DÉBUT du beep 1 et le gate drop.
+# Utilisé pour dériver le bip 1 quand l'audio n'a pas pu être détecté et que
+# le user a marqué le gate drop manuellement.
+UCI_BIP1_TO_GATE_S = 0.360
+
 # ── Dossiers ──────────────────────────────────────────────────────────────────
 UPLOAD_DIR    = Path("uploads")
 OUTPUT_DIR    = Path("output")
@@ -315,7 +324,13 @@ async def start_analysis(background_tasks: BackgroundTasks,
     fps       = job["fps"]
     gate_drop = gate_frame / fps
     video_path = Path(job["video_path"])
-    bip1 = bip1_time if bip1_time > 0 else None
+    # Si l'audio n'a pas détecté de bip 1, on le dérive à partir du gate drop
+    # et de la cadence UCI fixe (360 ms entre bip 1 et gate drop) — comme ça
+    # le temps de réaction "depuis bip 1" reste calculé même sans audio.
+    if bip1_time > 0:
+        bip1 = bip1_time
+    else:
+        bip1 = max(0.0, gate_drop - UCI_BIP1_TO_GATE_S)
 
     jobs[job_id]["status"]    = "queued"
     jobs[job_id]["progress"]  = "En attente..."
@@ -531,7 +546,10 @@ async def pros_start(background_tasks: BackgroundTasks,
     fps        = p["fps"]
     gate_drop  = gate_frame / fps
     video_path = Path(p["video_path"])
-    bip1 = bip1_time if bip1_time > 0 else None
+    if bip1_time > 0:
+        bip1 = bip1_time
+    else:
+        bip1 = max(0.0, gate_drop - UCI_BIP1_TO_GATE_S)
 
     pros[pro_id]["status"]   = "queued"
     pros[pro_id]["progress"] = "En attente..."
