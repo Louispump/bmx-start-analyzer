@@ -153,8 +153,12 @@
             <span class="anim-T-tag" id="anim-T">T +0.000s</span>
           </div>
           <div class="anchor-toggle">
-            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="hip" checked><span>Hanches liées</span></label>
-            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="free"><span>Mouvement libre depuis T=−0.5s</span></label>
+            <span class="anchor-toggle-label">Ancrer sur :</span>
+            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="hip" checked><span>Hanches</span></label>
+            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="ankle"><span>Pieds</span></label>
+            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="shoulder"><span>Épaules</span></label>
+            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="wrist"><span>Mains</span></label>
+            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="free"><span>Mouvement libre (T=−0.5s)</span></label>
           </div>
           <canvas id="anim-canvas" width="320" height="400"></canvas>
           <div class="anim-controls">
@@ -164,7 +168,7 @@
           </div>
           <input type="range" class="scrubber scrubber-light" id="anim-scrub"
                  min="0" max="100" value="0" step="1">
-          <p class="overlay-note">Hanches liées : les 2 squelettes superposés image par image (pour comparer la posture). Mouvement libre : alignés à T=−0.5s puis chacun bouge depuis sa position de départ (pour voir qui avance/redresse en premier).</p>
+          <p class="overlay-note">4 ancrages "posture" (réalignés image par image) : <em>Hanches</em> / <em>Pieds</em> / <em>Épaules</em> / <em>Mains</em>. <em>Mouvement libre</em> : alignement figé à T=−0.5s, chaque rider bouge depuis sa position de set (pour voir qui avance / redresse en premier).</p>
         </div>
         <div class="angles-table-box">
           <table class="angles-compare-table">
@@ -762,8 +766,16 @@
         if (d < bestDiff) { bestDiff = d; pBest = f; }
       }
       const mode = getAnchorMode();
-      const rSkel = mode === 'free' ? (rFrame.skeleton_free || rFrame.skeleton) : rFrame.skeleton;
-      const pSkel = mode === 'free' ? (pBest.skeleton_free  || pBest.skeleton)  : pBest.skeleton;
+      let rSkel, pSkel;
+      if (mode === 'free') {
+        rSkel = rFrame.skeleton_free || rFrame.skeleton;
+        pSkel = pBest.skeleton_free  || pBest.skeleton;
+      } else {
+        // Re-ancrage frame par frame sur l'articulation choisie
+        // (hip/ankle/shoulder/wrist) à partir du squelette hip-normalized.
+        rSkel = reanchor(rFrame.skeleton, mode);
+        pSkel = reanchor(pBest.skeleton,  mode);
+      }
       drawOverlayCanvas('anim-canvas', rSkel, pSkel, mode);
       const t = rFrame.T;
       document.getElementById('anim-T').textContent =
