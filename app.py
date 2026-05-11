@@ -662,16 +662,29 @@ def _infer_front_foot_from_csv(df: pd.DataFrame) -> str:
     return "L"
 
 
+def _arm_side_from_direction(direction: int) -> str:
+    """En BMX (rider en profil), le bras face caméra est mieux tracké par
+    la pose detection que celui à l'arrière, souvent occulté par le corps.
+    On découple donc le choix du bras de celui du pied avant :
+    - direction > 0 = rider face droite → caméra à sa gauche → bras L visible
+    - direction < 0 = rider face gauche → caméra à sa droite → bras R visible"""
+    return "L" if direction > 0 else "R"
+
+
 def _normalized_skeleton_anchored(row, side: str, direction: int,
                                   hip0_x: float, hip0_y: float,
-                                  scale0: float) -> dict | None:
+                                  scale0: float,
+                                  arm_side: str | None = None) -> dict | None:
     """Comme _normalized_skeleton mais ancré sur (hip0, scale0) fixés à un
     instant de référence (T = −0.5s par défaut). La hanche n'est PAS remise à
     (0,0) à chaque frame ; elle bouge avec le rider depuis sa position
     initiale, ce qui révèle le déplacement réel pendant la séquence."""
     if not (np.isfinite(hip0_x) and np.isfinite(hip0_y) and scale0 > 1.0):
         return None
-    other = "R" if side == "L" else "L"
+    if arm_side is None:
+        arm_side = _arm_side_from_direction(direction)
+    other_leg = "R" if side     == "L" else "L"
+    other_arm = "R" if arm_side == "L" else "L"
 
     def _n(col_x: str, col_y: str):
         x = row.get(col_x, np.nan)
@@ -685,19 +698,20 @@ def _normalized_skeleton_anchored(row, side: str, direction: int,
         return [round(float(nx), 3), round(float(ny), 3)]
 
     return {
-        "nose":          _n("nose_x",                "nose_y"),
-        "shoulder":      _n(f"{side}_shoulder_x",    f"{side}_shoulder_y"),
-        "elbow":         _n(f"{side}_elbow_x",       f"{side}_elbow_y"),
-        "wrist":         _n(f"{side}_wrist_x",       f"{side}_wrist_y"),
-        "hip":           _n(f"{side}_hip_x",         f"{side}_hip_y"),
-        "knee":          _n(f"{side}_knee_x",        f"{side}_knee_y"),
-        "ankle":         _n(f"{side}_ankle_x",       f"{side}_ankle_y"),
-        "back_shoulder": _n(f"{other}_shoulder_x",   f"{other}_shoulder_y"),
-        "back_hip":      _n(f"{other}_hip_x",        f"{other}_hip_y"),
+        "nose":          _n("nose_x",                    "nose_y"),
+        "shoulder":      _n(f"{arm_side}_shoulder_x",    f"{arm_side}_shoulder_y"),
+        "elbow":         _n(f"{arm_side}_elbow_x",       f"{arm_side}_elbow_y"),
+        "wrist":         _n(f"{arm_side}_wrist_x",       f"{arm_side}_wrist_y"),
+        "hip":           _n(f"{side}_hip_x",             f"{side}_hip_y"),
+        "knee":          _n(f"{side}_knee_x",            f"{side}_knee_y"),
+        "ankle":         _n(f"{side}_ankle_x",           f"{side}_ankle_y"),
+        "back_shoulder": _n(f"{other_arm}_shoulder_x",   f"{other_arm}_shoulder_y"),
+        "back_hip":      _n(f"{other_leg}_hip_x",        f"{other_leg}_hip_y"),
     }
 
 
-def _normalized_skeleton(row, side: str, direction: int) -> dict | None:
+def _normalized_skeleton(row, side: str, direction: int,
+                         arm_side: str | None = None) -> dict | None:
     """Normalise le squelette pour overlay : hanche à l'origine, échelle = 1.0
     sur la longueur hanche→épaule, mirror si le rider est tourné à gauche
     (pour que les 2 squelettes soient comparables face à droite).
@@ -714,7 +728,10 @@ def _normalized_skeleton(row, side: str, direction: int) -> dict | None:
     if scale < 1.0:
         return None
 
-    other = "R" if side == "L" else "L"
+    if arm_side is None:
+        arm_side = _arm_side_from_direction(direction)
+    other_leg = "R" if side     == "L" else "L"
+    other_arm = "R" if arm_side == "L" else "L"
 
     def _n(col_x: str, col_y: str):
         x = row.get(col_x, np.nan)
@@ -728,15 +745,15 @@ def _normalized_skeleton(row, side: str, direction: int) -> dict | None:
         return [round(float(nx), 3), round(float(ny), 3)]
 
     return {
-        "nose":          _n("nose_x",                "nose_y"),
-        "shoulder":      _n(f"{side}_shoulder_x",    f"{side}_shoulder_y"),
-        "elbow":         _n(f"{side}_elbow_x",       f"{side}_elbow_y"),
-        "wrist":         _n(f"{side}_wrist_x",       f"{side}_wrist_y"),
-        "hip":           _n(f"{side}_hip_x",         f"{side}_hip_y"),    # → [0, 0]
-        "knee":          _n(f"{side}_knee_x",        f"{side}_knee_y"),
-        "ankle":         _n(f"{side}_ankle_x",       f"{side}_ankle_y"),
-        "back_shoulder": _n(f"{other}_shoulder_x",   f"{other}_shoulder_y"),
-        "back_hip":      _n(f"{other}_hip_x",        f"{other}_hip_y"),
+        "nose":          _n("nose_x",                    "nose_y"),
+        "shoulder":      _n(f"{arm_side}_shoulder_x",    f"{arm_side}_shoulder_y"),
+        "elbow":         _n(f"{arm_side}_elbow_x",       f"{arm_side}_elbow_y"),
+        "wrist":         _n(f"{arm_side}_wrist_x",       f"{arm_side}_wrist_y"),
+        "hip":           _n(f"{side}_hip_x",             f"{side}_hip_y"),    # → [0, 0]
+        "knee":          _n(f"{side}_knee_x",            f"{side}_knee_y"),
+        "ankle":         _n(f"{side}_ankle_x",           f"{side}_ankle_y"),
+        "back_shoulder": _n(f"{other_arm}_shoulder_x",   f"{other_arm}_shoulder_y"),
+        "back_hip":      _n(f"{other_leg}_hip_x",        f"{other_leg}_hip_y"),
     }
 
 
@@ -770,17 +787,26 @@ def _compute_angles_at_time(csv_path: Path, t: float, side: str,
     else:
         direction = 1
 
-    def _pt(part: str):
+    # Bras : on prend toujours le côté face caméra (mieux tracké en profil),
+    # indépendamment du pied avant qui définit la jambe analysée.
+    arm_side = _arm_side_from_direction(direction)
+
+    def _pt_arm(part: str):
+        x = row.get(f"{arm_side}_{part}_x", np.nan)
+        y = row.get(f"{arm_side}_{part}_y", np.nan)
+        return (float(x), float(y))
+
+    def _pt_leg(part: str):
         x = row.get(f"{side}_{part}_x", np.nan)
         y = row.get(f"{side}_{part}_y", np.nan)
         return (float(x), float(y))
 
-    sh = _pt("shoulder")
-    el = _pt("elbow")
-    wr = _pt("wrist")
-    hi = _pt("hip")
-    kn = _pt("knee")
-    an = _pt("ankle")
+    sh = _pt_arm("shoulder")
+    el = _pt_arm("elbow")
+    wr = _pt_arm("wrist")
+    hi = _pt_leg("hip")
+    kn = _pt_leg("knee")
+    an = _pt_leg("ankle")
 
     def _safe_angle(p1, p2, p3):
         if any(np.isnan(p[0]) or np.isnan(p[1]) for p in (p1, p2, p3)):
@@ -969,18 +995,26 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
     scale0  = float(np.hypot(sh0_x - hip0_x, sh0_y - hip0_y)) \
               if np.isfinite(hip0_x) and np.isfinite(sh0_x) else 0.0
 
+    # Bras toujours côté caméra (mieux tracké), jambe = front_foot
+    arm_side = _arm_side_from_direction(direction)
+
     out: list[dict] = []
     for idx, row in sub.iterrows():
         t = float(row["time"])
         T = round(t - gate_t, 3)
 
-        def _pt(part: str):
+        def _pt_arm(part: str):
+            x = row.get(f"{arm_side}_{part}_x", np.nan)
+            y = row.get(f"{arm_side}_{part}_y", np.nan)
+            return (float(x), float(y))
+
+        def _pt_leg(part: str):
             x = row.get(f"{side}_{part}_x", np.nan)
             y = row.get(f"{side}_{part}_y", np.nan)
             return (float(x), float(y))
 
-        sh = _pt("shoulder"); el = _pt("elbow"); wr = _pt("wrist")
-        hi = _pt("hip");      kn = _pt("knee");  an = _pt("ankle")
+        sh = _pt_arm("shoulder"); el = _pt_arm("elbow"); wr = _pt_arm("wrist")
+        hi = _pt_leg("hip");      kn = _pt_leg("knee");  an = _pt_leg("ankle")
 
         def _safe_angle(p1, p2, p3):
             if any(np.isnan(p[0]) or np.isnan(p[1]) for p in (p1, p2, p3)):
