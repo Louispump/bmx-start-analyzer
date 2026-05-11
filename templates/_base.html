@@ -60,6 +60,10 @@
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M5 17v-5l5-3 5 3v5M3 8l7-5 7 5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>Banque de pros</span>
       </a>
+      <a href="/manual_reaction" class="nav-item {% if active == 'manual_reaction' %}active{% endif %}">
+        <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 5v5l3.5 2M10 18A8 8 0 1010 2a8 8 0 000 16z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Mesure manuelle</span>
+      </a>
       {% set tools_active = active in ['tools_gear', 'tools_pressure'] %}
       <a href="/tools/gear" class="nav-item {% if tools_active %}active{% endif %}">
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.6 5.6l1.4 1.4M13 13l1.4 1.4M5.6 14.4L7 13M13 7l1.4-1.4M10 13a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>

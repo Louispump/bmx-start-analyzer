@@ -1,0 +1,227 @@
+{% extends "_base.html" %}
+
+{% block title %}Mesure manuelle — BMX Start Analyzer{% endblock %}
+{% set active = "manual_reaction" %}
+
+{% block content %}
+  <header>
+    <h1>Mesure manuelle du temps de réaction</h1>
+    <p class="subtitle">Tu marques toi-même le gate drop et le premier mouvement frame par frame. Calcul instantané, fonctionne sans audio. Cadence UCI = bip 1 à 360 ms avant le gate drop.</p>
+  </header>
+
+  <div class="section">
+    <div class="tabs">
+      <button type="button" class="tab tab-active" data-source="upload">🎬 Nouvelle vidéo</button>
+      <button type="button" class="tab" data-source="existing">📁 Vidéo existante</button>
+    </div>
+
+    <div id="source-upload">
+      <div class="upload-zone" id="dropzone">
+        <div class="upload-icon">🎬</div>
+        <p class="upload-label">Glisse une vidéo ici</p>
+        <p class="upload-hint">ou</p>
+        <label class="btn btn-primary" for="file-input">Choisir un fichier</label>
+        <input type="file" id="file-input" accept="video/*" style="display:none">
+        <p class="upload-formats">MP4 · MOV · AVI</p>
+      </div>
+    </div>
+
+    <div id="source-existing" style="display:none">
+      <div class="athlete-pick">
+        <label class="athlete-pick-label" for="existing-select">Choisis une vidéo déjà analysée</label>
+        <select id="existing-select" class="pro-select">
+          <option value="">— Choisir —</option>
+          {% for v in videos_list %}
+          <option value="{{ v.url }}" data-fps="{{ v.fps }}">{{ v.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="video-section" style="display:none">
+    <h2>Marque les deux instants</h2>
+    <p class="section-note">
+      Scrub jusqu'au moment exact, puis clique le bouton correspondant. Tu peux re-marquer en revenant dessus.
+      Raccourcis : ← / → pour avancer d'une frame, espace pour play/pause, <kbd>G</kbd> pour gate, <kbd>M</kbd> pour mouvement.
+    </p>
+
+    <div class="gate-video-wrap">
+      <video id="m-video" playsinline preload="auto" controls></video>
+    </div>
+
+    <div class="gate-scrubber-wrap">
+      <input type="range" class="scrubber scrubber-light" id="m-scrub"
+             min="0" max="1000" value="0" step="1">
+    </div>
+
+    <div class="gate-controls">
+      <button class="btn-frame btn-frame-dark" onclick="mStep(-1)">&#9664;</button>
+      <span class="frame-counter-dark" id="m-counter">Frame 0</span>
+      <button class="btn-frame btn-frame-dark" onclick="mStep(+1)">&#9654;</button>
+    </div>
+
+    <div class="marker-buttons">
+      <button class="btn btn-gate-mark" onclick="markGate()">📍 Marquer le gate drop</button>
+      <button class="btn btn-gate-mark" onclick="markMove()">🏃 Marquer le 1er mouvement</button>
+      <button class="btn" onclick="resetMarkers()">↻ Réinitialiser</button>
+    </div>
+
+    <div class="marker-result" id="marker-result">
+      <div class="mr-row">
+        <span class="mr-label">Gate drop</span>
+        <span class="mr-val" id="m-gate">— non défini —</span>
+      </div>
+      <div class="mr-row">
+        <span class="mr-label">1<sup>er</sup> mouvement</span>
+        <span class="mr-val" id="m-move">— non défini —</span>
+      </div>
+      <div class="metrics-grid" style="margin-top:14px">
+        <div class="metric-card">
+          <div class="metric-label">Réaction depuis gate</div>
+          <div class="metric-value"><span id="m-react-gate">—</span><span class="metric-unit">ms</span></div>
+          <div class="metric-sub">(1er mouvement − gate drop)</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Réaction depuis bip 1</div>
+          <div class="metric-value"><span id="m-react-bip">—</span><span class="metric-unit">ms</span></div>
+          <div class="metric-sub">cadence UCI +360 ms</div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const UCI_BIP1_TO_GATE_MS = 360;
+
+  let fps = 30;
+  let gateT = null;
+  let moveT = null;
+  let scrubbing = false;
+
+  const v       = document.getElementById('m-video');
+  const scrub   = document.getElementById('m-scrub');
+  const counter = document.getElementById('m-counter');
+
+  // ── Onglets : Nouvelle vidéo / Vidéo existante ──────────────────
+  document.querySelectorAll('.tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('tab-active'));
+      t.classList.add('tab-active');
+      const s = t.dataset.source;
+      document.getElementById('source-upload').style.display   = (s === 'upload')   ? '' : 'none';
+      document.getElementById('source-existing').style.display = (s === 'existing') ? '' : 'none';
+    });
+  });
+
+  // ── Upload nouvelle vidéo ───────────────────────────────────────
+  const dropzone  = document.getElementById('dropzone');
+  const fileInput = document.getElementById('file-input');
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault(); dropzone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) uploadVideo(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', e => { if (e.target.files[0]) uploadVideo(e.target.files[0]); });
+
+  async function uploadVideo(file) {
+    dropzone.classList.add('drag-over');
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res  = await fetch('/manual_reaction/upload', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('upload échoué : ' + res.status);
+      const data = await res.json();
+      loadVideo(data.video_url, data.fps);
+    } catch (e) {
+      alert('Erreur upload : ' + e.message);
+    }
+    dropzone.classList.remove('drag-over');
+  }
+
+  // ── Vidéo existante ─────────────────────────────────────────────
+  document.getElementById('existing-select').addEventListener('change', e => {
+    if (!e.target.value) return;
+    const opt = e.target.options[e.target.selectedIndex];
+    loadVideo(e.target.value, parseFloat(opt.dataset.fps) || 30);
+  });
+
+  // ── Lecteur ─────────────────────────────────────────────────────
+  function loadVideo(url, vidFps) {
+    fps = vidFps || 30;
+    resetMarkers();
+    v.src = url;
+    v.load();
+    document.getElementById('video-section').style.display = '';
+    v.addEventListener('loadedmetadata', () => {
+      scrub.max   = Math.max(1, Math.round(v.duration * fps) - 1);
+      scrub.value = 0;
+      counter.textContent = 'Frame 0';
+    }, { once: true });
+  }
+
+  v.addEventListener('timeupdate', () => {
+    const f = Math.round(v.currentTime * fps);
+    if (!scrubbing) scrub.value = f;
+    counter.textContent = `Frame ${f}`;
+  });
+  scrub.addEventListener('mousedown',  () => { scrubbing = true; });
+  scrub.addEventListener('touchstart', () => { scrubbing = true; }, { passive: true });
+  scrub.addEventListener('input', () => {
+    v.currentTime = scrub.value / fps;
+    counter.textContent = `Frame ${scrub.value}`;
+  });
+  scrub.addEventListener('mouseup',  () => { scrubbing = false; });
+  scrub.addEventListener('touchend', () => { scrubbing = false; });
+
+  document.addEventListener('keydown', e => {
+    if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(e.target.tagName)) return;
+    if (document.getElementById('video-section').style.display === 'none') return;
+    if      (e.key === 'ArrowRight') { e.preventDefault(); mStep(+1); }
+    else if (e.key === 'ArrowLeft')  { e.preventDefault(); mStep(-1); }
+    else if (e.key === ' ')          { e.preventDefault(); v.paused ? v.play() : v.pause(); }
+    else if (e.key === 'g' || e.key === 'G') { markGate(); }
+    else if (e.key === 'm' || e.key === 'M') { markMove(); }
+  });
+
+  function mStep(dir) {
+    v.pause();
+    const f = Math.max(0, Math.round(v.currentTime * fps) + dir);
+    v.currentTime      = f / fps;
+    scrub.value        = f;
+    counter.textContent = `Frame ${f}`;
+  }
+
+  // ── Marqueurs + calcul ──────────────────────────────────────────
+  function fmtMark(t) {
+    return `frame ${Math.round(t * fps)} · t = ${t.toFixed(3)}s`;
+  }
+  function markGate() {
+    gateT = v.currentTime;
+    document.getElementById('m-gate').textContent = fmtMark(gateT);
+    updateResult();
+  }
+  function markMove() {
+    moveT = v.currentTime;
+    document.getElementById('m-move').textContent = fmtMark(moveT);
+    updateResult();
+  }
+  function resetMarkers() {
+    gateT = null; moveT = null;
+    document.getElementById('m-gate').textContent = '— non défini —';
+    document.getElementById('m-move').textContent = '— non défini —';
+    document.getElementById('m-react-gate').textContent = '—';
+    document.getElementById('m-react-bip').textContent  = '—';
+  }
+  function updateResult() {
+    if (gateT === null || moveT === null) return;
+    const dGate = (moveT - gateT) * 1000;
+    const dBip  = dGate + UCI_BIP1_TO_GATE_MS;
+    document.getElementById('m-react-gate').textContent = dGate.toFixed(0);
+    document.getElementById('m-react-bip').textContent  = dBip.toFixed(0);
+  }
+</script>
+{% endblock %}

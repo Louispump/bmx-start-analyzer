@@ -1844,6 +1844,39 @@ input[type="text"].rider-name-input {
 }
 
 /* ══════════════════════════════════════════════════════════════════════
+   MESURE MANUELLE — marqueurs gate / mouvement
+   ══════════════════════════════════════════════════════════════════════ */
+.marker-buttons {
+  display: flex;
+  gap: 10px;
+  margin: 14px 0 12px;
+  flex-wrap: wrap;
+}
+.marker-result {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.mr-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 0;
+}
+.mr-label {
+  color: var(--muted);
+  font-size: .82rem;
+  font-weight: 600;
+}
+.mr-val {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: .85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
    OUTILS (calculateurs gear / pression)
    ══════════════════════════════════════════════════════════════════════ */
 .tool-grid {

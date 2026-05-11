@@ -449,6 +449,61 @@ async def athlete_delete(athlete_id: str):
     return {"ok": True}
 
 
+# ── Mesure manuelle du temps de réaction ─────────────────────────────────────
+@app.get("/manual_reaction")
+async def manual_reaction_page(request: Request):
+    """Page de mesure manuelle : on liste les vidéos existantes (jobs + pros)
+    et on laisse aussi l'option d'en uploader une nouvelle."""
+    videos = []
+    for jid, j in jobs.items():
+        if j.get("status") != "done":
+            continue
+        r = j.get("results", {})
+        ann = r.get("files", {}).get("annotated_video")
+        if not ann:
+            continue
+        ath_id   = j.get("athlete_id")
+        ath_name = athletes.get(ath_id, {}).get("name") if ath_id else None
+        date     = j.get("added_at", "").split(" ")[0] if j.get("added_at") else ""
+        label    = ath_name or r.get("video_name", jid)
+        if date:
+            label = f"{label} — {date}"
+        videos.append({
+            "label": label,
+            "url":   f"/output/{ann}",
+            "fps":   r.get("fps", 30),
+        })
+    for pid, p in pros.items():
+        if p.get("status") != "done":
+            continue
+        vf = p.get("video_file")
+        if not vf:
+            continue
+        videos.append({
+            "label": (p.get("name") or pid) + " (pro)",
+            "url":   f"/output/{vf}",
+            "fps":   p.get("fps", 30),
+        })
+    videos.sort(key=lambda v: v["label"].lower())
+    return templates.TemplateResponse(request, "manual_reaction.html",
+                                      {"videos_list": videos})
+
+
+@app.post("/manual_reaction/upload")
+async def manual_reaction_upload(file: UploadFile = File(...)):
+    """Sauve une vidéo pour mesure manuelle, sans déclencher l'analyse complète."""
+    vid        = str(uuid.uuid4())[:8]
+    safe_name  = file.filename.replace("/", "_")
+    video_path = UPLOAD_DIR / f"manual_{vid}_{safe_name}"
+    with open(video_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    info = get_video_info(video_path)
+    return {
+        "video_url": f"/uploads/manual_{vid}_{safe_name}",
+        "fps":       info["fps"],
+    }
+
+
 # ── Paramètres (thème, etc.) ─────────────────────────────────────────────────
 @app.get("/settings")
 async def settings_page(request: Request):
