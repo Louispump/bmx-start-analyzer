@@ -40,6 +40,23 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="BMX Start Analyzer")
+
+
+# Empêche le cache navigateur sur les pages HTML et les CSS/JS — sinon Safari
+# (surtout iPad) garde l'ancienne version pendant plusieurs minutes après une
+# mise à jour du code, ce qui donne l'impression que rien n'a changé.
+@app.middleware("http")
+async def no_cache_for_html(request, call_next):
+    response = await call_next(request)
+    ct = response.headers.get("content-type", "")
+    if ct.startswith("text/html") or ct.startswith("text/css") \
+       or ct.startswith("application/javascript"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"]        = "no-cache"
+        response.headers["Expires"]       = "0"
+    return response
+
+
 app.mount("/static",  StaticFiles(directory="static"),  name="static")
 app.mount("/output",  StaticFiles(directory="output"),  name="output")
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
