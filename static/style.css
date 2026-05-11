@@ -70,6 +70,41 @@ button { font-family: inherit; }
   --font-mono:        "JetBrains Mono", "SF Mono", ui-monospace, monospace;
 }
 
+/* ── Thème clair (active via <html data-theme="light">) ──────────────── */
+:root[data-theme="light"] {
+  --bg:               #f4f7fb;
+  --surface:          #ffffff;
+  --surface-elevated: #eef3fa;
+  --surface-hover:    #e3ecf7;
+  --sidebar-bg:       #e9eff7;
+
+  --border:           #d6dde9;
+  --border-strong:    #b5c0d2;
+
+  --text:             #1a2236;
+  --text-strong:      #0a0f1c;
+  --muted:            #5d6a82;
+  --subtle:           #8f9ab0;
+
+  --accent:           #0099bb;
+  --accent-hover:     #00b3d6;
+  --accent-dim:       #00708a;
+  --accent-soft:      rgba(0, 153, 187, 0.10);
+  --accent-mid:       rgba(0, 153, 187, 0.22);
+  --accent-glow:      rgba(0, 153, 187, 0.20);
+
+  --green-soft:       rgba(45, 205, 110, 0.14);
+  --orange-soft:      rgba(245, 156, 24, 0.14);
+  --red-soft:         rgba(255, 77, 74, 0.12);
+
+  --shadow:           0 2px 8px rgba(20, 30, 60, 0.10), 0 12px 40px rgba(20, 30, 60, 0.08);
+  --shadow-sm:        0 1px 3px rgba(20, 30, 60, 0.08), 0 4px 12px rgba(20, 30, 60, 0.05);
+  --shadow-card:      0 0 0 1px var(--border), 0 2px 8px rgba(20, 30, 60, 0.08);
+}
+
+:root[data-theme="light"] .gate-marker strong,
+:root[data-theme="light"] .panel-tag.rider-tag { color: #00131a; }
+
 /* ── Base ────────────────────────────────────────────────────────────── */
 html { height: 100%; }
 

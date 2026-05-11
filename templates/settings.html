@@ -1,0 +1,41 @@
+{% extends "_base.html" %}
+
+{% block title %}Paramètres — BMX Start Analyzer{% endblock %}
+{% set active = "settings" %}
+
+{% block content %}
+  <header>
+    <h1>Paramètres</h1>
+    <p class="subtitle">Réglages d'affichage de l'application.</p>
+  </header>
+
+  <div class="section">
+    <h2>Thème</h2>
+    <p class="section-note">Choisis l'apparence de l'interface. Le réglage est sauvegardé localement et appliqué à toutes les pages.</p>
+    <div class="radio-cards" id="theme-cards">
+      <label class="radio-card"><input type="radio" name="theme" value="dark"><span class="rc-name">🌙 Sombre</span><span class="rc-delta">par défaut</span></label>
+      <label class="radio-card"><input type="radio" name="theme" value="light"><span class="rc-name">☀️ Clair</span><span class="rc-delta">lumière du jour</span></label>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Initialise la sélection visuelle d'après le thème courant
+  (function() {
+    const current = localStorage.getItem('bmx-theme') || 'dark';
+    const input = document.querySelector(`input[name="theme"][value="${current}"]`);
+    if (input) input.checked = true;
+  })();
+
+  // Sauvegarde + applique le thème instantanément quand on change
+  document.querySelectorAll('input[name="theme"]').forEach(r => {
+    r.addEventListener('change', () => {
+      const v = r.value;
+      localStorage.setItem('bmx-theme', v);
+      if (v === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      else                document.documentElement.removeAttribute('data-theme');
+    });
+  });
+</script>
+{% endblock %}

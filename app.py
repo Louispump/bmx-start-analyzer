@@ -434,6 +434,12 @@ async def athlete_delete(athlete_id: str):
     return {"ok": True}
 
 
+# ── Paramètres (thème, etc.) ─────────────────────────────────────────────────
+@app.get("/settings")
+async def settings_page(request: Request):
+    return templates.TemplateResponse(request, "settings.html", {})
+
+
 # ── Outils (calculateurs gear / pression) ────────────────────────────────────
 @app.get("/tools/gear")
 async def tools_gear(request: Request):

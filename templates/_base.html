@@ -4,6 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1280">
   <title>{% block title %}BMX Start Analyzer{% endblock %}</title>
+  <!-- Applique le thème mémorisé avant le rendu pour éviter le flash. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('bmx-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) {}
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -66,6 +75,10 @@
         <span>Pression pneus</span>
       </a>
       {% endif %}
+      <a href="/settings" class="nav-item {% if active == 'settings' %}active{% endif %}">
+        <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 13a3 3 0 100-6 3 3 0 000 6zM10 1.5v2M10 16.5v2M18.5 10h-2M3.5 10h-2M16 4l-1.5 1.5M5.5 14.5L4 16M16 16l-1.5-1.5M5.5 5.5L4 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+        <span>Paramètres</span>
+      </a>
       {% if active == 'result' or active == 'compare' %}
       <div class="nav-divider"></div>
       <a href="/result/{{ job_id }}" class="nav-item nav-sub {% if active == 'result' %}active{% endif %}">
