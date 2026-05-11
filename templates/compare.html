@@ -196,6 +196,7 @@
             <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="hip" checked><span>Hanches</span></label>
             <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="ankle"><span>Pieds</span></label>
             <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="shoulder"><span>Épaules</span></label>
+            <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="wrist"><span>Mains</span></label>
           </div>
           <canvas id="overlay-canvas" width="320" height="400"></canvas>
           <p class="overlay-note">Choisis quel point on aligne entre rider et référence : <em>Hanches</em> = posture pure / <em>Pieds</em> = position du corps sur la pédale / <em>Épaules</em> = position des bras sur le guidon.</p>
@@ -559,10 +560,10 @@
 
     function redrawStaticOverlay() {
       if (!lastSnapshotData) return;
-      const mode = getStaticAnchorMode(); // 'hip' | 'ankle' | 'shoulder'
+      const mode = getStaticAnchorMode(); // 'hip' | 'ankle' | 'shoulder' | 'wrist'
       const rSkel = reanchor(lastSnapshotData.rider.skeleton, mode);
       const pSkel = reanchor(lastSnapshotData.pro.skeleton,   mode);
-      drawOverlayCanvas('overlay-canvas', rSkel, pSkel, 'hip');
+      drawOverlayCanvas('overlay-canvas', rSkel, pSkel, mode);
       drawAnglesRadar('radar-canvas', lastSnapshotData.rider, lastSnapshotData.pro);
     }
 
@@ -834,17 +835,20 @@
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = "#0a0a0a";
       ctx.fillRect(0, 0, W, H);
-      // En mode "libre" les squelettes peuvent s'écarter de l'origine ; on
-      // recule l'origine vers la gauche et on rétrécit un peu l'échelle pour
-      // que le mouvement reste dans le cadre.
-      const cx = mode === 'free' ? W * 0.30 : W / 2;
-      const cy = H * 0.55;
+      // On place l'origine d'ancrage là où l'articulation choisie se trouve
+      // naturellement dans le corps, pour que le squelette tienne dans le
+      // cadre. Hanche au milieu, pieds en bas, épaules / mains en haut.
+      let cx = W / 2, cy = H * 0.55, SCALE = 90;
+      if      (mode === 'free')     { cx = W * 0.30; cy = H * 0.55; SCALE = 70; }
+      else if (mode === 'ankle')    { cy = H * 0.88; }
+      else if (mode === 'shoulder') { cy = H * 0.25; }
+      else if (mode === 'wrist')    { cy = H * 0.30; }
+
       ctx.strokeStyle = "#222";
       ctx.lineWidth = 1;
       ctx.globalAlpha = 1;
       ctx.beginPath(); ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10); ctx.stroke();
-      const SCALE = mode === 'free' ? 70 : 90;
       drawSkeleton(ctx, proSkel,   "#ff3b9b", SCALE, cx, cy);
       drawSkeleton(ctx, riderSkel, "#00d4ff", SCALE, cx, cy);
     }
