@@ -108,6 +108,14 @@
 
     const athleteSelect = document.getElementById('athlete-select');
 
+    // Pré-sélection de l'athlète depuis le query string (?athlete=<id>)
+    // — utilisé quand on arrive depuis la fiche d'un athlète.
+    const _preAthlete = new URLSearchParams(window.location.search).get('athlete');
+    if (_preAthlete) {
+      const opt = athleteSelect.querySelector(`option[value="${_preAthlete}"]`);
+      if (opt) athleteSelect.value = _preAthlete;
+    }
+
     document.getElementById('btn-new-athlete').addEventListener('click', async () => {
       const name = prompt("Nom de l'athlète :");
       if (!name || !name.trim()) return;

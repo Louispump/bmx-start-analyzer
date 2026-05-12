@@ -13,7 +13,7 @@
         <p class="subtitle">Dossier créé le {{ athlete.created_at }}</p>
       </div>
       <div class="athlete-header-actions">
-        <a href="/" class="btn btn-primary">+ Nouvelle analyse</a>
+        <a href="/?athlete={{ athlete.id }}" class="btn btn-primary">+ Nouvelle analyse</a>
         <button type="button" class="btn-delete" title="Supprimer le dossier"
                 onclick="deleteAthlete('{{ athlete.id }}')">✕</button>
       </div>
@@ -67,7 +67,7 @@
     <h2>Vidéos <span class="section-tag">{{ athlete_jobs|length }}</span></h2>
     {% if not athlete_jobs %}
     <div class="empty-state">
-      Aucune vidéo encore. <a href="/" style="color:var(--accent)">Lance une nouvelle analyse</a> et choisis cet athlète dans le dropdown.
+      Aucune vidéo encore. <a href="/?athlete={{ athlete.id }}" style="color:var(--accent)">Lance une nouvelle analyse</a> avec cet athlète pré-sélectionné.
     </div>
     {% else %}
     <div class="pros-list">

@@ -1263,6 +1263,36 @@ async def get_annotations(job_id: str):
     return {"annotations": job.get("annotations", [])}
 
 
+@app.get("/pros/{pro_id}/annotations")
+async def get_pro_annotations(pro_id: str):
+    pro = pros.get(pro_id)
+    if not pro:
+        return JSONResponse({"error": "Pro introuvable."}, status_code=404)
+    return {"annotations": pro.get("annotations", [])}
+
+
+@app.post("/pros/{pro_id}/annotations")
+async def save_pro_annotations(pro_id: str, request: Request):
+    pro = pros.get(pro_id)
+    if not pro:
+        return JSONResponse({"error": "Pro introuvable."}, status_code=404)
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "JSON invalide."}, status_code=400)
+    annotations = data.get("annotations", [])
+    if not isinstance(annotations, list):
+        return JSONResponse({"error": "annotations doit être une liste."}, status_code=400)
+    if len(annotations) > MAX_ANNOTATIONS_PER_JOB:
+        return JSONResponse(
+            {"error": f"Trop d'annotations (max {MAX_ANNOTATIONS_PER_JOB})."},
+            status_code=400,
+        )
+    pro["annotations"] = annotations
+    save_pros(pros)
+    return {"ok": True, "count": len(annotations)}
+
+
 @app.post("/compare/{job_id}/annotations")
 async def save_annotations(job_id: str, request: Request):
     """Sauve la liste complète des annotations pour ce job (remplace l'ancienne)."""
