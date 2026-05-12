@@ -1251,6 +1251,41 @@ async def compare_angles_sequence(job_id: str,
     }
 
 
+# ── Annotations dessinées sur la page Compare ─────────────────────────────────
+MAX_ANNOTATIONS_PER_JOB = 500
+
+
+@app.get("/compare/{job_id}/annotations")
+async def get_annotations(job_id: str):
+    job = jobs.get(job_id)
+    if not job:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    return {"annotations": job.get("annotations", [])}
+
+
+@app.post("/compare/{job_id}/annotations")
+async def save_annotations(job_id: str, request: Request):
+    """Sauve la liste complète des annotations pour ce job (remplace l'ancienne)."""
+    job = jobs.get(job_id)
+    if not job:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "JSON invalide."}, status_code=400)
+    annotations = data.get("annotations", [])
+    if not isinstance(annotations, list):
+        return JSONResponse({"error": "annotations doit être une liste."}, status_code=400)
+    if len(annotations) > MAX_ANNOTATIONS_PER_JOB:
+        return JSONResponse(
+            {"error": f"Trop d'annotations (max {MAX_ANNOTATIONS_PER_JOB})."},
+            status_code=400,
+        )
+    job["annotations"] = annotations
+    save_jobs(jobs)
+    return {"ok": True, "count": len(annotations)}
+
+
 # ── Comparaison ───────────────────────────────────────────────────────────────
 @app.get("/compare/{job_id}")
 async def compare(request: Request, job_id: str):

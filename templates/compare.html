@@ -76,6 +76,7 @@
       <div class="panel-video-wrap">
         <video id="video-rider" playsinline preload="auto"
                src="/output/{{ rider.files.annotated_video }}"></video>
+        <canvas class="annotation-canvas" id="anno-canvas-rider"></canvas>
       </div>
       <div class="panel-scrubber-wrap" onclick="event.stopPropagation()">
         <input type="range" class="scrubber" id="scrub-rider" min="0" max="1000" value="0" step="1">
@@ -98,6 +99,7 @@
       <div class="panel-video-wrap" id="pro-video-wrap">
         <div class="panel-empty" id="pro-empty">Choisis une référence dans le menu en haut :<br>pro · autre départ de l'athlète · autre athlète</div>
         <video id="video-pro" playsinline preload="auto" style="display:none"></video>
+        <canvas class="annotation-canvas" id="anno-canvas-pro"></canvas>
       </div>
       <div class="panel-scrubber-wrap" onclick="event.stopPropagation()">
         <input type="range" class="scrubber" id="scrub-pro" min="0" max="1000" value="0" step="1" disabled>
@@ -107,6 +109,33 @@
         <span class="frame-counter" id="counter-pro">Frame —</span>
         <button class="btn-frame" onclick="step('pro',+1)">&#9654;</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Barre d'annotation -->
+  <div class="anno-bar" id="anno-bar">
+    <button type="button" class="btn btn-anno-toggle" id="btn-anno-mode" title="Activer le mode annotation">
+      ✏️ Annoter
+    </button>
+    <div class="anno-tools" id="anno-tools" style="display:none">
+      <span class="anno-tools-group">
+        <button type="button" class="anno-tool tool-active" data-tool="arrow" title="Flèche">→</button>
+        <button type="button" class="anno-tool"           data-tool="circle" title="Cercle">○</button>
+        <button type="button" class="anno-tool"           data-tool="text"   title="Texte">T</button>
+        <button type="button" class="anno-tool"           data-tool="erase"  title="Effacer">⌫</button>
+      </span>
+      <span class="anno-tools-group">
+        <button type="button" class="anno-color color-active" data-color="#00d4ff" style="background:#00d4ff" title="Cyan"></button>
+        <button type="button" class="anno-color"              data-color="#ff3b9b" style="background:#ff3b9b" title="Magenta"></button>
+        <button type="button" class="anno-color"              data-color="#f7cc00" style="background:#f7cc00" title="Jaune"></button>
+        <button type="button" class="anno-color"              data-color="#ff4d4a" style="background:#ff4d4a" title="Rouge"></button>
+      </span>
+      <button type="button" class="btn btn-anno-clear" id="btn-anno-clear" title="Effacer toutes les annotations de la frame courante">
+        🗑 Vider la frame
+      </button>
+      <span class="anno-info" id="anno-info">
+        Clic-glisse = créer · clic sur l'outil ⌫ puis sur une annotation = supprimer
+      </span>
     </div>
   </div>
 
@@ -912,5 +941,301 @@
       drawSkeleton(ctx, riderSkel, "#00d4ff", SCALE, cx, cy);
     }
 
+    // ═════════════════════════════════════════════════════════════
+    // Annotations dessinées sur les vidéos (flèche / cercle / texte)
+    // ═════════════════════════════════════════════════════════════
+    let annotations    = [];
+    let annoMode       = false;
+    let currentTool    = 'arrow';
+    let currentColor   = '#00d4ff';
+    let drawStart      = null;     // {x,y} en coords normalisées 0..1
+    let drawPanel      = null;     // 'rider' | 'pro' pendant le drag
+    let drawPreview    = null;     // {x,y} pour le rendu live
+
+    const annoCanvases = {
+      rider: document.getElementById('anno-canvas-rider'),
+      pro:   document.getElementById('anno-canvas-pro'),
+    };
+
+    function getCurrentFrame(which) {
+      const v   = videos[which];
+      const fps = which === 'rider' ? riderFps : proFps;
+      if (!v.readyState) return 0;
+      return Math.round(v.currentTime * fps);
+    }
+
+    function fitCanvasToWrap(canvas) {
+      const wrap = canvas.parentElement;
+      const w = wrap.clientWidth, h = wrap.clientHeight;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width  = w;
+        canvas.height = h;
+      }
+      return { W: w, H: h };
+    }
+
+    function drawArrow(ctx, x1, y1, x2, y2, color) {
+      ctx.strokeStyle = color;
+      ctx.fillStyle   = color;
+      ctx.lineWidth   = 3;
+      ctx.lineCap     = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      const angle = Math.atan2(y2 - y1, x2 - x1);
+      const ah = 14;
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - ah * Math.cos(angle - 0.45), y2 - ah * Math.sin(angle - 0.45));
+      ctx.lineTo(x2 - ah * Math.cos(angle + 0.45), y2 - ah * Math.sin(angle + 0.45));
+      ctx.closePath();
+      ctx.fill();
+    }
+    function drawCircle(ctx, cx, cy, r, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = 3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(2, r), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    function drawText(ctx, x, y, text, color) {
+      ctx.font = 'bold 18px Inter, sans-serif';
+      const m = ctx.measureText(text);
+      const pad = 6;
+      ctx.fillStyle = 'rgba(0,0,0,0.72)';
+      ctx.fillRect(x - pad, y - 22, m.width + pad * 2, 28);
+      ctx.fillStyle = color;
+      ctx.fillText(text, x, y);
+    }
+
+    function renderAnno(panel) {
+      const canvas = annoCanvases[panel];
+      if (!canvas) return;
+      const { W, H } = fitCanvasToWrap(canvas);
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, W, H);
+      const f = getCurrentFrame(panel);
+      for (const a of annotations) {
+        if (a.video !== panel || a.frame !== f) continue;
+        if      (a.type === 'arrow')  drawArrow(ctx, a.x1*W, a.y1*H, a.x2*W, a.y2*H, a.color);
+        else if (a.type === 'circle') drawCircle(ctx, a.cx*W, a.cy*H, a.r*Math.min(W,H), a.color);
+        else if (a.type === 'text')   drawText(ctx,  a.x*W,  a.y*H,  a.text || '', a.color);
+      }
+      // Preview pendant le drag
+      if (drawPreview && drawStart && drawPanel === panel && annoMode) {
+        const c = currentColor;
+        if      (currentTool === 'arrow')  drawArrow(ctx, drawStart.x*W, drawStart.y*H, drawPreview.x*W, drawPreview.y*H, c);
+        else if (currentTool === 'circle') {
+          const r = Math.hypot((drawPreview.x - drawStart.x), (drawPreview.y - drawStart.y));
+          drawCircle(ctx, drawStart.x*W, drawStart.y*H, r * Math.min(W, H), c);
+        }
+      }
+    }
+    function renderAllAnno() { renderAnno('rider'); renderAnno('pro'); }
+
+    // Hook redraw sur changements temporels
+    ['timeupdate', 'seeked', 'loadedmetadata'].forEach(ev => {
+      vRider.addEventListener(ev, () => renderAnno('rider'));
+      vPro.addEventListener(ev,   () => renderAnno('pro'));
+    });
+    window.addEventListener('resize', renderAllAnno);
+
+    // Toggle mode annotation
+    function setAnnoMode(on) {
+      annoMode = on;
+      const btn   = document.getElementById('btn-anno-mode');
+      const tools = document.getElementById('anno-tools');
+      btn.classList.toggle('btn-anno-active', on);
+      btn.textContent = on ? '✓ Annotation active' : '✏️ Annoter';
+      tools.style.display = on ? '' : 'none';
+      ['rider','pro'].forEach(p => {
+        annoCanvases[p].classList.toggle('anno-active', on);
+      });
+      // Quand on quitte le mode annotation, on vide aussi le drag en cours
+      if (!on) { drawStart = null; drawPanel = null; drawPreview = null; renderAllAnno(); }
+    }
+    document.getElementById('btn-anno-mode').addEventListener('click', () => setAnnoMode(!annoMode));
+
+    // Outils
+    document.querySelectorAll('[data-tool]').forEach(b => {
+      b.addEventListener('click', () => {
+        currentTool = b.dataset.tool;
+        document.querySelectorAll('[data-tool]').forEach(x => x.classList.remove('tool-active'));
+        b.classList.add('tool-active');
+      });
+    });
+    document.querySelectorAll('.anno-color').forEach(b => {
+      b.addEventListener('click', () => {
+        currentColor = b.dataset.color;
+        document.querySelectorAll('.anno-color').forEach(x => x.classList.remove('color-active'));
+        b.classList.add('color-active');
+      });
+    });
+    document.getElementById('btn-anno-clear').addEventListener('click', () => {
+      // Supprime toutes les annotations à la frame courante (sur les 2 panels)
+      const rf = getCurrentFrame('rider'), pf = getCurrentFrame('pro');
+      const before = annotations.length;
+      annotations = annotations.filter(a =>
+        !((a.video === 'rider' && a.frame === rf) ||
+          (a.video === 'pro'   && a.frame === pf)));
+      if (annotations.length !== before) { renderAllAnno(); scheduleSave(); }
+    });
+
+    function canvasPos(canvas, ev) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (ev.clientX - rect.left) / rect.width;
+      const y = (ev.clientY - rect.top)  / rect.height;
+      return {
+        x: Math.max(0, Math.min(1, x)),
+        y: Math.max(0, Math.min(1, y)),
+      };
+    }
+    function distToAnno(a, x, y, W, H) {
+      // Distance approximative en coords normalisées pour la suppression au clic
+      if (a.type === 'arrow') {
+        // distance au segment x1,y1 → x2,y2
+        const dx = a.x2 - a.x1, dy = a.y2 - a.y1;
+        const len2 = dx*dx + dy*dy;
+        const t = len2 > 0 ? Math.max(0, Math.min(1, ((x-a.x1)*dx + (y-a.y1)*dy) / len2)) : 0;
+        const px = a.x1 + t*dx, py = a.y1 + t*dy;
+        return Math.hypot(x - px, y - py);
+      }
+      if (a.type === 'circle') {
+        const d = Math.hypot(x - a.cx, y - a.cy);
+        return Math.abs(d - a.r);
+      }
+      if (a.type === 'text') return Math.hypot(x - a.x, y - a.y);
+      return Infinity;
+    }
+
+    function attachAnnoCanvas(panel) {
+      const c = annoCanvases[panel];
+      c.addEventListener('mousedown', e => {
+        if (!annoMode) return;
+        const p = canvasPos(c, e);
+        videos[panel].pause();
+        if (currentTool === 'text') {
+          const txt = prompt('Texte de l’annotation :');
+          if (txt && txt.trim()) {
+            annotations.push({
+              video: panel, frame: getCurrentFrame(panel),
+              type: 'text', x: p.x, y: p.y, text: txt.trim(),
+              color: currentColor,
+            });
+            renderAnno(panel); scheduleSave();
+          }
+          return;
+        }
+        if (currentTool === 'erase') {
+          const f = getCurrentFrame(panel);
+          let bestIdx = -1, bestD = 0.04; // tolérance ~4% de la dim
+          for (let i = 0; i < annotations.length; i++) {
+            const a = annotations[i];
+            if (a.video !== panel || a.frame !== f) continue;
+            const d = distToAnno(a, p.x, p.y);
+            if (d < bestD) { bestD = d; bestIdx = i; }
+          }
+          if (bestIdx >= 0) {
+            annotations.splice(bestIdx, 1);
+            renderAnno(panel); scheduleSave();
+          }
+          return;
+        }
+        drawStart = p; drawPanel = panel; drawPreview = p;
+        renderAnno(panel);
+      });
+      c.addEventListener('mousemove', e => {
+        if (!annoMode || !drawStart || drawPanel !== panel) return;
+        drawPreview = canvasPos(c, e);
+        renderAnno(panel);
+      });
+      c.addEventListener('mouseup', e => {
+        if (!annoMode || !drawStart || drawPanel !== panel) return;
+        const p = canvasPos(c, e);
+        const f = getCurrentFrame(panel);
+        if (currentTool === 'arrow') {
+          // Ignore les ultra-courts (clic accidentel)
+          if (Math.hypot(p.x - drawStart.x, p.y - drawStart.y) > 0.01) {
+            annotations.push({
+              video: panel, frame: f, type: 'arrow',
+              x1: drawStart.x, y1: drawStart.y, x2: p.x, y2: p.y,
+              color: currentColor,
+            });
+            scheduleSave();
+          }
+        } else if (currentTool === 'circle') {
+          const r = Math.hypot(p.x - drawStart.x, p.y - drawStart.y);
+          if (r > 0.01) {
+            annotations.push({
+              video: panel, frame: f, type: 'circle',
+              cx: drawStart.x, cy: drawStart.y, r,
+              color: currentColor,
+            });
+            scheduleSave();
+          }
+        }
+        drawStart = null; drawPanel = null; drawPreview = null;
+        renderAnno(panel);
+      });
+      c.addEventListener('mouseleave', () => {
+        if (drawStart && drawPanel === panel) {
+          drawStart = null; drawPanel = null; drawPreview = null;
+          renderAnno(panel);
+        }
+      });
+    }
+    attachAnnoCanvas('rider');
+    attachAnnoCanvas('pro');
+
+    // Persistance : auto-save avec debounce 600ms
+    let saveTimer = null;
+    function scheduleSave() {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveAnnotations, 600);
+      updateAnnoInfo();
+    }
+    async function saveAnnotations() {
+      saveTimer = null;
+      try {
+        await fetch(`/compare/{{ job_id }}/annotations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ annotations }),
+        });
+      } catch (e) {
+        console.warn('Annotation save failed', e);
+      }
+    }
+    function updateAnnoInfo() {
+      const el = document.getElementById('anno-info');
+      if (!el) return;
+      const total  = annotations.length;
+      const rFrame = getCurrentFrame('rider');
+      const pFrame = getCurrentFrame('pro');
+      const here = annotations.filter(a =>
+        (a.video === 'rider' && a.frame === rFrame) ||
+        (a.video === 'pro'   && a.frame === pFrame)).length;
+      el.textContent = `${here} sur cette frame · ${total} au total · sauvegardé auto`;
+    }
+    ['timeupdate', 'seeked'].forEach(ev => {
+      vRider.addEventListener(ev, updateAnnoInfo);
+      vPro.addEventListener(ev,   updateAnnoInfo);
+    });
+
+    // Init : charger les annotations existantes
+    (async () => {
+      try {
+        const res = await fetch(`/compare/{{ job_id }}/annotations`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.annotations)) {
+            annotations = data.annotations;
+          }
+        }
+      } catch (e) { /* silencieux */ }
+      renderAllAnno();
+      updateAnnoInfo();
+    })();
   </script>
 {% endblock %}

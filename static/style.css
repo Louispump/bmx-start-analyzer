@@ -1844,6 +1844,104 @@ input[type="text"].rider-name-input {
 }
 
 /* ══════════════════════════════════════════════════════════════════════
+   ANNOTATIONS DESSINÉES (page Compare)
+   ══════════════════════════════════════════════════════════════════════ */
+.annotation-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+}
+.annotation-canvas.anno-active {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.anno-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.btn-anno-toggle {
+  font-size: .85rem;
+  padding: 8px 16px;
+}
+.btn-anno-active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+  color: #001820;
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.anno-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.anno-tools-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.anno-tool {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 1.05rem;
+  font-weight: 700;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: var(--transition);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.anno-tool:hover { background: var(--surface-hover); color: var(--accent); }
+.anno-tool.tool-active { background: var(--accent-soft); color: var(--accent); }
+.anno-color {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+  transition: var(--transition);
+}
+.anno-color:hover { transform: scale(1.1); }
+.anno-color.color-active {
+  border-color: var(--text-strong);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px currentColor;
+}
+.btn-anno-clear {
+  font-size: .78rem;
+  padding: 6px 12px;
+}
+.anno-info {
+  color: var(--muted);
+  font-size: .75rem;
+  font-family: var(--font-mono);
+  margin-left: auto;
+}
+
+/* En mode focus (sidebar cachée), la barre d'annotation a un peu de marge */
+.compare-shell .anno-bar { margin-left: 10px; margin-right: 10px; }
+
+/* ══════════════════════════════════════════════════════════════════════
    AJUSTEMENT GATE DROP + SÉLECTEUR DE VITESSE
    ══════════════════════════════════════════════════════════════════════ */
 .adjust-gate-bar {
