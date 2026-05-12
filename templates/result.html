@@ -119,8 +119,28 @@
       <button class="btn-frame" id="btn-prev" title="Frame précédente (←)">&#9664;</button>
       <span class="frame-counter" id="frame-counter">Frame —</span>
       <button class="btn-frame" id="btn-next" title="Frame suivante (→)">&#9654;</button>
+      <span class="speed-control">
+        <label for="speed-select">Vitesse</label>
+        <select id="speed-select" class="pro-select speed-select">
+          <option value="0.25">0.25×</option>
+          <option value="0.5">0.5×</option>
+          <option value="0.75">0.75×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.5">1.5×</option>
+          <option value="2">2×</option>
+        </select>
+      </span>
     </div>
     <p class="video-hint">← → pour avancer frame par frame · Espace pour play/pause</p>
+
+    <div class="adjust-gate-bar">
+      <button type="button" class="btn btn-gate-mark" id="btn-adjust-gate" title="Recalcule les phases sans relancer la pose detection">
+        ↻ Ajuster le gate drop ici
+      </button>
+      <span class="adjust-gate-info" id="adjust-gate-info">
+        Gate actuel : frame {{ (results.gate_drop_t * results.fps) | round | int }} · t = {{ results.gate_drop_t }}s
+      </span>
+    </div>
   </section>
 
   <!-- Comparer avec un pro -->
@@ -176,10 +196,50 @@
     document.getElementById('btn-next').addEventListener('click', () => stepFrame(+1));
 
     document.addEventListener('keydown', e => {
-      if (e.target.tagName === 'INPUT') return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
       if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(+1); }
       if (e.key === 'ArrowLeft')  { e.preventDefault(); stepFrame(-1); }
       if (e.key === ' ')          { e.preventDefault(); video.paused ? video.play() : video.pause(); }
+    });
+
+    // ── Sélecteur de vitesse ──────────────────────────────────────
+    document.getElementById('speed-select').addEventListener('change', e => {
+      video.playbackRate = parseFloat(e.target.value);
+    });
+
+    // ── Ajuster le gate drop sans relancer l'analyse ──────────────
+    document.getElementById('btn-adjust-gate').addEventListener('click', async () => {
+      const currentFrame    = Math.round(video.currentTime * fps);
+      const currentGateFrame = Math.round(gateT * fps);
+      if (currentFrame === currentGateFrame) {
+        alert("Tu es déjà sur la frame du gate actuel. Déplace la vidéo et réessaie.");
+        return;
+      }
+      const ok = confirm(
+        `Remplacer le gate drop par la frame ${currentFrame} ` +
+        `(t = ${(currentFrame / fps).toFixed(3)}s) ?\n\n` +
+        `Phases et temps de réaction seront recalculés instantanément.`
+      );
+      if (!ok) return;
+      const btn  = document.getElementById('btn-adjust-gate');
+      const info = document.getElementById('adjust-gate-info');
+      btn.disabled = true; info.textContent = "Recalcul en cours…";
+      try {
+        const fd = new FormData();
+        fd.append('gate_frame', currentFrame);
+        const res = await fetch(`/result/{{ job_id }}/adjust_gate`, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          alert("Erreur : " + (data.error || res.status));
+          btn.disabled = false;
+          info.textContent = "Erreur — vérifie la console.";
+          return;
+        }
+        location.reload();
+      } catch (e) {
+        alert("Erreur réseau : " + e.message);
+        btn.disabled = false;
+      }
     });
   </script>
 {% endblock %}

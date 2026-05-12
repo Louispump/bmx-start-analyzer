@@ -1844,6 +1844,46 @@ input[type="text"].rider-name-input {
 }
 
 /* ══════════════════════════════════════════════════════════════════════
+   AJUSTEMENT GATE DROP + SÉLECTEUR DE VITESSE
+   ══════════════════════════════════════════════════════════════════════ */
+.adjust-gate-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.adjust-gate-info {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: .78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.speed-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.speed-control label {
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.speed-select {
+  min-width: 0 !important;
+  padding: 4px 22px 4px 8px !important;
+  font-size: .82rem;
+  font-family: var(--font-mono);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
    MESURE MANUELLE — marqueurs gate / mouvement
    ══════════════════════════════════════════════════════════════════════ */
 .marker-buttons {

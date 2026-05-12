@@ -25,7 +25,8 @@ from jinja2 import Environment, FileSystemLoader
 import numpy as np
 import pandas as pd
 
-from analyze import main as analyze_main, calculate_angle
+from analyze import main as analyze_main, calculate_angle, \
+    segment_phases as analyze_segment_phases, PHASE_COLORS
 from audio_gate import detect_gate_drop
 from mahieu import analyze_video as mahieu_analyze, render_debug_frame as mahieu_render
 
@@ -339,6 +340,76 @@ async def start_analysis(background_tasks: BackgroundTasks,
 
     background_tasks.add_task(run_analysis, job_id, video_path, gate_drop, bip1)
     return {"ok": True}
+
+
+@app.post("/result/{job_id}/adjust_gate")
+async def adjust_gate(job_id: str, gate_frame: int = Form(...)):
+    """Recalcule les phases / temps de réaction avec un nouveau gate drop,
+    sans repasser par la pose detection. Utilise le CSV landmarks déjà
+    généré. < 1 seconde au lieu de 1-3 min pour une ré-analyse complète."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return JSONResponse({"error": "Job introuvable ou non terminé."}, status_code=404)
+    results  = job.get("results", {})
+    csv_name = results.get("files", {}).get("landmarks_csv")
+    if not csv_name:
+        return JSONResponse({"error": "CSV landmarks introuvable."}, status_code=500)
+    csv_path = OUTPUT_DIR / csv_name
+    if not csv_path.exists():
+        return JSONResponse({"error": f"Fichier CSV manquant : {csv_name}"}, status_code=500)
+
+    fps      = float(results.get("fps") or job.get("fps") or 30)
+    new_gate = gate_frame / fps
+
+    # bip1 : on garde la valeur audio si elle existe (détection fiable),
+    # sinon on dérive selon la cadence UCI fixe (gate − 360 ms).
+    audio_detected = results.get("gate_method") == "audio"
+    old_bip1       = job.get("bip1_time")
+    if audio_detected and old_bip1 is not None:
+        new_bip1 = old_bip1
+    else:
+        new_bip1 = max(0.0, new_gate - UCI_BIP1_TO_GATE_S)
+
+    df   = pd.read_csv(csv_path)
+    side = results.get("front_foot") or "L"
+    ankle_col = f"{side}_ankle_y"
+
+    try:
+        phases, first_move_idx, reaction_type = analyze_segment_phases(
+            df, new_gate, ankle_col, bip1_time=new_bip1
+        )
+    except Exception as e:
+        return JSONResponse({"error": f"Erreur recalcul phases : {e}"}, status_code=500)
+
+    t_move          = float(df.loc[first_move_idx, "time"])
+    react_from_gate = t_move - new_gate
+    react_from_bip  = (t_move - new_bip1) if new_bip1 else None
+
+    phases_list = []
+    for phase_name, (start, end) in phases.items():
+        t_start = float(df.loc[start, "time"])
+        t_end   = float(df.loc[end,   "time"])
+        phases_list.append({
+            "name":        phase_name,
+            "start_t":     round(t_start, 3),
+            "end_t":       round(t_end,   3),
+            "duration_ms": round((t_end - t_start) * 1000),
+            "color":       PHASE_COLORS.get(phase_name, "#eeeeee"),
+        })
+
+    # MAJ du job
+    results["gate_drop_t"] = round(float(new_gate), 3)
+    results["reaction"]    = {
+        "type":         reaction_type,
+        "first_move_t": round(t_move, 3),
+        "from_gate_ms": round(react_from_gate * 1000),
+        "from_bip1_ms": round(react_from_bip * 1000) if react_from_bip is not None else None,
+    }
+    results["phases"]   = phases_list
+    job["gate_drop"]    = new_gate
+    job["bip1_time"]    = new_bip1
+    save_jobs(jobs)
+    return {"ok": True, "gate_drop_t": new_gate, "first_move_t": t_move}
 
 
 @app.get("/status/{job_id}")

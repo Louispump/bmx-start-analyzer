@@ -120,6 +120,17 @@
       <span class="frame-counter sync-counter" id="sync-counter">T — —</span>
       <button class="btn-frame btn-frame-sync" onclick="syncStep(+1)">&#9654;</button>
       <button class="btn btn-sync-reset" onclick="resetSyncRefs()" title="Réinitialise le calage manuel sur le gate drop">↻ Reset calage</button>
+      <span class="speed-control">
+        <label for="speed-select">Vitesse</label>
+        <select id="speed-select" class="pro-select speed-select">
+          <option value="0.25">0.25×</option>
+          <option value="0.5">0.5×</option>
+          <option value="0.75">0.75×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.5">1.5×</option>
+          <option value="2">2×</option>
+        </select>
+      </span>
     </div>
     <div class="sync-scrubber-wrap">
       <span class="sync-tick">-0.5s</span>
@@ -359,6 +370,13 @@
     }
     initScrubber('rider');
     initScrubber('pro');
+
+    // Sélecteur de vitesse — pilote les 2 vidéos en simultané
+    document.getElementById('speed-select').addEventListener('change', e => {
+      const v = parseFloat(e.target.value);
+      vRider.playbackRate = v;
+      vPro.playbackRate   = v;
+    });
 
     // ── Barre SYNC : 0 = T-0.5s, 500 = T+4.5s
     const SYNC_OFFSET_START = -0.5;
