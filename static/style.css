@@ -808,10 +808,20 @@ input[type="text"].rider-name-input {
    LECTEUR VIDÉO
    ══════════════════════════════════════════════════════════════════════ */
 .video-wrap {
+  position: relative;
   background: #000;
   border-radius: var(--radius);
   overflow: hidden;
   box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+
+/* Scrubber draggable principal (page result, sous la vidéo) */
+.main-scrubber-wrap { margin: 10px 0 6px; }
+
+/* Bouton play/pause sur la page result */
+.btn-play {
+  min-width: 90px;
+  font-weight: 600;
 }
 .video-wrap video {
   display: block;

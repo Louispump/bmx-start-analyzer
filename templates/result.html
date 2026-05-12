@@ -107,18 +107,55 @@
     </div>
   </section>
 
-  <!-- Lecteur vidéo annoté -->
+  <!-- Lecteur vidéo annoté + annotations -->
   <section class="section">
     <h2>Vidéo annotée</h2>
+
+    <!-- Barre d'annotation -->
+    <div class="anno-bar" id="anno-bar">
+      <button type="button" class="btn btn-anno-toggle" id="btn-anno-mode" title="Activer le mode annotation">
+        ✏️ Annoter
+      </button>
+      <div class="anno-tools" id="anno-tools" style="display:none">
+        <span class="anno-tools-group">
+          <button type="button" class="anno-tool tool-active" data-tool="arrow" title="Flèche">→</button>
+          <button type="button" class="anno-tool"           data-tool="circle" title="Cercle">○</button>
+          <button type="button" class="anno-tool"           data-tool="text"   title="Texte">T</button>
+          <button type="button" class="anno-tool"           data-tool="erase"  title="Effacer">⌫</button>
+        </span>
+        <span class="anno-tools-group">
+          <button type="button" class="anno-color color-active" data-color="#00d4ff" style="background:#00d4ff" title="Cyan"></button>
+          <button type="button" class="anno-color"              data-color="#ff3b9b" style="background:#ff3b9b" title="Magenta"></button>
+          <button type="button" class="anno-color"              data-color="#f7cc00" style="background:#f7cc00" title="Jaune"></button>
+          <button type="button" class="anno-color"              data-color="#ff4d4a" style="background:#ff4d4a" title="Rouge"></button>
+        </span>
+        <button type="button" class="btn btn-anno-clear" id="btn-anno-clear" title="Effacer les annotations de la frame courante">
+          🗑 Vider la frame
+        </button>
+        <span class="anno-info" id="anno-info">
+          Clic-glisse = créer · gomme = clic sur une annotation pour la supprimer
+        </span>
+      </div>
+    </div>
+
     <div class="video-wrap">
-      <video id="main-video" controls playsinline preload="metadata"
+      <video id="main-video" playsinline preload="metadata"
              src="/output/{{ results.files.annotated_video }}">
       </video>
+      <canvas class="annotation-canvas" id="anno-canvas-main"></canvas>
     </div>
+
+    <!-- Scrubber draggable -->
+    <div class="main-scrubber-wrap">
+      <input type="range" class="scrubber scrubber-light" id="main-scrub"
+             min="0" max="1000" value="0" step="1">
+    </div>
+
     <div class="video-controls">
       <button class="btn-frame" id="btn-prev" title="Frame précédente (←)">&#9664;</button>
-      <span class="frame-counter" id="frame-counter">Frame —</span>
+      <button class="btn-frame btn-play" id="btn-play" title="Play / pause (espace)">▶ Play</button>
       <button class="btn-frame" id="btn-next" title="Frame suivante (→)">&#9654;</button>
+      <span class="frame-counter" id="frame-counter">Frame —</span>
       <span class="speed-control">
         <label for="speed-select">Vitesse</label>
         <select id="speed-select" class="pro-select speed-select">
@@ -131,7 +168,7 @@
         </select>
       </span>
     </div>
-    <p class="video-hint">← → pour avancer frame par frame · Espace pour play/pause</p>
+    <p class="video-hint">Glisse le scrubber pour balayer · ← → frame par frame · espace = play/pause</p>
 
     <div class="adjust-gate-bar">
       <button type="button" class="btn btn-gate-mark" id="btn-adjust-gate" title="Recalcule les phases sans relancer la pose detection">
@@ -156,13 +193,21 @@
     const video    = document.getElementById('main-video');
     const cursor   = document.getElementById('tl-cursor');
     const counter  = document.getElementById('frame-counter');
+    const scrub    = document.getElementById('main-scrub');
+    const btnPlay  = document.getElementById('btn-play');
     const fps      = {{ results.fps }};
     const gateT    = {{ results.gate_drop_t }};
     const frameDur = 1 / fps;
+    let scrubbing  = false;
 
     function seekToStart() {
       video.currentTime = Math.max(0, gateT - 0.5);
       video.pause();
+      // Init scrubber range maintenant que la vidéo a sa durée
+      if (video.duration) {
+        scrub.max = Math.max(1, Math.round(video.duration * fps) - 1);
+        scrub.value = Math.round(video.currentTime * fps);
+      }
     }
     if (video.readyState >= 1) {
       seekToStart();
@@ -179,6 +224,7 @@
       const frame = Math.round(video.currentTime * fps);
       cursor.style.left   = pct + '%';
       counter.textContent = `Frame ${frame}`;
+      if (!scrubbing) scrub.value = frame;
     }
 
     function seekVideo(time) {
@@ -194,6 +240,24 @@
 
     document.getElementById('btn-prev').addEventListener('click', () => stepFrame(-1));
     document.getElementById('btn-next').addEventListener('click', () => stepFrame(+1));
+
+    // ── Scrubber draggable ────────────────────────────────────────
+    scrub.addEventListener('mousedown',  () => { scrubbing = true; video.pause(); });
+    scrub.addEventListener('touchstart', () => { scrubbing = true; video.pause(); }, { passive: true });
+    scrub.addEventListener('input', () => {
+      const f = parseInt(scrub.value, 10) || 0;
+      video.currentTime = f / fps;
+      counter.textContent = `Frame ${f}`;
+    });
+    scrub.addEventListener('mouseup',  () => { scrubbing = false; });
+    scrub.addEventListener('touchend', () => { scrubbing = false; });
+
+    // ── Play / pause ──────────────────────────────────────────────
+    btnPlay.addEventListener('click', () => {
+      if (video.paused) video.play(); else video.pause();
+    });
+    video.addEventListener('play',  () => { btnPlay.textContent = '⏸ Pause'; });
+    video.addEventListener('pause', () => { btnPlay.textContent = '▶ Play';  });
 
     document.addEventListener('keydown', e => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
@@ -241,5 +305,245 @@
         btn.disabled = false;
       }
     });
+
+    // ═════════════════════════════════════════════════════════════
+    // Annotations dessinées sur la vidéo (partagées avec /compare)
+    // ═════════════════════════════════════════════════════════════
+    // On utilise video='rider' dans le payload pour que les annotations
+    // soient les mêmes que dans la page comparaison du même job (vidéo
+    // rider commune).
+    const ANNO_PANEL = 'rider';
+    let annotations  = [];
+    let annoMode     = false;
+    let currentTool  = 'arrow';
+    let currentColor = '#00d4ff';
+    let drawStart    = null;
+    let drawPreview  = null;
+
+    const annoCanvas = document.getElementById('anno-canvas-main');
+
+    function currentFrameInt() {
+      if (!video.readyState) return 0;
+      return Math.round(video.currentTime * fps);
+    }
+
+    function fitCanvas() {
+      const wrap = annoCanvas.parentElement;
+      const w = wrap.clientWidth, h = wrap.clientHeight;
+      if (annoCanvas.width !== w || annoCanvas.height !== h) {
+        annoCanvas.width  = w;
+        annoCanvas.height = h;
+      }
+      return { W: w, H: h };
+    }
+
+    function drawArrow(ctx, x1, y1, x2, y2, color) {
+      ctx.strokeStyle = color; ctx.fillStyle = color;
+      ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      const angle = Math.atan2(y2 - y1, x2 - x1);
+      const ah = 14;
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - ah * Math.cos(angle - 0.45), y2 - ah * Math.sin(angle - 0.45));
+      ctx.lineTo(x2 - ah * Math.cos(angle + 0.45), y2 - ah * Math.sin(angle + 0.45));
+      ctx.closePath(); ctx.fill();
+    }
+    function drawCircleA(ctx, cx, cy, r, color) {
+      ctx.strokeStyle = color; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(cx, cy, Math.max(2, r), 0, Math.PI * 2); ctx.stroke();
+    }
+    function drawTextA(ctx, x, y, text, color) {
+      ctx.font = 'bold 18px Inter, sans-serif';
+      const m = ctx.measureText(text);
+      const pad = 6;
+      ctx.fillStyle = 'rgba(0,0,0,0.72)';
+      ctx.fillRect(x - pad, y - 22, m.width + pad * 2, 28);
+      ctx.fillStyle = color;
+      ctx.fillText(text, x, y);
+    }
+
+    function renderAnno() {
+      const { W, H } = fitCanvas();
+      const ctx = annoCanvas.getContext('2d');
+      ctx.clearRect(0, 0, W, H);
+      const f = currentFrameInt();
+      for (const a of annotations) {
+        if (a.video !== ANNO_PANEL || a.frame !== f) continue;
+        if      (a.type === 'arrow')  drawArrow(ctx, a.x1*W, a.y1*H, a.x2*W, a.y2*H, a.color);
+        else if (a.type === 'circle') drawCircleA(ctx, a.cx*W, a.cy*H, a.r*Math.min(W,H), a.color);
+        else if (a.type === 'text')   drawTextA(ctx,  a.x*W, a.y*H, a.text || '', a.color);
+      }
+      if (drawPreview && drawStart && annoMode) {
+        const c = currentColor;
+        if      (currentTool === 'arrow')  drawArrow(ctx, drawStart.x*W, drawStart.y*H, drawPreview.x*W, drawPreview.y*H, c);
+        else if (currentTool === 'circle') {
+          const r = Math.hypot(drawPreview.x - drawStart.x, drawPreview.y - drawStart.y);
+          drawCircleA(ctx, drawStart.x*W, drawStart.y*H, r * Math.min(W, H), c);
+        }
+      }
+    }
+
+    ['timeupdate', 'seeked', 'loadedmetadata'].forEach(ev =>
+      video.addEventListener(ev, renderAnno));
+    window.addEventListener('resize', renderAnno);
+
+    function setAnnoMode(on) {
+      annoMode = on;
+      const btn   = document.getElementById('btn-anno-mode');
+      const tools = document.getElementById('anno-tools');
+      btn.classList.toggle('btn-anno-active', on);
+      btn.textContent = on ? '✓ Annotation active' : '✏️ Annoter';
+      tools.style.display = on ? '' : 'none';
+      annoCanvas.classList.toggle('anno-active', on);
+      if (!on) { drawStart = null; drawPreview = null; renderAnno(); }
+    }
+    document.getElementById('btn-anno-mode').addEventListener('click', () => setAnnoMode(!annoMode));
+
+    document.querySelectorAll('[data-tool]').forEach(b => {
+      b.addEventListener('click', () => {
+        currentTool = b.dataset.tool;
+        document.querySelectorAll('[data-tool]').forEach(x => x.classList.remove('tool-active'));
+        b.classList.add('tool-active');
+      });
+    });
+    document.querySelectorAll('.anno-color').forEach(b => {
+      b.addEventListener('click', () => {
+        currentColor = b.dataset.color;
+        document.querySelectorAll('.anno-color').forEach(x => x.classList.remove('color-active'));
+        b.classList.add('color-active');
+      });
+    });
+
+    document.getElementById('btn-anno-clear').addEventListener('click', () => {
+      const f = currentFrameInt();
+      const before = annotations.length;
+      annotations = annotations.filter(a => !(a.video === ANNO_PANEL && a.frame === f));
+      if (annotations.length !== before) { renderAnno(); scheduleSave(); }
+    });
+
+    function canvasPos(ev) {
+      const rect = annoCanvas.getBoundingClientRect();
+      return {
+        x: Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width)),
+        y: Math.max(0, Math.min(1, (ev.clientY - rect.top)  / rect.height)),
+      };
+    }
+    function distToAnno(a, x, y) {
+      if (a.type === 'arrow') {
+        const dx = a.x2 - a.x1, dy = a.y2 - a.y1;
+        const len2 = dx*dx + dy*dy;
+        const t = len2 > 0 ? Math.max(0, Math.min(1, ((x-a.x1)*dx + (y-a.y1)*dy) / len2)) : 0;
+        return Math.hypot(x - (a.x1 + t*dx), y - (a.y1 + t*dy));
+      }
+      if (a.type === 'circle') {
+        const d = Math.hypot(x - a.cx, y - a.cy);
+        return Math.abs(d - a.r);
+      }
+      if (a.type === 'text') return Math.hypot(x - a.x, y - a.y);
+      return Infinity;
+    }
+
+    annoCanvas.addEventListener('mousedown', e => {
+      if (!annoMode) return;
+      const p = canvasPos(e);
+      video.pause();
+      if (currentTool === 'text') {
+        const txt = prompt('Texte :');
+        if (txt && txt.trim()) {
+          annotations.push({ video: ANNO_PANEL, frame: currentFrameInt(),
+                             type: 'text', x: p.x, y: p.y, text: txt.trim(),
+                             color: currentColor });
+          renderAnno(); scheduleSave();
+        }
+        return;
+      }
+      if (currentTool === 'erase') {
+        const f = currentFrameInt();
+        let bestIdx = -1, bestD = 0.04;
+        for (let i = 0; i < annotations.length; i++) {
+          const a = annotations[i];
+          if (a.video !== ANNO_PANEL || a.frame !== f) continue;
+          const d = distToAnno(a, p.x, p.y);
+          if (d < bestD) { bestD = d; bestIdx = i; }
+        }
+        if (bestIdx >= 0) {
+          annotations.splice(bestIdx, 1);
+          renderAnno(); scheduleSave();
+        }
+        return;
+      }
+      drawStart = p; drawPreview = p;
+      renderAnno();
+    });
+    annoCanvas.addEventListener('mousemove', e => {
+      if (!annoMode || !drawStart) return;
+      drawPreview = canvasPos(e);
+      renderAnno();
+    });
+    annoCanvas.addEventListener('mouseup', e => {
+      if (!annoMode || !drawStart) return;
+      const p = canvasPos(e);
+      const f = currentFrameInt();
+      if (currentTool === 'arrow') {
+        if (Math.hypot(p.x - drawStart.x, p.y - drawStart.y) > 0.01) {
+          annotations.push({ video: ANNO_PANEL, frame: f, type: 'arrow',
+                             x1: drawStart.x, y1: drawStart.y, x2: p.x, y2: p.y,
+                             color: currentColor });
+          scheduleSave();
+        }
+      } else if (currentTool === 'circle') {
+        const r = Math.hypot(p.x - drawStart.x, p.y - drawStart.y);
+        if (r > 0.01) {
+          annotations.push({ video: ANNO_PANEL, frame: f, type: 'circle',
+                             cx: drawStart.x, cy: drawStart.y, r,
+                             color: currentColor });
+          scheduleSave();
+        }
+      }
+      drawStart = null; drawPreview = null;
+      renderAnno();
+    });
+    annoCanvas.addEventListener('mouseleave', () => {
+      if (drawStart) { drawStart = null; drawPreview = null; renderAnno(); }
+    });
+
+    let saveTimer = null;
+    function scheduleSave() {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveAnnotations, 600);
+      updateAnnoInfo();
+    }
+    async function saveAnnotations() {
+      saveTimer = null;
+      try {
+        await fetch(`/compare/{{ job_id }}/annotations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ annotations }),
+        });
+      } catch (e) { console.warn('Annotation save failed', e); }
+    }
+    function updateAnnoInfo() {
+      const el = document.getElementById('anno-info');
+      if (!el) return;
+      const f = currentFrameInt();
+      const here = annotations.filter(a => a.video === ANNO_PANEL && a.frame === f).length;
+      const total = annotations.filter(a => a.video === ANNO_PANEL).length;
+      el.textContent = `${here} sur cette frame · ${total} au total · sauvegardé auto`;
+    }
+    ['timeupdate', 'seeked'].forEach(ev => video.addEventListener(ev, updateAnnoInfo));
+
+    (async () => {
+      try {
+        const res = await fetch(`/compare/{{ job_id }}/annotations`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.annotations)) annotations = data.annotations;
+        }
+      } catch (e) { /* silencieux */ }
+      renderAnno();
+      updateAnnoInfo();
+    })();
   </script>
 {% endblock %}
