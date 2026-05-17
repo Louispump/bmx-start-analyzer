@@ -1111,8 +1111,10 @@
 
     function attachAnnoCanvas(panel) {
       const c = annoCanvases[panel];
-      c.addEventListener('mousedown', e => {
+      c.addEventListener('pointerdown', e => {
         if (!annoMode) return;
+        e.preventDefault();
+        try { c.setPointerCapture(e.pointerId); } catch (_) {}
         const p = canvasPos(c, e);
         videos[panel].pause();
         if (currentTool === 'text') {
@@ -1145,12 +1147,12 @@
         drawStart = p; drawPanel = panel; drawPreview = p;
         renderAnno(panel);
       });
-      c.addEventListener('mousemove', e => {
+      c.addEventListener('pointermove', e => {
         if (!annoMode || !drawStart || drawPanel !== panel) return;
         drawPreview = canvasPos(c, e);
         renderAnno(panel);
       });
-      c.addEventListener('mouseup', e => {
+      c.addEventListener('pointerup', e => {
         if (!annoMode || !drawStart || drawPanel !== panel) return;
         const p = canvasPos(c, e);
         const f = getCurrentFrame(panel);
@@ -1178,7 +1180,7 @@
         drawStart = null; drawPanel = null; drawPreview = null;
         renderAnno(panel);
       });
-      c.addEventListener('mouseleave', () => {
+      c.addEventListener('pointercancel', () => {
         if (drawStart && drawPanel === panel) {
           drawStart = null; drawPanel = null; drawPreview = null;
           renderAnno(panel);

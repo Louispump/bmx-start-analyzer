@@ -444,8 +444,10 @@
       return Infinity;
     }
 
-    annoCanvas.addEventListener('mousedown', e => {
+    annoCanvas.addEventListener('pointerdown', e => {
       if (!annoMode) return;
+      e.preventDefault();
+      try { annoCanvas.setPointerCapture(e.pointerId); } catch (_) {}
       const p = canvasPos(e);
       video.pause();
       if (currentTool === 'text') {
@@ -476,12 +478,12 @@
       drawStart = p; drawPreview = p;
       renderAnno();
     });
-    annoCanvas.addEventListener('mousemove', e => {
+    annoCanvas.addEventListener('pointermove', e => {
       if (!annoMode || !drawStart) return;
       drawPreview = canvasPos(e);
       renderAnno();
     });
-    annoCanvas.addEventListener('mouseup', e => {
+    annoCanvas.addEventListener('pointerup', e => {
       if (!annoMode || !drawStart) return;
       const p = canvasPos(e);
       const f = currentFrameInt();
@@ -504,7 +506,7 @@
       drawStart = null; drawPreview = null;
       renderAnno();
     });
-    annoCanvas.addEventListener('mouseleave', () => {
+    annoCanvas.addEventListener('pointercancel', () => {
       if (drawStart) { drawStart = null; drawPreview = null; renderAnno(); }
     });
 
