@@ -2314,3 +2314,132 @@ input[type="text"].rider-name-input {
 ::-webkit-scrollbar-track    { background: transparent; }
 ::-webkit-scrollbar-thumb    { background: var(--border-strong); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   NAV TOGGLE (mobile drawer) — caché sur desktop par défaut.
+   ══════════════════════════════════════════════════════════════════════ */
+.nav-toggle {
+  display: none;
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 60;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--sidebar-bg);
+  color: var(--text-strong);
+  border: 1px solid var(--border);
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0,0,0,.35);
+}
+.nav-toggle svg { width: 24px; height: 24px; }
+.nav-scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  z-index: 40;
+  backdrop-filter: blur(2px);
+}
+
+/* Empêche Safari de zoomer / scroller pendant qu'on dessine sur le canvas d'annotation. */
+canvas.anno-canvas,
+canvas[id$="AnnoCanvas"],
+canvas[id^="anno"] {
+  touch-action: none;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   RESPONSIVE — iPad / tablette / mobile (sous 1100px).
+   Le desktop ≥ 1100px reste strictement identique.
+   ══════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1100px) {
+  /* Layout : la sidebar devient un drawer off-canvas, le contenu prend tout. */
+  .app-shell { grid-template-columns: 1fr; }
+  .app-shell.compare-shell { grid-template-columns: 1fr; }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 240ms ease;
+    box-shadow: 4px 0 24px rgba(0,0,0,.45);
+  }
+  .nav-open .sidebar { transform: translateX(0); }
+  .compare-shell .sidebar { display: flex; }  /* on garde le drawer même sur compare */
+  .nav-open .nav-scrim,
+  body.nav-open .nav-scrim { display: block; }
+
+  .nav-toggle { display: inline-flex; }
+
+  /* Contenu : on libère le padding gauche au profit d'un peu d'espace pour le bouton. */
+  .content { padding: 72px 18px 80px; }
+
+  /* Typo un peu plus compacte. */
+  header { margin-bottom: 18px; }
+  header h1 { font-size: 1.35rem; }
+  .subtitle { font-size: .82rem; }
+
+  /* Grilles 2-3 colonnes -> 1 colonne quand l'écran est étroit. */
+  .compare-metrics,
+  .tool-metrics,
+  .tool-metrics-2,
+  .tool-metrics-3 { grid-template-columns: 1fr !important; }
+
+  /* Les grilles de cartes deviennent un peu plus serrées. */
+  .compare-grid { grid-template-columns: 1fr !important; }
+
+  /* Tailles tactiles : 44px mini. */
+  .btn-primary,
+  .pro-select,
+  select,
+  input[type="text"],
+  input[type="number"],
+  input[type="file"],
+  .anchor-toggle button,
+  .anno-bar button,
+  .tabs button,
+  button {
+    min-height: 44px;
+  }
+
+  /* Scrubber plus épais et plus généreux pour le doigt. */
+  input[type="range"].scrubber,
+  .scrubber {
+    height: 28px;
+  }
+  input[type="range"].scrubber::-webkit-slider-thumb,
+  .scrubber::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* Cartes métriques moins serrées. */
+  .metric-card { padding: 14px; }
+  .metric-value { font-size: 1.5rem; }
+
+  /* Vidéo / canvas : restent dans la largeur disponible. */
+  video, canvas { max-width: 100%; height: auto; }
+
+  /* Barre d'annotations : empile mieux. */
+  .anno-bar { flex-wrap: wrap; gap: 8px; }
+
+  /* Tableaux qui débordent → scroll horizontal. */
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+
+/* En portrait étroit (téléphone), on serre encore davantage. */
+@media (max-width: 640px) {
+  .content { padding: 64px 12px 80px; }
+  header h1 { font-size: 1.15rem; }
+  .section { padding: 14px; }
+  /* Toutes les grilles à 2+ colonnes deviennent 1 colonne. */
+  [class*="grid"] { grid-template-columns: 1fr !important; }
+}
