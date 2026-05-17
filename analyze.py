@@ -539,14 +539,6 @@ def main(video_path, front_foot=None, gate_drop=None, bip1_time=None):
                 cv2.line(frame, (int(x1), int(y1)), (int(x2), int(y2)),
                          (0, 255, 0), 2)
 
-        # Infobox en haut à gauche
-        cv2.rectangle(frame, (10, 10), (400, 110), (0, 0, 0), -1)
-        cv2.putText(frame, f"Phase: {current_phase}", (20, 45),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
-        cv2.putText(frame, f"Cote: {side_name}", (20, 80),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        cv2.putText(frame, f"t={row['time']:.2f}s", (280, 80),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         out_video.write(frame)
         frame_idx += 1
     cap.release()
