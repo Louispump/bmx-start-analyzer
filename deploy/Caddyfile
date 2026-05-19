@@ -1,14 +1,9 @@
 # ────────────────────────────────────────────────────────────────────────
 # Caddy config : HTTPS auto (Let's Encrypt) + Basic Auth + reverse proxy.
 # Les variables {$DOMAIN}, {$BASIC_AUTH_USER}, {$BASIC_AUTH_HASH} viennent
-# de .env via docker-compose.
+# de .env via docker-compose. Let's Encrypt renouvelle auto, pas besoin
+# d'email (juste pas de notifs d'expiration, mais Caddy gère).
 # ────────────────────────────────────────────────────────────────────────
-{
-    # E-mail facultatif pour les notifs Let's Encrypt (expiration de cert).
-    # Mets le tien dans .env si tu veux être prévenu (sinon ignorer).
-    email {$ACME_EMAIL}
-}
-
 {$DOMAIN} {
     # Auth : un seul user, mot de passe haché en bcrypt.
     # Pour générer le hash :

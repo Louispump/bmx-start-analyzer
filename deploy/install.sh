@@ -81,18 +81,23 @@ cd "$INSTALL_DIR/deploy"
 if [[ ! -f .env ]]; then
     echo ""
     echo "─── Configuration ──────────────────────────────────────────────"
-    read -p "Domaine (ex: bmx-louis.duckdns.org) : " DOMAIN
-    read -p "E-mail pour Let's Encrypt (optionnel) : " ACME_EMAIL
-    read -p "Utilisateur web (ex: louis) : " BASIC_AUTH_USER
-    read -s -p "Mot de passe web : " BASIC_AUTH_PASS
+    # IMPORTANT : on lit explicitement sur /dev/tty pour que les prompts
+    # marchent même quand le script est piped depuis curl ... | sudo bash.
+    read -p "Domaine (ex: bmx-louis.duckdns.org) : " DOMAIN < /dev/tty
+    read -p "Utilisateur web (ex: louis) : " BASIC_AUTH_USER < /dev/tty
+    read -s -p "Mot de passe web : " BASIC_AUTH_PASS < /dev/tty
     echo ""
+
+    if [[ -z "$DOMAIN" || -z "$BASIC_AUTH_USER" || -z "$BASIC_AUTH_PASS" ]]; then
+        echo "❌ Domaine, user et mot de passe sont obligatoires."
+        exit 1
+    fi
 
     echo "→ Génération du hash bcrypt..."
     BASIC_AUTH_HASH=$(docker run --rm caddy:2 caddy hash-password --plaintext "$BASIC_AUTH_PASS")
 
     cat > .env <<EOF
 DOMAIN=$DOMAIN
-ACME_EMAIL=$ACME_EMAIL
 BASIC_AUTH_USER=$BASIC_AUTH_USER
 BASIC_AUTH_HASH=$BASIC_AUTH_HASH
 EOF
@@ -109,7 +114,7 @@ echo "→ Démarrage des services..."
 docker compose up -d
 
 # ── 8. Récap ────────────────────────────────────────────────────────────
-DOMAIN=$(grep ^DOMAIN= .env | cut -d= -f2)
+DOMAIN=$(grep '^DOMAIN=' .env | cut -d= -f2-)
 echo ""
 echo "═══════════════════════════════════════════════════════════════════"
 echo "  ✅ Installation terminée"
