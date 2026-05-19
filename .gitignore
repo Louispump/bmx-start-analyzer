@@ -27,3 +27,7 @@ output/
 
 # Environnement
 .env
+deploy/.env
+
+# Uploads en local (sur le VPS, c'est un volume Docker)
+uploads/
