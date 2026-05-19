@@ -1,0 +1,47 @@
+# ────────────────────────────────────────────────────────────────────────
+# Caddy config : HTTPS auto (Let's Encrypt) + Basic Auth + reverse proxy.
+# Les variables {$DOMAIN}, {$BASIC_AUTH_USER}, {$BASIC_AUTH_HASH} viennent
+# de .env via docker-compose.
+# ────────────────────────────────────────────────────────────────────────
+{
+    # E-mail facultatif pour les notifs Let's Encrypt (expiration de cert).
+    # Mets le tien dans .env si tu veux être prévenu (sinon ignorer).
+    email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+    # Auth : un seul user, mot de passe haché en bcrypt.
+    # Pour générer le hash :
+    #     docker run --rm caddy:2 caddy hash-password --plaintext 'TON_PASS'
+    basic_auth {
+        {$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+    }
+
+    # Limite de taille d'upload : 500 MB (vidéos de départ BMX = ~50-200 MB).
+    request_body {
+        max_size 500MB
+    }
+
+    # Reverse proxy vers l'app FastAPI/uvicorn.
+    reverse_proxy app:8000 {
+        # Timeouts longs pour les analyses YOLO (30-90s CPU).
+        transport http {
+            response_header_timeout 5m
+            read_timeout 5m
+            write_timeout 5m
+        }
+    }
+
+    # Logs en console + fichier (rotation auto par Caddy).
+    log {
+        output stdout
+        format console
+    }
+
+    # Headers de sécurité raisonnables pour usage perso.
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer-when-downgrade"
+    }
+}

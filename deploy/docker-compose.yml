@@ -1,0 +1,41 @@
+# ────────────────────────────────────────────────────────────────────────
+# BMX Start Analyzer — orchestration prod
+# - service "app"   : FastAPI/uvicorn (image Dockerfile)
+# - service "caddy" : reverse proxy + HTTPS Let's Encrypt + Basic Auth
+# ────────────────────────────────────────────────────────────────────────
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8000"
+    volumes:
+      # Persistance des vidéos et analyses (survit aux rebuilds d'image).
+      - ../uploads:/app/uploads
+      - ../output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      # Définis dans .env (à côté de docker-compose.yml).
+      - DOMAIN=${DOMAIN}
+      - BASIC_AUTH_USER=${BASIC_AUTH_USER}
+      - BASIC_AUTH_HASH=${BASIC_AUTH_HASH}
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:
