@@ -28,12 +28,12 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-    # IMPORTANT : on utilise env_file (lecture brute) au lieu de
-    # `environment:` avec interpolation `${VAR}`. Sinon docker-compose
-    # interprète les `$` du hash bcrypt comme des variables et le hash
-    # arrive tronqué à Caddy → "hashedSecret too short" + auth qui boucle.
+    # IMPORTANT : on utilise un fichier nommé `caddy.env` (pas `.env`)
+    # parce que docker-compose lit AUTOMATIQUEMENT le fichier `.env`
+    # pour son interpolation interne, ce qui mange les `$` du hash bcrypt
+    # → Caddy reçoit un hash tronqué. Utiliser un autre nom contourne ça.
     env_file:
-      - .env
+      - caddy.env
     depends_on:
       - app
 
