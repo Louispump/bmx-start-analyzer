@@ -28,6 +28,7 @@ output/
 # Environnement
 .env
 deploy/.env
+deploy/caddy.env
 
 # Uploads en local (sur le VPS, c'est un volume Docker)
 uploads/

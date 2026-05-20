@@ -78,7 +78,7 @@ fi
 cd "$INSTALL_DIR/deploy"
 
 # ── 6. Configuration interactive (.env) ─────────────────────────────────
-if [[ ! -f .env ]]; then
+if [[ ! -f caddy.env ]]; then
     echo ""
     echo "─── Configuration ──────────────────────────────────────────────"
     # IMPORTANT : on lit explicitement sur /dev/tty pour que les prompts
@@ -96,13 +96,15 @@ if [[ ! -f .env ]]; then
     echo "→ Génération du hash bcrypt..."
     BASIC_AUTH_HASH=$(docker run --rm caddy:2 caddy hash-password --plaintext "$BASIC_AUTH_PASS")
 
-    cat > .env <<EOF
+    # On écrit dans caddy.env (PAS .env) pour éviter que docker-compose
+    # interprète les `$` du hash bcrypt à la lecture automatique de .env.
+    cat > caddy.env <<EOF
 DOMAIN=$DOMAIN
 BASIC_AUTH_USER=$BASIC_AUTH_USER
 BASIC_AUTH_HASH=$BASIC_AUTH_HASH
 EOF
-    chmod 600 .env
-    echo "✓ .env créé"
+    chmod 600 caddy.env
+    echo "✓ caddy.env créé"
 fi
 
 # ── 7. Build + démarrage ────────────────────────────────────────────────
@@ -114,7 +116,7 @@ echo "→ Démarrage des services..."
 docker compose up -d
 
 # ── 8. Récap ────────────────────────────────────────────────────────────
-DOMAIN=$(grep '^DOMAIN=' .env | cut -d= -f2-)
+DOMAIN=$(grep '^DOMAIN=' caddy.env | cut -d= -f2-)
 echo ""
 echo "═══════════════════════════════════════════════════════════════════"
 echo "  ✅ Installation terminée"
