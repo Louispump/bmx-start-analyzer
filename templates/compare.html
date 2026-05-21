@@ -12,10 +12,17 @@
       <p class="subtitle">Rider en cyan, référence en magenta (pro · autre départ de l'athlète · autre athlète). Scrub indépendamment ou via la sync sur le gate drop.</p>
     </div>
     <div class="pro-selector">
-      <select id="ref-select" onchange="changeReference(this)" class="pro-select">
+      <button type="button" class="btn-ref-picker" id="btn-ref-picker" onclick="openRefPicker()">
+        <span class="btn-ref-picker-icon">🎯</span>
+        <span class="btn-ref-picker-label" id="btn-ref-picker-label">Choisir une référence</span>
+        <span class="btn-ref-picker-chevron">▾</span>
+      </button>
+      <a href="/pros" class="btn-manage-pros">Gérer pros</a>
+      <!-- Source de vérité cachée : le <select> reste pour piloter changeReference() -->
+      <select id="ref-select" onchange="changeReference(this)" class="pro-select" style="display:none" aria-hidden="true" tabindex="-1">
         <option value="">— Comparer avec —</option>
         {% if pros_list %}
-        <optgroup label="Pros">
+        <optgroup label="Pros" data-group="pros">
           {% for pro in pros_list %}
           <option value="{{ pro.video_file }}"
                   data-ref-type="pro"
@@ -23,14 +30,14 @@
                   data-fps="{{ pro.fps }}"
                   data-gate="{{ pro.gate_drop_t }}"
                   data-name="{{ pro.name }}"
-                  data-date="">
+                  data-added-at="">
             {{ pro.name }}
           </option>
           {% endfor %}
         </optgroup>
         {% endif %}
         {% if same_athlete_jobs %}
-        <optgroup label="{{ current_athlete }} — autres départs">
+        <optgroup label="{{ current_athlete }} — autres départs" data-group="same">
           {% for j in same_athlete_jobs %}
           <option value="{{ j.annotated_video }}"
                   data-ref-type="job"
@@ -38,14 +45,14 @@
                   data-fps="{{ j.fps }}"
                   data-gate="{{ j.gate_drop_t }}"
                   data-name="{{ current_athlete }}"
-                  data-date="{{ j.added_at.split(' ')[0] if j.added_at else '' }}">
-            {{ j.added_at.split(' ')[0] if j.added_at else j.video_name }}
+                  data-added-at="{{ j.added_at or '' }}">
+            {{ current_athlete }} — {{ j.added_at or j.video_name }}
           </option>
           {% endfor %}
         </optgroup>
         {% endif %}
         {% if other_jobs %}
-        <optgroup label="Autres athlètes">
+        <optgroup label="Autres athlètes" data-group="others">
           {% for j in other_jobs %}
           <option value="{{ j.annotated_video }}"
                   data-ref-type="job"
@@ -53,14 +60,35 @@
                   data-fps="{{ j.fps }}"
                   data-gate="{{ j.gate_drop_t }}"
                   data-name="{{ j.athlete_name or 'Sans athlète' }}"
-                  data-date="{{ j.added_at.split(' ')[0] if j.added_at else '' }}">
-            {{ j.athlete_name or 'Sans athlète' }}{% if j.added_at %} — {{ j.added_at.split(' ')[0] }}{% endif %}
+                  data-added-at="{{ j.added_at or '' }}">
+            {{ j.athlete_name or 'Sans athlète' }} — {{ j.added_at or '' }}
           </option>
           {% endfor %}
         </optgroup>
         {% endif %}
       </select>
-      <a href="/pros" class="btn-manage-pros">Gérer pros</a>
+    </div>
+
+    <!-- Modale picker référence -->
+    <div class="ref-picker-modal" id="ref-picker-modal" aria-hidden="true">
+      <div class="ref-picker-backdrop" onclick="closeRefPicker()"></div>
+      <div class="ref-picker-dialog" role="dialog" aria-label="Choisir une référence">
+        <header class="ref-picker-head">
+          <h2>Choisir une référence</h2>
+          <button type="button" class="ref-picker-close" onclick="closeRefPicker()" aria-label="Fermer">✕</button>
+        </header>
+        <div class="ref-picker-search">
+          <input type="search" id="ref-picker-search-input" placeholder="Rechercher un nom…" autocomplete="off">
+        </div>
+        <nav class="ref-picker-tabs" id="ref-picker-tabs">
+          <button type="button" class="ref-tab ref-tab-active" data-tab="pros">Pros <span class="ref-tab-count" id="count-pros">0</span></button>
+          <button type="button" class="ref-tab" data-tab="same">Ce rider <span class="ref-tab-count" id="count-same">0</span></button>
+          <button type="button" class="ref-tab" data-tab="others">Autres <span class="ref-tab-count" id="count-others">0</span></button>
+        </nav>
+        <div class="ref-picker-list" id="ref-picker-list">
+          <!-- rempli par JS -->
+        </div>
+      </div>
     </div>
   </header>
 
@@ -480,6 +508,8 @@
         currentRefId   = null;
         btnAngles.disabled = true;
         if (btnAnim) btnAnim.disabled = true;
+        const lbl = document.getElementById('btn-ref-picker-label');
+        if (lbl) lbl.textContent = 'Choisir une référence';
         return;
       }
       proFps   = parseFloat(opt.dataset.fps)  || riderFps;
@@ -490,7 +520,17 @@
       currentRefType = opt.dataset.refType || null;
       currentRefId   = opt.dataset.refId   || null;
       document.getElementById('pro-name').textContent = opt.dataset.name || '—';
-      if (dateEl) dateEl.textContent = opt.dataset.date || '';
+      // Date affichée sous le nom dans le panneau pro : utilise le label formaté
+      const formattedDate = (typeof formatEntryDate === 'function')
+        ? formatEntryDate(opt.dataset.addedAt || '', false)
+        : (opt.dataset.addedAt || '').split(' ')[0];
+      if (dateEl) dateEl.textContent = formattedDate;
+      // Mise à jour du label du bouton picker
+      const lbl = document.getElementById('btn-ref-picker-label');
+      if (lbl) {
+        const datePart = formattedDate ? ' · ' + formattedDate : '';
+        lbl.textContent = (opt.dataset.name || '—') + datePart;
+      }
       empty.style.display  = 'none';
       vPro.style.display   = 'block';
       scrubs.pro.disabled  = true;
@@ -510,6 +550,184 @@
         applySyncOffset(SYNC_OFFSET_START);
       }, { once: true });
     }
+
+    // ── Picker référence (modale 3 onglets) ──────────────────────────
+    const FR_MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin',
+                       'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+    // Parse "YYYY-MM-DD HH:MM:SS" → { ymd, time, date, dt }
+    function parseAddedAt(s) {
+      if (!s) return null;
+      const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+      if (!m) return null;
+      const Y = +m[1], M = +m[2], D = +m[3];
+      const hh = m[4] ? +m[4] : null, mm = m[5] ? +m[5] : null;
+      return {
+        ymd: `${m[1]}-${m[2]}-${m[3]}`,
+        Y, M, D, hh, mm,
+        date: `${D} ${FR_MONTHS[M-1]} ${Y}`,
+        dateShort: `${D} ${FR_MONTHS[M-1]}`,
+        time: (hh !== null && mm !== null) ? `${String(hh).padStart(2,'0')}h${String(mm).padStart(2,'0')}` : '',
+      };
+    }
+    function formatEntryDate(addedAt, withYear=true) {
+      const p = parseAddedAt(addedAt);
+      if (!p) return '';
+      return withYear ? p.date : p.dateShort;
+    }
+
+    // Construit les 3 listes à partir du <select> caché.
+    function buildRefPickerData() {
+      const sel = document.getElementById('ref-select');
+      const groups = { pros: [], same: [], others: [] };
+      sel.querySelectorAll('optgroup').forEach(g => {
+        const key = g.dataset.group;
+        if (!groups[key]) return;
+        g.querySelectorAll('option').forEach(o => {
+          groups[key].push({
+            value:     o.value,
+            name:      o.dataset.name || '—',
+            refType:   o.dataset.refType,
+            refId:     o.dataset.refId,
+            fps:       o.dataset.fps,
+            gate:      o.dataset.gate,
+            addedAt:   o.dataset.addedAt || '',
+            parsed:    parseAddedAt(o.dataset.addedAt || ''),
+          });
+        });
+      });
+      // Tri du plus récent au plus ancien (sauf pros, ordre conservé)
+      ['same', 'others'].forEach(k => {
+        groups[k].sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''));
+      });
+      // Détection collision même jour pour décider d'afficher l'heure
+      ['same', 'others'].forEach(k => {
+        const counts = {};
+        groups[k].forEach(e => {
+          if (!e.parsed) return;
+          const key = `${e.name}|${e.parsed.ymd}`;
+          counts[key] = (counts[key] || 0) + 1;
+        });
+        groups[k].forEach(e => {
+          if (!e.parsed) { e.showTime = false; return; }
+          const key = `${e.name}|${e.parsed.ymd}`;
+          e.showTime = (counts[key] > 1);
+        });
+      });
+      return groups;
+    }
+
+    let refPickerData = null;
+    let refPickerActiveTab = 'pros';
+    let refPickerQuery = '';
+
+    function openRefPicker() {
+      refPickerData = buildRefPickerData();
+      // Onglet par défaut : Pros si dispo, sinon premier non-vide
+      const order = ['pros', 'same', 'others'];
+      refPickerActiveTab = order.find(k => refPickerData[k].length > 0) || 'pros';
+      refPickerQuery = '';
+      // Compteurs
+      document.getElementById('count-pros').textContent   = refPickerData.pros.length;
+      document.getElementById('count-same').textContent   = refPickerData.same.length;
+      document.getElementById('count-others').textContent = refPickerData.others.length;
+      // Cache l'onglet "Ce rider" si vide
+      const sameTabBtn = document.querySelector('.ref-tab[data-tab="same"]');
+      if (sameTabBtn) sameTabBtn.style.display = refPickerData.same.length ? '' : 'none';
+      // Tabs visuel
+      document.querySelectorAll('.ref-tab').forEach(b => {
+        b.classList.toggle('ref-tab-active', b.dataset.tab === refPickerActiveTab);
+      });
+      document.getElementById('ref-picker-search-input').value = '';
+      document.getElementById('ref-picker-modal').classList.add('ref-picker-open');
+      document.getElementById('ref-picker-modal').setAttribute('aria-hidden', 'false');
+      renderRefPickerList();
+      // Focus champ recherche après la transition
+      setTimeout(() => {
+        const inp = document.getElementById('ref-picker-search-input');
+        if (inp) inp.focus();
+      }, 80);
+    }
+    function closeRefPicker() {
+      document.getElementById('ref-picker-modal').classList.remove('ref-picker-open');
+      document.getElementById('ref-picker-modal').setAttribute('aria-hidden', 'true');
+    }
+
+    function renderRefPickerList() {
+      const list = document.getElementById('ref-picker-list');
+      if (!refPickerData) return;
+      const entries = refPickerData[refPickerActiveTab] || [];
+      const q = refPickerQuery.trim().toLowerCase();
+      const filtered = q
+        ? entries.filter(e => e.name.toLowerCase().includes(q) || (e.addedAt || '').includes(q))
+        : entries;
+      list.innerHTML = '';
+      if (!filtered.length) {
+        const empty = document.createElement('div');
+        empty.className = 'ref-picker-empty';
+        empty.textContent = q ? 'Aucun résultat.' : (
+          refPickerActiveTab === 'pros' ? 'Aucun pro enregistré. Va dans Pros pour en ajouter.' :
+          refPickerActiveTab === 'same' ? 'Pas d’autre départ pour ce rider.' :
+                                          'Aucun autre départ disponible.'
+        );
+        list.appendChild(empty);
+        return;
+      }
+      filtered.forEach(e => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'ref-picker-row';
+        let sub = '';
+        if (e.parsed) {
+          sub = e.parsed.date;
+          if (e.showTime && e.parsed.time) sub += ' · ' + e.parsed.time;
+        }
+        row.innerHTML = `
+          <span class="ref-picker-row-icon">${refPickerActiveTab === 'pros' ? '🏆' : '🏃'}</span>
+          <span class="ref-picker-row-text">
+            <span class="ref-picker-row-name">${escapeHtml(e.name)}</span>
+            ${sub ? `<span class="ref-picker-row-sub">${escapeHtml(sub)}</span>` : ''}
+          </span>
+        `;
+        row.addEventListener('click', () => selectRefEntry(e));
+        list.appendChild(row);
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function selectRefEntry(entry) {
+      const sel = document.getElementById('ref-select');
+      sel.value = entry.value;
+      closeRefPicker();
+      // Force le déclenchement même si déjà sélectionné
+      changeReference(sel);
+    }
+
+    // Wiring tabs + search
+    document.querySelectorAll('.ref-tab').forEach(b => {
+      b.addEventListener('click', () => {
+        refPickerActiveTab = b.dataset.tab;
+        document.querySelectorAll('.ref-tab').forEach(x =>
+          x.classList.toggle('ref-tab-active', x === b));
+        renderRefPickerList();
+      });
+    });
+    document.getElementById('ref-picker-search-input').addEventListener('input', e => {
+      refPickerQuery = e.target.value;
+      renderRefPickerList();
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        const modal = document.getElementById('ref-picker-modal');
+        if (modal && modal.classList.contains('ref-picker-open')) {
+          e.preventDefault(); closeRefPicker();
+        }
+      }
+    });
 
     // ── Comparaison angles à T donné ────────────────────────────────
     const JOINT_LABELS = {
