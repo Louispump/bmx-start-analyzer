@@ -2193,11 +2193,21 @@ input[type="text"].rider-name-input {
   text-decoration: none;
   color: inherit;
   cursor: pointer;
-  grid-template-columns: 1fr auto auto;
+  /* Maintenant: ligne = lien intérieur (flexible) + bouton ⊘ exclusion */
+  grid-template-columns: 1fr auto;
 }
 .pro-row-link:hover {
   border-color: var(--accent);
   background: var(--surface-hover);
+}
+.pro-row-link-inner {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
 }
 .pro-arrow {
   color: var(--muted);
@@ -2205,6 +2215,38 @@ input[type="text"].rider-name-input {
   transition: color var(--transition), transform var(--transition);
 }
 .pro-row-link:hover .pro-arrow { color: var(--accent); transform: translateX(2px); }
+
+/* Bouton d'exclusion d'une session des stats */
+.exclude-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: .78rem;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: var(--transition);
+  min-height: 36px;
+  white-space: nowrap;
+}
+.exclude-toggle:hover {
+  color: var(--orange);
+  border-color: var(--orange);
+  background: rgba(245, 156, 24, 0.08);
+}
+.exclude-toggle.exclude-on {
+  background: rgba(245, 156, 24, 0.14);
+  color: var(--orange);
+  border-color: rgba(245, 156, 24, 0.4);
+  font-weight: 500;
+}
+.exclude-toggle.exclude-on:hover {
+  background: rgba(245, 156, 24, 0.22);
+}
+.pro-row-excluded .pro-row-link-inner { opacity: 0.5; }
+.pro-row-excluded { border-style: dashed; }
+.exclusion-hint { color: var(--orange); }
 
 /* Mini graphique évolution */
 .mini-chart-wrap {

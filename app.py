@@ -237,17 +237,23 @@ def _athlete_jobs(athlete_id: str) -> list[dict]:
             "duration_s":  j.get("results", {}).get("duration_s"),
             "reaction":    j.get("results", {}).get("reaction", {}),
             "gate_drop_t": j.get("results", {}).get("gate_drop_t"),
+            "excluded":    bool(j.get("excluded_from_stats", False)),
         })
     out.sort(key=lambda x: x.get("added_at", ""), reverse=True)
     return out
 
 
 def _athlete_stats(athlete_jobs: list[dict]) -> dict:
-    """Mini dashboard : nb de vidéos, meilleur / moyen temps de réaction (excluant les faux départs).
+    """Mini dashboard : nb de vidéos, meilleur / moyen temps de réaction (excluant
+    les faux départs ET les sessions cochées comme exclues par l'utilisateur).
     Métrique = `from_bip1_ms` (bip 1 → premier mouvement) si l'audio a été détecté,
     sinon fallback sur `from_gate_ms`."""
     reactions_ms = []
+    n_excluded   = 0
     for j in athlete_jobs:
+        if j.get("excluded"):
+            n_excluded += 1
+            continue
         r = j.get("reaction") or {}
         if r.get("type") == "false_start":
             continue
@@ -257,10 +263,12 @@ def _athlete_stats(athlete_jobs: list[dict]) -> dict:
             reactions_ms.append(r["from_gate_ms"])
     return {
         "n_videos":  len(athlete_jobs),
+        "n_excluded": n_excluded,
         "best_ms":   min(reactions_ms) if reactions_ms else None,
         "avg_ms":    round(sum(reactions_ms) / len(reactions_ms), 1) if reactions_ms else None,
         "false_starts": sum(1 for j in athlete_jobs
-                            if (j.get("reaction") or {}).get("type") == "false_start"),
+                            if not j.get("excluded")
+                            and (j.get("reaction") or {}).get("type") == "false_start"),
         "history":   reactions_ms,  # pour le mini-graphique
     }
 
@@ -547,6 +555,17 @@ async def result(request: Request, job_id: str):
         "athlete":          athlete,
         "athletes_options": athletes_options,
     })
+
+
+@app.post("/jobs/{job_id}/exclude")
+async def jobs_set_excluded(job_id: str, excluded: str = Form("0")):
+    """Marque une session comme exclue des stats / graphique. 1 = exclue, 0 = incluse."""
+    job = jobs.get(job_id)
+    if not job:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    job["excluded_from_stats"] = (excluded == "1")
+    save_jobs(jobs)
+    return {"ok": True, "excluded": job["excluded_from_stats"]}
 
 
 @app.post("/jobs/{job_id}/athlete")

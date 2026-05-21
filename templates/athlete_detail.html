@@ -70,28 +70,42 @@
       Aucune vidéo encore. <a href="/?athlete={{ athlete.id }}" style="color:var(--accent)">Lance une nouvelle analyse</a> avec cet athlète pré-sélectionné.
     </div>
     {% else %}
+    {% if stats.n_excluded > 0 %}
+    <p class="section-note exclusion-hint">
+      <strong>{{ stats.n_excluded }}</strong> session{{ 's' if stats.n_excluded > 1 else '' }} exclue{{ 's' if stats.n_excluded > 1 else '' }} des stats et du graphique. Coche / décoche le ⊘ à droite d'une ligne pour basculer.
+    </p>
+    {% else %}
+    <p class="section-note">Coche le ⊘ à droite d'une session pour l'exclure des stats et du graphique (utile pour un départ raté ou un bug d'analyse).</p>
+    {% endif %}
     <div class="pros-list">
       {% for j in athlete_jobs %}
-      <a class="pro-row pro-row-link" href="/result/{{ j.job_id }}">
-        <div class="pro-info">
-          <span class="pro-name-text">{{ j.video_name }}</span>
-          <span class="pro-meta">
-            {{ j.added_at }} · {{ j.fps }} fps · {{ j.duration_s }}s
-          </span>
-        </div>
-        <div class="pro-status">
-          {% if j.reaction.type == 'false_start' %}
-            <span class="status-badge status-error">⚠ Faux départ</span>
-          {% elif j.reaction.from_bip1_ms is not none %}
-            <span class="status-badge status-done">{{ j.reaction.from_bip1_ms }} ms</span>
-          {% elif j.reaction.from_gate_ms is not none %}
-            <span class="status-badge status-done">{{ j.reaction.from_gate_ms }} ms</span>
-          {% else %}
-            <span class="status-badge">—</span>
-          {% endif %}
-        </div>
-        <span class="pro-arrow">→</span>
-      </a>
+      <div class="pro-row pro-row-link{% if j.excluded %} pro-row-excluded{% endif %}" data-job-id="{{ j.job_id }}">
+        <a class="pro-row-link-inner" href="/result/{{ j.job_id }}">
+          <div class="pro-info">
+            <span class="pro-name-text">{{ j.video_name }}</span>
+            <span class="pro-meta">
+              {{ j.added_at }} · {{ j.fps }} fps · {{ j.duration_s }}s
+            </span>
+          </div>
+          <div class="pro-status">
+            {% if j.reaction.type == 'false_start' %}
+              <span class="status-badge status-error">⚠ Faux départ</span>
+            {% elif j.reaction.from_bip1_ms is not none %}
+              <span class="status-badge status-done">{{ j.reaction.from_bip1_ms }} ms</span>
+            {% elif j.reaction.from_gate_ms is not none %}
+              <span class="status-badge status-done">{{ j.reaction.from_gate_ms }} ms</span>
+            {% else %}
+              <span class="status-badge">—</span>
+            {% endif %}
+          </div>
+          <span class="pro-arrow">→</span>
+        </a>
+        <button type="button" class="exclude-toggle{% if j.excluded %} exclude-on{% endif %}"
+                data-job-id="{{ j.job_id }}"
+                title="{{ 'Réinclure dans les stats' if j.excluded else 'Exclure des stats et du graphique' }}">
+          {% if j.excluded %}⊘ Exclue{% else %}⊘{% endif %}
+        </button>
+      </div>
       {% endfor %}
     </div>
     {% endif %}
@@ -103,6 +117,33 @@
 
 {% block scripts %}
   <script>
+    // Toggle exclusion d'une session (clic sur le bouton ⊘ à droite)
+    document.querySelectorAll('.exclude-toggle').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const jobId = btn.dataset.jobId;
+        const willExclude = !btn.classList.contains('exclude-on');
+        btn.disabled = true;
+        try {
+          const fd = new FormData();
+          fd.append('excluded', willExclude ? '1' : '0');
+          const res = await fetch('/jobs/' + jobId + '/exclude', { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            alert('Erreur : ' + (data.error || res.status));
+            btn.disabled = false;
+            return;
+          }
+          // Reload pour recalculer stats + graphique
+          location.reload();
+        } catch (err) {
+          alert('Erreur réseau : ' + err.message);
+          btn.disabled = false;
+        }
+      });
+    });
+
     async function deleteAthlete(id) {
       if (!confirm("Supprimer ce dossier ? Les vidéos analysées resteront accessibles mais ne seront plus rattachées à cet athlète.")) return;
       const res = await fetch('/athletes/' + id, { method: 'DELETE' });
