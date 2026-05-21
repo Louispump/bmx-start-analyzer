@@ -1,6 +1,6 @@
 {% extends "_base.html" %}
 
-{% block title %}{{ results.video_name }} — Analyse{% endblock %}
+{% block title %}{{ display_name }} — Analyse{% endblock %}
 {% set active = "result" %}
 
 {% block content %}
@@ -13,7 +13,24 @@
       {% endif %}
       <a href="/compare/{{ job_id }}" class="compare-link">Comparer les riders</a>
     </div>
-    <h1>{{ results.video_name }}</h1>
+    <div class="title-edit-wrap">
+      <h1 id="job-title">{{ display_name }}</h1>
+      <button type="button" class="btn-title-edit" id="btn-title-edit"
+              title="Renommer cette vidéo">✎</button>
+      <form class="title-edit-form" id="title-edit-form" hidden>
+        <input type="text" id="title-edit-input" maxlength="120"
+               value="{{ custom_name }}"
+               placeholder="{{ auto_name }}">
+        <button type="submit" class="btn-title-save">Enregistrer</button>
+        <button type="button" class="btn-title-reset" id="btn-title-reset"
+                title="Revenir au nom automatique">↺ Auto</button>
+        <button type="button" class="btn-title-cancel" id="btn-title-cancel">✕</button>
+      </form>
+      <span class="title-auto-hint" id="title-auto-hint"
+            {% if not custom_name %}hidden{% endif %}>
+        Nom auto : {{ auto_name }}
+      </span>
+    </div>
     <p class="subtitle">
       <span id="athlete-pill-wrap">
         {% if athlete %}
@@ -235,6 +252,62 @@
 
 {% block scripts %}
   <script>
+    // ── Renommage du titre ─────────────────────────────────────────
+    (function() {
+      const btn      = document.getElementById('btn-title-edit');
+      const form     = document.getElementById('title-edit-form');
+      const input    = document.getElementById('title-edit-input');
+      const titleEl  = document.getElementById('job-title');
+      const hint     = document.getElementById('title-auto-hint');
+      const cancel   = document.getElementById('btn-title-cancel');
+      const reset    = document.getElementById('btn-title-reset');
+      if (!btn || !form) return;
+
+      function showForm() {
+        form.hidden = false;
+        btn.hidden  = true;
+        setTimeout(() => { input.focus(); input.select(); }, 50);
+      }
+      function hideForm() {
+        form.hidden = true;
+        btn.hidden  = false;
+      }
+      btn.addEventListener('click', showForm);
+      cancel.addEventListener('click', hideForm);
+
+      async function save(customName) {
+        const fd = new FormData();
+        fd.append('custom_name', customName);
+        try {
+          const res = await fetch('/jobs/{{ job_id }}/name', { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            alert('Erreur : ' + (data.error || res.status));
+            return;
+          }
+          titleEl.textContent = data.display_name;
+          document.title      = data.display_name + ' — Analyse';
+          input.value         = data.custom_name;
+          input.placeholder   = data.auto_name;
+          if (data.custom_name) {
+            hint.textContent = 'Nom auto : ' + data.auto_name;
+            hint.hidden = false;
+          } else {
+            hint.hidden = true;
+          }
+          hideForm();
+        } catch (e) {
+          alert('Erreur réseau : ' + e.message);
+        }
+      }
+
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        save(input.value.trim());
+      });
+      reset.addEventListener('click', () => save(''));
+    })();
+
     // ── Assignation / changement d'athlète ─────────────────────────
     (function() {
       const btn      = document.getElementById('btn-athlete-edit');

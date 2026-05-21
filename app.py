@@ -209,6 +209,51 @@ def purge_orphans() -> dict:
     return {"jobs_removed": n_jobs, "files_removed": n_files}
 
 
+_MONTHS_FR = ["", "janv.", "févr.", "mars", "avr.", "mai", "juin",
+              "juil.", "août", "sept.", "oct.", "nov.", "déc."]
+
+
+def _format_date_fr(added_at: str) -> str:
+    """'2026-05-21 14:32' → '21 mai 2026'. Fallback : renvoie added_at brut."""
+    date_part = (added_at or "").split(" ")[0]
+    try:
+        Y, M, D = date_part.split("-")
+        return f"{int(D)} {_MONTHS_FR[int(M)]} {int(Y)}"
+    except Exception:
+        return date_part
+
+
+def _display_name(job_id: str, job: dict) -> str:
+    """Nom d'affichage : `Athlete — 5 juin 2026 — 04`.
+    `04` = position chronologique de la vidéo pour cet athlète dans la journée.
+    Si `custom_name` est défini sur le job, c'est lui qui est utilisé.
+    Sans athlète, on retombe sur le nom de fichier original."""
+    custom = (job.get("custom_name") or "").strip()
+    if custom:
+        return custom
+    aid = job.get("athlete_id")
+    if not aid:
+        return job.get("results", {}).get("video_name") \
+            or job.get("filename") or "—"
+    athlete = athletes.get(aid)
+    name = athlete.get("name") if athlete else "Athlète inconnu"
+    added_at = job.get("added_at", "")
+    if not added_at:
+        return name
+    date_part = added_at.split(" ")[0]
+    date_fr   = _format_date_fr(added_at)
+    # Numéro dans la journée
+    same_day: list[tuple[str, str]] = []
+    for jid, j in jobs.items():
+        if j.get("status") != "done": continue
+        if j.get("athlete_id") != aid: continue
+        if (j.get("added_at") or "").split(" ")[0] != date_part: continue
+        same_day.append((j.get("added_at", ""), jid))
+    same_day.sort()
+    seq = next((i + 1 for i, (_, jid) in enumerate(same_day) if jid == job_id), 1)
+    return f"{name} — {date_fr} — {seq:02d}"
+
+
 def _job_compare_entry(jid: str, j: dict, athlete_name: str | None = None) -> dict:
     """Format compact d'un job pour le sélecteur "Comparer avec" sur la page
     Compare. Retourne tout ce qu'il faut pour piloter le panneau référence."""
@@ -216,6 +261,7 @@ def _job_compare_entry(jid: str, j: dict, athlete_name: str | None = None) -> di
     return {
         "id":               jid,
         "video_name":       r.get("video_name", j.get("filename", "—")),
+        "display_name":     _display_name(jid, j),
         "annotated_video":  r.get("files", {}).get("annotated_video", ""),
         "landmarks_csv":    r.get("files", {}).get("landmarks_csv", ""),
         "fps":              r.get("fps"),
@@ -236,14 +282,15 @@ def _athlete_jobs(athlete_id: str) -> list[dict]:
         if j.get("athlete_id") != athlete_id:
             continue
         out.append({
-            "job_id":      jid,
-            "video_name":  j.get("results", {}).get("video_name", "—"),
-            "added_at":    j.get("added_at", ""),
-            "fps":         j.get("results", {}).get("fps"),
-            "duration_s":  j.get("results", {}).get("duration_s"),
-            "reaction":    j.get("results", {}).get("reaction", {}),
-            "gate_drop_t": j.get("results", {}).get("gate_drop_t"),
-            "excluded":    bool(j.get("excluded_from_stats", False)),
+            "job_id":       jid,
+            "video_name":   j.get("results", {}).get("video_name", "—"),
+            "display_name": _display_name(jid, j),
+            "added_at":     j.get("added_at", ""),
+            "fps":          j.get("results", {}).get("fps"),
+            "duration_s":   j.get("results", {}).get("duration_s"),
+            "reaction":     j.get("results", {}).get("reaction", {}),
+            "gate_drop_t":  j.get("results", {}).get("gate_drop_t"),
+            "excluded":     bool(j.get("excluded_from_stats", False)),
         })
     out.sort(key=lambda x: x.get("added_at", ""), reverse=True)
     return out
@@ -560,7 +607,32 @@ async def result(request: Request, job_id: str):
         "results":          job["results"],
         "athlete":          athlete,
         "athletes_options": athletes_options,
+        "display_name":     _display_name(job_id, job),
+        "custom_name":      job.get("custom_name", ""),
+        "auto_name":        _display_name(job_id, {**job, "custom_name": ""}),
     })
+
+
+@app.post("/jobs/{job_id}/name")
+async def jobs_set_name(job_id: str, custom_name: str = Form("")):
+    """Définit un nom personnalisé pour la vidéo. Chaîne vide = retour au nom auto."""
+    job = jobs.get(job_id)
+    if not job:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    name = (custom_name or "").strip()
+    if len(name) > 120:
+        return JSONResponse({"error": "Trop long (max 120 caractères)."}, status_code=400)
+    if name:
+        job["custom_name"] = name
+    else:
+        job.pop("custom_name", None)
+    save_jobs(jobs)
+    return {
+        "ok":           True,
+        "display_name": _display_name(job_id, job),
+        "auto_name":    _display_name(job_id, {**job, "custom_name": ""}),
+        "custom_name":  job.get("custom_name", ""),
+    }
 
 
 @app.post("/jobs/{job_id}/exclude")
@@ -1502,6 +1574,7 @@ async def compare(request: Request, job_id: str):
     return templates.TemplateResponse(request, "compare.html", {
         "job_id":             job_id,
         "rider":              job["results"],
+        "rider_display_name": _display_name(job_id, job),
         "pros_list":          pros_done,
         "same_athlete_jobs":  same_athlete_jobs,
         "other_jobs":         other_jobs,

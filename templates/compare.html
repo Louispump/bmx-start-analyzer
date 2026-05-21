@@ -1,6 +1,6 @@
 {% extends "_base.html" %}
 
-{% block title %}Comparaison — {{ rider.video_name }}{% endblock %}
+{% block title %}Comparaison — {{ rider_display_name }}{% endblock %}
 {% set active = "compare" %}
 {% block body_class %}compare-shell{% endblock %}
 
@@ -44,9 +44,9 @@
                   data-ref-id="{{ j.id }}"
                   data-fps="{{ j.fps }}"
                   data-gate="{{ j.gate_drop_t }}"
-                  data-name="{{ current_athlete }}"
+                  data-name="{{ j.display_name }}"
                   data-added-at="{{ j.added_at or '' }}">
-            {{ current_athlete }} — {{ j.added_at or j.video_name }}
+            {{ j.display_name }}
           </option>
           {% endfor %}
         </optgroup>
@@ -59,9 +59,9 @@
                   data-ref-id="{{ j.id }}"
                   data-fps="{{ j.fps }}"
                   data-gate="{{ j.gate_drop_t }}"
-                  data-name="{{ j.athlete_name or 'Sans athlète' }}"
+                  data-name="{{ j.display_name }}"
                   data-added-at="{{ j.added_at or '' }}">
-            {{ j.athlete_name or 'Sans athlète' }} — {{ j.added_at or '' }}
+            {{ j.display_name }}
           </option>
           {% endfor %}
         </optgroup>
@@ -98,7 +98,7 @@
     <div class="video-panel active-panel" id="panel-rider">
       <div class="panel-label" onclick="setActive('rider')">
         <span class="panel-tag rider-tag">RIDER</span>
-        <span class="panel-name">{{ rider.video_name }}</span>
+        <span class="panel-name">{{ rider_display_name }}</span>
         <span class="shift-badge" id="badge-rider-shift"></span>
       </div>
       <div class="panel-video-wrap">
@@ -519,18 +519,12 @@
       currentSyncOffset = 0;
       currentRefType = opt.dataset.refType || null;
       currentRefId   = opt.dataset.refId   || null;
+      // Le display_name contient déjà athlète + date + numéro
       document.getElementById('pro-name').textContent = opt.dataset.name || '—';
-      // Date affichée sous le nom dans le panneau pro : utilise le label formaté
-      const formattedDate = (typeof formatEntryDate === 'function')
-        ? formatEntryDate(opt.dataset.addedAt || '', false)
-        : (opt.dataset.addedAt || '').split(' ')[0];
-      if (dateEl) dateEl.textContent = formattedDate;
+      if (dateEl) dateEl.textContent = '';
       // Mise à jour du label du bouton picker
       const lbl = document.getElementById('btn-ref-picker-label');
-      if (lbl) {
-        const datePart = formattedDate ? ' · ' + formattedDate : '';
-        lbl.textContent = (opt.dataset.name || '—') + datePart;
-      }
+      if (lbl) lbl.textContent = opt.dataset.name || '—';
       empty.style.display  = 'none';
       vPro.style.display   = 'block';
       scrubs.pro.disabled  = true;
@@ -676,16 +670,11 @@
         const row = document.createElement('button');
         row.type = 'button';
         row.className = 'ref-picker-row';
-        let sub = '';
-        if (e.parsed) {
-          sub = e.parsed.date;
-          if (e.showTime && e.parsed.time) sub += ' · ' + e.parsed.time;
-        }
+        // Le display_name contient déjà athlète + date + numéro → pas de sub
         row.innerHTML = `
           <span class="ref-picker-row-icon">${refPickerActiveTab === 'pros' ? '🏆' : '🏃'}</span>
           <span class="ref-picker-row-text">
             <span class="ref-picker-row-name">${escapeHtml(e.name)}</span>
-            ${sub ? `<span class="ref-picker-row-sub">${escapeHtml(sub)}</span>` : ''}
           </span>
         `;
         row.addEventListener('click', () => selectRefEntry(e));

@@ -736,6 +736,77 @@ header h1 {
 }
 .athlete-popover-unassign:hover { color: var(--red); }
 
+/* ── Titre éditable (result.html) ────────────────────────────────── */
+.title-edit-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.title-edit-wrap h1 { margin: 0; }
+.btn-title-edit {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  font-size: .95rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.btn-title-edit:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.title-edit-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.title-edit-form[hidden] { display: none; }
+.title-edit-form input {
+  flex: 1 1 320px;
+  min-width: 0;
+  background: var(--bg);
+  color: var(--text-strong);
+  border: 1px solid var(--accent-mid);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  font-family: var(--font);
+  outline: none;
+  min-height: 44px;
+}
+.title-edit-form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.title-edit-form button {
+  background: var(--surface-elevated);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: var(--font);
+  font-size: .85rem;
+  cursor: pointer;
+  transition: var(--transition);
+  min-height: 40px;
+  white-space: nowrap;
+}
+.title-edit-form button:hover { border-color: var(--accent); color: var(--accent); }
+.btn-title-save {
+  background: var(--accent-soft) !important;
+  color: var(--accent) !important;
+  border-color: var(--accent-mid) !important;
+}
+.btn-title-save:hover { background: var(--accent) !important; color: #0a0a0a !important; }
+.title-auto-hint {
+  display: inline-block;
+  font-size: .78rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    INPUTS
    ══════════════════════════════════════════════════════════════════════ */
