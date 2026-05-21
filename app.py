@@ -151,34 +151,40 @@ def _orphan_job_ids() -> list[str]:
 
 
 def _orphan_files_on_disk() -> list[Path]:
-    """Fichiers en sortie dont le préfixe job_id n'est plus dans la mémoire.
-    Utile après un redémarrage : les jobs orphelins ne sont pas persistés,
-    mais leurs fichiers traînent. On les détecte par préfixe."""
-    valid_prefixes = set(jobs.keys()) | {f"pro_{pid}" for pid in pros.keys()}
+    """Fichiers dont le préfixe ne correspond à aucun job/pro encore vivant.
+    Règles :
+      - `pro_<id>_*`     → garder si `<id>` est dans pros
+      - `manual_<id>_*`  → JAMAIS purgé (uploads /manual_reaction, pas de job assoc)
+      - `<job_id>_*`     → garder si `<job_id>` est dans jobs
+      - `*_db.json`, `.DS_Store`, debug images → ignorés
+      - autres préfixes inconnus → orphelins
+    """
+    valid_jobs = set(jobs.keys())
+    valid_pros = set(pros.keys())
+
+    def is_orphan(name: str) -> bool:
+        if name == ".DS_Store":             return False
+        if name.endswith("_db.json"):       return False
+        if name.startswith("manual_"):      return False  # uploads manual_reaction
+        if name.startswith("debug_"):       return True   # diagnostics → purgeables
+        if name.startswith("pro_"):
+            # format attendu : pro_<id>_<rest>
+            rest = name[4:]
+            if "_" not in rest: return True  # malformé
+            pid = rest.split("_", 1)[0]
+            return pid not in valid_pros
+        # Sinon : préfixe = tout avant le 1er "_"
+        prefix = name.split("_", 1)[0]
+        # Si pas de "_" du tout, c'est un fichier sans préfixe → orphelin
+        if "_" not in name: return True
+        return prefix not in valid_jobs
+
     out: list[Path] = []
-    if not OUTPUT_DIR.exists(): return out
-    for f in OUTPUT_DIR.iterdir():
-        if not f.is_file(): continue
-        # Ignore les db json
-        if f.name.endswith("_db.json"): continue
-        # Préfixe = tout avant le 1er "_"
-        prefix = f.name.split("_", 1)[0]
-        if prefix == "pro" and "_" in f.name[4:]:
-            # Fichiers pros commencent par "pro_<id>_..."
-            pid = f.name[4:].split("_", 1)[0]
-            if f"pro_{pid}" in valid_prefixes or pid in pros:
-                continue
-            out.append(f)
-        elif prefix in valid_prefixes:
-            continue
-        else:
-            out.append(f)
-    # Aussi les fichiers source d'upload sans job associé
-    if UPLOAD_DIR.exists():
-        for f in UPLOAD_DIR.iterdir():
+    for d in (OUTPUT_DIR, UPLOAD_DIR):
+        if not d.exists(): continue
+        for f in d.iterdir():
             if not f.is_file(): continue
-            prefix = f.name.split("_", 1)[0]
-            if prefix not in valid_prefixes:
+            if is_orphan(f.name):
                 out.append(f)
     return out
 
