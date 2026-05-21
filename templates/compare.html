@@ -68,29 +68,29 @@
         {% endif %}
       </select>
     </div>
+  </header>
 
-    <!-- Modale picker référence -->
-    <div class="ref-picker-modal" id="ref-picker-modal" aria-hidden="true">
-      <div class="ref-picker-backdrop" onclick="closeRefPicker()"></div>
-      <div class="ref-picker-dialog" role="dialog" aria-label="Choisir une référence">
-        <header class="ref-picker-head">
-          <h2>Choisir une référence</h2>
-          <button type="button" class="ref-picker-close" onclick="closeRefPicker()" aria-label="Fermer">✕</button>
-        </header>
-        <div class="ref-picker-search">
-          <input type="search" id="ref-picker-search-input" placeholder="Rechercher un nom…" autocomplete="off">
-        </div>
-        <nav class="ref-picker-tabs" id="ref-picker-tabs">
-          <button type="button" class="ref-tab ref-tab-active" data-tab="pros">Pros <span class="ref-tab-count" id="count-pros">0</span></button>
-          <button type="button" class="ref-tab" data-tab="same">Ce rider <span class="ref-tab-count" id="count-same">0</span></button>
-          <button type="button" class="ref-tab" data-tab="others">Autres <span class="ref-tab-count" id="count-others">0</span></button>
-        </nav>
-        <div class="ref-picker-list" id="ref-picker-list">
-          <!-- rempli par JS -->
-        </div>
+  <!-- Modale picker référence (hors header pour éviter <header> imbriqué) -->
+  <div class="ref-picker-modal" id="ref-picker-modal" aria-hidden="true">
+    <div class="ref-picker-backdrop" onclick="closeRefPicker()"></div>
+    <div class="ref-picker-dialog" role="dialog" aria-label="Choisir une référence">
+      <div class="ref-picker-head">
+        <h2>Choisir une référence</h2>
+        <button type="button" class="ref-picker-close" onclick="closeRefPicker()" aria-label="Fermer">✕</button>
+      </div>
+      <div class="ref-picker-search">
+        <input type="search" id="ref-picker-search-input" placeholder="Rechercher un nom…" autocomplete="off">
+      </div>
+      <nav class="ref-picker-tabs" id="ref-picker-tabs">
+        <button type="button" class="ref-tab ref-tab-active" data-tab="pros">Pros <span class="ref-tab-count" id="count-pros">0</span></button>
+        <button type="button" class="ref-tab" data-tab="same">Ce rider <span class="ref-tab-count" id="count-same">0</span></button>
+        <button type="button" class="ref-tab" data-tab="others">Autres <span class="ref-tab-count" id="count-others">0</span></button>
+      </nav>
+      <div class="ref-picker-list" id="ref-picker-list">
+        <!-- rempli par JS -->
       </div>
     </div>
-  </header>
+  </div>
 
   <!-- Panneaux côte à côte -->
   <div class="side-by-side">
