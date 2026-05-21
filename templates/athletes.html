@@ -5,8 +5,8 @@
 
 {% block content %}
   <header>
-    <h1>Athlètes</h1>
-    <p class="subtitle">Un dossier par athlète : retrouve toutes ses vidéos analysées au même endroit.</p>
+    <h1 data-i18n="athletes.title">Athlètes</h1>
+    <p class="subtitle" data-i18n="athletes.subtitle">Un dossier par athlète : retrouve toutes ses vidéos analysées au même endroit.</p>
   </header>
 
   {% if error %}
@@ -14,18 +14,19 @@
   {% endif %}
 
   <section class="section">
-    <h2>Nouvel athlète</h2>
+    <h2 data-i18n="athletes.new_athlete">Nouvel athlète</h2>
     <div class="save-form">
       <input type="text" id="new-athlete-name" class="rider-name-input"
+             data-i18n-attr="placeholder:athletes.athlete_name_label"
              placeholder="Nom (ex: Léo, Sarah…)" maxlength="40">
-      <button type="button" class="btn btn-primary" id="btn-create-athlete">Créer le dossier</button>
+      <button type="button" class="btn btn-primary" id="btn-create-athlete" data-i18n="athletes.create_folder_btn">Créer le dossier</button>
     </div>
   </section>
 
   <section class="section">
-    <h2>Dossiers <span class="section-tag">{{ athletes_list|length }}</span></h2>
+    <h2><span data-i18n="athletes.folders_count">Dossiers</span> <span class="section-tag">{{ athletes_list|length }}</span></h2>
     {% if not athletes_list %}
-    <div class="empty-state">
+    <div class="empty-state" data-i18n="athletes.empty_state">
       Aucun athlète. Crée un premier dossier ci-dessus, puis upload une vidéo.
     </div>
     {% else %}
@@ -37,8 +38,8 @@
           <div>
             <div class="athlete-card-name">{{ a.name }}</div>
             <div class="athlete-card-meta">
-              {{ a.n_videos }} vidéo{{ "s" if a.n_videos != 1 else "" }}
-              {% if a.last_at %} · dernière {{ a.last_at }}{% endif %}
+              <span class="ac-videos-count" data-count="{{ a.n_videos }}">{{ a.n_videos }} vidéo{{ "s" if a.n_videos != 1 else "" }}</span>
+              {% if a.last_at %} · <span class="ac-last" data-last="{{ a.last_at }}">dernière {{ a.last_at }}</span>{% endif %}
             </div>
           </div>
         </div>
@@ -59,10 +60,27 @@
       const fd = new FormData();
       fd.append('name', name);
       const res = await fetch('/athletes', { method: 'POST', body: fd });
-      if (!res.ok) { alert('Erreur lors de la création.'); return; }
+      if (!res.ok) { alert(t('index.create_athlete_error', 'Erreur lors de la création.')); return; }
       const data = await res.json();
       window.location.href = '/athletes/' + data.id;
     });
+
+    // Re-render dynamic strings when language changes
+    function renderAthletesCounts() {
+      document.querySelectorAll('.ac-videos-count').forEach(el => {
+        const n = parseInt(el.dataset.count, 10) || 0;
+        const label = (n === 1)
+          ? t('common.video', 'vidéo')
+          : t('common.videos', 'vidéos');
+        el.textContent = `${n} ${label}`;
+      });
+      document.querySelectorAll('.ac-last').forEach(el => {
+        const last = el.dataset.last;
+        if (last) el.textContent = (t('athletes.last_activity', 'dernière {date}')).replace('{date}', last);
+      });
+    }
+    renderAthletesCounts();
+    document.addEventListener('i18n:applied', renderAthletesCounts);
     document.getElementById('new-athlete-name').addEventListener('keydown', e => {
       if (e.key === 'Enter') document.getElementById('btn-create-athlete').click();
     });

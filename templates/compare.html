@@ -7,17 +7,17 @@
 {% block content %}
   <header class="compare-header">
     <div class="compare-header-left">
-      <a href="/result/{{ job_id }}" class="back-link">← Retour analyse</a>
-      <h1>Comparaison</h1>
-      <p class="subtitle">Rider en cyan, référence en magenta (pro · autre départ de l'athlète · autre athlète). Scrub indépendamment ou via la sync sur le gate drop.</p>
+      <a href="/result/{{ job_id }}" class="back-link" data-i18n="compare.back_analysis">← Retour analyse</a>
+      <h1 data-i18n="compare.title">Comparaison</h1>
+      <p class="subtitle" data-i18n="compare.subtitle">Rider en cyan, référence en magenta (pro · autre départ de l'athlète · autre athlète). Scrub indépendamment ou via la sync sur le gate drop.</p>
     </div>
     <div class="pro-selector">
       <button type="button" class="btn-ref-picker" id="btn-ref-picker" onclick="openRefPicker()">
         <span class="btn-ref-picker-icon">🎯</span>
-        <span class="btn-ref-picker-label" id="btn-ref-picker-label">Choisir une référence</span>
+        <span class="btn-ref-picker-label" id="btn-ref-picker-label" data-i18n="compare.pick_ref_btn">Choisir une référence</span>
         <span class="btn-ref-picker-chevron">▾</span>
       </button>
-      <a href="/pros" class="btn-manage-pros">Gérer pros</a>
+      <a href="/pros" class="btn-manage-pros" data-i18n="compare.manage_pros">Gérer pros</a>
       <!-- Source de vérité cachée : le <select> reste pour piloter changeReference() -->
       <select id="ref-select" onchange="changeReference(this)" class="pro-select" style="display:none" aria-hidden="true" tabindex="-1">
         <option value="">— Comparer avec —</option>
@@ -75,16 +75,18 @@
     <div class="ref-picker-backdrop" onclick="closeRefPicker()"></div>
     <div class="ref-picker-dialog" role="dialog" aria-label="Choisir une référence">
       <div class="ref-picker-head">
-        <h2>Choisir une référence</h2>
+        <h2 data-i18n="compare.picker_title">Choisir une référence</h2>
         <button type="button" class="ref-picker-close" onclick="closeRefPicker()" aria-label="Fermer">✕</button>
       </div>
       <div class="ref-picker-search">
-        <input type="search" id="ref-picker-search-input" placeholder="Rechercher un nom…" autocomplete="off">
+        <input type="search" id="ref-picker-search-input"
+               data-i18n-attr="placeholder:compare.picker_search"
+               placeholder="Rechercher un nom…" autocomplete="off">
       </div>
       <nav class="ref-picker-tabs" id="ref-picker-tabs">
-        <button type="button" class="ref-tab ref-tab-active" data-tab="pros">Pros <span class="ref-tab-count" id="count-pros">0</span></button>
-        <button type="button" class="ref-tab" data-tab="same">Ce rider <span class="ref-tab-count" id="count-same">0</span></button>
-        <button type="button" class="ref-tab" data-tab="others">Autres <span class="ref-tab-count" id="count-others">0</span></button>
+        <button type="button" class="ref-tab ref-tab-active" data-tab="pros"><span data-i18n="compare.picker_tab_pros">Pros</span> <span class="ref-tab-count" id="count-pros">0</span></button>
+        <button type="button" class="ref-tab" data-tab="same"><span data-i18n="compare.picker_tab_same">Ce rider</span> <span class="ref-tab-count" id="count-same">0</span></button>
+        <button type="button" class="ref-tab" data-tab="others"><span data-i18n="compare.picker_tab_others">Autres</span> <span class="ref-tab-count" id="count-others">0</span></button>
       </nav>
       <div class="ref-picker-list" id="ref-picker-list">
         <!-- rempli par JS -->
@@ -97,7 +99,7 @@
     <!-- RIDER -->
     <div class="video-panel active-panel" id="panel-rider">
       <div class="panel-label" onclick="setActive('rider')">
-        <span class="panel-tag rider-tag">RIDER</span>
+        <span class="panel-tag rider-tag" data-i18n="compare.panel_rider">RIDER</span>
         <span class="panel-name">{{ rider_display_name }}</span>
         <span class="shift-badge" id="badge-rider-shift"></span>
       </div>
@@ -119,13 +121,13 @@
     <!-- PRO -->
     <div class="video-panel" id="panel-pro">
       <div class="panel-label" onclick="setActive('pro')">
-        <span class="panel-tag pro-tag">RÉFÉRENCE</span>
-        <span class="panel-name" id="pro-name">Choisir une référence</span>
+        <span class="panel-tag pro-tag" data-i18n="compare.panel_ref">RÉFÉRENCE</span>
+        <span class="panel-name" id="pro-name" data-i18n="compare.pick_ref_btn">Choisir une référence</span>
         <span class="panel-date" id="pro-date"></span>
         <span class="shift-badge" id="badge-pro-shift"></span>
       </div>
       <div class="panel-video-wrap" id="pro-video-wrap">
-        <div class="panel-empty" id="pro-empty">Choisis une référence dans le menu en haut :<br>pro · autre départ de l'athlète · autre athlète</div>
+        <div class="panel-empty" id="pro-empty" data-i18n-html="compare.panel_empty">Choisis une référence dans le menu en haut :<br>pro · autre départ de l'athlète · autre athlète</div>
         <video id="video-pro" playsinline preload="auto" style="display:none"></video>
         <canvas class="annotation-canvas" id="anno-canvas-pro"></canvas>
       </div>
@@ -142,15 +144,15 @@
 
   <!-- Barre d'annotation -->
   <div class="anno-bar" id="anno-bar">
-    <button type="button" class="btn btn-anno-toggle" id="btn-anno-mode" title="Activer le mode annotation">
+    <button type="button" class="btn btn-anno-toggle" id="btn-anno-mode" data-i18n="result.anno_toggle">
       ✏️ Annoter
     </button>
     <div class="anno-tools" id="anno-tools" style="display:none">
       <span class="anno-tools-group">
-        <button type="button" class="anno-tool tool-active" data-tool="arrow" title="Flèche">→</button>
-        <button type="button" class="anno-tool"           data-tool="circle" title="Cercle">○</button>
-        <button type="button" class="anno-tool"           data-tool="text"   title="Texte">T</button>
-        <button type="button" class="anno-tool"           data-tool="erase"  title="Effacer">⌫</button>
+        <button type="button" class="anno-tool tool-active" data-tool="arrow" data-i18n-attr="title:result.anno_arrow" title="Flèche">→</button>
+        <button type="button" class="anno-tool"           data-tool="circle" data-i18n-attr="title:result.anno_circle" title="Cercle">○</button>
+        <button type="button" class="anno-tool"           data-tool="text"   data-i18n-attr="title:result.anno_text" title="Texte">T</button>
+        <button type="button" class="anno-tool"           data-tool="erase"  data-i18n-attr="title:result.anno_erase" title="Effacer">⌫</button>
       </span>
       <span class="anno-tools-group">
         <button type="button" class="anno-color color-active" data-color="#00d4ff" style="background:#00d4ff" title="Cyan"></button>
@@ -158,10 +160,10 @@
         <button type="button" class="anno-color"              data-color="#f7cc00" style="background:#f7cc00" title="Jaune"></button>
         <button type="button" class="anno-color"              data-color="#ff4d4a" style="background:#ff4d4a" title="Rouge"></button>
       </span>
-      <button type="button" class="btn btn-anno-clear" id="btn-anno-clear" title="Effacer toutes les annotations de la frame courante">
+      <button type="button" class="btn btn-anno-clear" id="btn-anno-clear" data-i18n="result.anno_clear_frame">
         🗑 Vider la frame
       </button>
-      <span class="anno-info" id="anno-info">
+      <span class="anno-info" id="anno-info" data-i18n="result.anno_info">
         Clic-glisse = créer · clic sur l'outil ⌫ puis sur une annotation = supprimer
       </span>
     </div>
@@ -170,15 +172,16 @@
   <!-- Barre SYNC -->
   <div class="sync-bar-wrap" id="sync-bar-wrap">
     <div class="sync-label">
-      SYNC <span class="sync-hint">Les 2 vidéos alignées sur le gate drop (T=0). Si tu décales une vidéo seule, le calage est conservé.</span>
+      <span data-i18n="compare.sync_label">SYNC</span>
+      <span class="sync-hint" data-i18n="compare.sync_hint">Les 2 vidéos alignées sur le gate drop (T=0). Si tu décales une vidéo seule, le calage est conservé.</span>
     </div>
     <div class="sync-controls">
       <button class="btn-frame btn-frame-sync" onclick="syncStep(-1)">&#9664;</button>
       <span class="frame-counter sync-counter" id="sync-counter">T — —</span>
       <button class="btn-frame btn-frame-sync" onclick="syncStep(+1)">&#9654;</button>
-      <button class="btn btn-sync-reset" onclick="resetSyncRefs()" title="Réinitialise le calage manuel sur le gate drop">↻ Reset calage</button>
+      <button class="btn btn-sync-reset" onclick="resetSyncRefs()" data-i18n="compare.sync_reset">↻ Reset calage</button>
       <span class="speed-control">
-        <label for="speed-select">Vitesse</label>
+        <label for="speed-select" data-i18n="common.speed">Vitesse</label>
         <select id="speed-select" class="pro-select speed-select">
           <option value="0.25">0.25×</option>
           <option value="0.5">0.5×</option>
@@ -200,13 +203,13 @@
   <!-- Comparaison angles à un instant T -->
   <div class="angles-compare-wrap">
     <div class="angles-compare-head">
-      <button class="btn btn-compare-angles" id="btn-compare-angles" disabled>
+      <button class="btn btn-compare-angles" id="btn-compare-angles" disabled data-i18n="compare.compare_angles_btn">
         📐 Comparer les angles ici
       </button>
-      <button class="btn btn-animate-angles" id="btn-animate-angles" disabled>
+      <button class="btn btn-animate-angles" id="btn-animate-angles" disabled data-i18n="compare.animate_btn">
         🎬 Animer la séquence
       </button>
-      <span class="angles-compare-hint" id="angles-hint">
+      <span class="angles-compare-hint" id="angles-hint" data-i18n="compare.angles_hint">
         Sélectionne un pro, place les 2 vidéos sur la frame voulue, puis clique.
       </span>
     </div>
@@ -216,17 +219,17 @@
       <div class="angles-compare-row">
         <div class="overlay-box">
           <div class="overlay-legend">
-            <span><span class="dot dot-rider"></span> Rider</span>
+            <span><span class="dot dot-rider"></span> <span data-i18n="compare.joint_rider">Rider</span></span>
             <span><span class="dot dot-pro"></span> <span id="anim-pro-name">Pro</span></span>
             <span class="anim-T-tag" id="anim-T">T +0.000s</span>
           </div>
           <div class="anchor-toggle">
-            <span class="anchor-toggle-label">Ancrer sur :</span>
-            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="hip" checked><span>Hanches</span></label>
-            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="ankle"><span>Pieds</span></label>
-            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="shoulder"><span>Épaules</span></label>
-            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="wrist"><span>Mains</span></label>
-            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="free"><span>Mouvement libre (T=−0.5s)</span></label>
+            <span class="anchor-toggle-label" data-i18n="compare.anchor_label">Ancrer sur :</span>
+            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="hip" checked><span data-i18n="compare.anchor_hip">Hanches</span></label>
+            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="ankle"><span data-i18n="compare.anchor_ankle">Pieds</span></label>
+            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="shoulder"><span data-i18n="compare.anchor_shoulder">Épaules</span></label>
+            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="wrist"><span data-i18n="compare.anchor_wrist">Mains</span></label>
+            <label class="anchor-opt"><input type="radio" name="anchor-mode" value="free"><span data-i18n="compare.anchor_free">Mouvement libre (T=−0.5s)</span></label>
           </div>
           <canvas id="anim-canvas" width="320" height="400"></canvas>
           <div class="anim-controls">
@@ -236,21 +239,21 @@
           </div>
           <input type="range" class="scrubber scrubber-light" id="anim-scrub"
                  min="0" max="100" value="0" step="1">
-          <p class="overlay-note">4 ancrages "posture" (réalignés image par image) : <em>Hanches</em> / <em>Pieds</em> / <em>Épaules</em> / <em>Mains</em>. <em>Mouvement libre</em> : alignement figé à T=−0.5s, chaque rider bouge depuis sa position de set (pour voir qui avance / redresse en premier).</p>
+          <p class="overlay-note" data-i18n="compare.anim_note">4 ancrages "posture" (réalignés image par image) : <em>Hanches</em> / <em>Pieds</em> / <em>Épaules</em> / <em>Mains</em>. <em>Mouvement libre</em> : alignement figé à T=−0.5s, chaque rider bouge depuis sa position de set (pour voir qui avance / redresse en premier).</p>
         </div>
         <div class="angles-table-box">
           <table class="angles-compare-table">
             <thead>
               <tr>
-                <th>Articulation</th>
-                <th>Rider</th>
+                <th data-i18n="compare.joint_articulation">Articulation</th>
+                <th data-i18n="compare.joint_rider">Rider</th>
                 <th><span id="anim-pro-name-2">Pro</span></th>
-                <th>Écart</th>
+                <th data-i18n="compare.joint_diff">Écart</th>
               </tr>
             </thead>
             <tbody id="anim-tbody"></tbody>
           </table>
-          <p class="ac-note">
+          <p class="ac-note" data-i18n="compare.angle_table_note">
             Les angles se mettent à jour image par image. Espace = play/pause, ←/→ = frame par frame quand l'animation a le focus.
           </p>
         </div>
@@ -260,40 +263,40 @@
       <div class="angles-compare-row">
         <div class="overlay-box">
           <div class="overlay-legend">
-            <span><span class="dot dot-rider"></span> Rider</span>
+            <span><span class="dot dot-rider"></span> <span data-i18n="compare.joint_rider">Rider</span></span>
             <span><span class="dot dot-pro"></span> <span id="ovl-pro-name">Pro</span></span>
           </div>
           <div class="anchor-toggle">
-            <span class="anchor-toggle-label">Ancrer sur :</span>
-            <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="hip" checked><span>Hanches</span></label>
-            <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="ankle"><span>Pieds</span></label>
-            <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="shoulder"><span>Épaules</span></label>
-            <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="wrist"><span>Mains</span></label>
+            <span class="anchor-toggle-label" data-i18n="compare.anchor_label">Ancrer sur :</span>
+            <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="hip" checked><span data-i18n="compare.anchor_hip">Hanches</span></label>
+            <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="ankle"><span data-i18n="compare.anchor_ankle">Pieds</span></label>
+            <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="shoulder"><span data-i18n="compare.anchor_shoulder">Épaules</span></label>
+            <label class="anchor-opt"><input type="radio" name="static-anchor-mode" value="wrist"><span data-i18n="compare.anchor_wrist">Mains</span></label>
           </div>
           <canvas id="overlay-canvas" width="320" height="400"></canvas>
-          <p class="overlay-note">Choisis quel point on aligne entre rider et référence : <em>Hanches</em> = posture pure / <em>Pieds</em> = position du corps sur la pédale / <em>Épaules</em> = position des bras sur le guidon.</p>
+          <p class="overlay-note" data-i18n="compare.overlay_note">Choisis quel point on aligne entre rider et référence : <em>Hanches</em> = posture pure / <em>Pieds</em> = position du corps sur la pédale / <em>Épaules</em> = position des bras sur le guidon.</p>
         </div>
         <div class="radar-box">
           <div class="radar-legend">
-            <span><span class="dot dot-rider"></span> Rider</span>
+            <span><span class="dot dot-rider"></span> <span data-i18n="compare.joint_rider">Rider</span></span>
             <span><span class="dot dot-pro"></span> <span id="radar-pro-name">Pro</span></span>
           </div>
           <canvas id="radar-canvas" width="280" height="280"></canvas>
-          <p class="overlay-note">Radar des 6 angles articulaires (0 au centre, 180° au bord). Permet de lire l'écart par articulation indépendamment de la position dans l'espace.</p>
+          <p class="overlay-note" data-i18n="compare.radar_note">Radar des 6 angles articulaires (0 au centre, 180° au bord). Permet de lire l'écart par articulation indépendamment de la position dans l'espace.</p>
         </div>
         <div class="angles-table-box">
           <table class="angles-compare-table">
             <thead>
               <tr>
-                <th>Articulation</th>
-                <th>Rider <span class="ac-frame-info" id="ac-rider-info"></span></th>
+                <th data-i18n="compare.joint_articulation">Articulation</th>
+                <th><span data-i18n="compare.joint_rider">Rider</span> <span class="ac-frame-info" id="ac-rider-info"></span></th>
                 <th><span id="ac-pro-name">Pro</span> <span class="ac-frame-info" id="ac-pro-info"></span></th>
-                <th>Écart</th>
+                <th data-i18n="compare.joint_diff">Écart</th>
               </tr>
             </thead>
             <tbody id="angles-tbody"></tbody>
           </table>
-          <p class="ac-note">
+          <p class="ac-note" data-i18n="compare.trunk_note">
             Tronc : angle hanche→épaule vs verticale (+ = penché en avant). Cheville : proxy pointe-pied.
           </p>
         </div>
@@ -302,8 +305,8 @@
   </div>
 
   <div class="compare-footer">
-    <span>Clic sur le titre d'un panneau = le sélectionner · Tab = changer de panneau</span>
-    <span>← → frame par frame · Espace play/pause</span>
+    <span data-i18n="compare.footer_select">Clic sur le titre d'un panneau = le sélectionner · Tab = changer de panneau</span>
+    <span data-i18n="compare.footer_keys">← → frame par frame · Espace play/pause</span>
   </div>
 {% endblock %}
 
@@ -658,10 +661,10 @@
       if (!filtered.length) {
         const empty = document.createElement('div');
         empty.className = 'ref-picker-empty';
-        empty.textContent = q ? 'Aucun résultat.' : (
-          refPickerActiveTab === 'pros' ? 'Aucun pro enregistré. Va dans Pros pour en ajouter.' :
-          refPickerActiveTab === 'same' ? 'Pas d’autre départ pour ce rider.' :
-                                          'Aucun autre départ disponible.'
+        empty.textContent = q ? t('compare.picker_no_results', 'Aucun résultat.') : (
+          refPickerActiveTab === 'pros' ? t('compare.picker_empty_pros', 'Aucun pro enregistré. Va dans Pros pour en ajouter.') :
+          refPickerActiveTab === 'same' ? t('compare.picker_empty_same', 'Pas d’autre départ pour ce rider.') :
+                                          t('compare.picker_empty_others', 'Aucun autre départ disponible.')
         );
         list.appendChild(empty);
         return;
@@ -719,14 +722,23 @@
     });
 
     // ── Comparaison angles à T donné ────────────────────────────────
-    const JOINT_LABELS = {
-      knee:     "Genou",
-      hip:      "Hanche",
-      ankle:    "Cheville",
-      shoulder: "Épaule",
-      elbow:    "Coude",
-      trunk:    "Tronc (vs vertical)",
-    };
+    function getJointLabels() {
+      return {
+        knee:     t('compare.joint_knee', 'Genou'),
+        hip:      t('compare.joint_hip', 'Hanche'),
+        ankle:    t('compare.joint_ankle', 'Cheville'),
+        shoulder: t('compare.joint_shoulder', 'Épaule'),
+        elbow:    t('compare.joint_elbow', 'Coude'),
+        trunk:    t('compare.joint_trunk', 'Tronc (vs vertical)'),
+      };
+    }
+    let JOINT_LABELS = getJointLabels();
+    document.addEventListener('i18n:applied', () => {
+      JOINT_LABELS = getJointLabels();
+      // Re-render si on a une table affichée
+      if (typeof lastSnapshotData !== 'undefined' && lastSnapshotData) renderAnglesTable(lastSnapshotData);
+      if (typeof animSeq !== 'undefined' && animSeq) animRender();
+    });
     const JOINT_ORDER = ["trunk", "shoulder", "elbow", "hip", "knee", "ankle"];
 
     function fmt(v) { return (v === null || v === undefined) ? "—" : v + "°"; }

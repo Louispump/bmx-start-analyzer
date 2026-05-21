@@ -5,8 +5,8 @@
 
 {% block content %}
   <header>
-    <h1>Nouvelle analyse</h1>
-    <p class="subtitle">Upload une vidéo de départ → identifie le gate drop → l'analyse génère la vidéo annotée et la timeline des phases.</p>
+    <h1 data-i18n="index.title">Nouvelle analyse</h1>
+    <p class="subtitle" data-i18n="index.subtitle">Upload une vidéo de départ → identifie le gate drop → l'analyse génère la vidéo annotée et la timeline des phases.</p>
   </header>
 
   {% if error %}
@@ -16,33 +16,36 @@
   <!-- ÉTAPE 1 : Upload -->
   <div id="step-upload">
     <div class="athlete-pick">
-      <label class="athlete-pick-label" for="athlete-select">Athlète <span class="athlete-pick-hint">(optionnel)</span></label>
+      <label class="athlete-pick-label" for="athlete-select">
+        <span data-i18n="index.athlete_label">Athlète</span>
+        <span class="athlete-pick-hint">(optionnel)</span>
+      </label>
       <div class="athlete-pick-row">
         <select id="athlete-select" class="pro-select">
-          <option value="">— Aucun athlète —</option>
+          <option value="" data-i18n="index.athlete_none">— Aucun athlète —</option>
           {% for a in athletes_list %}
           <option value="{{ a.id }}">{{ a.name }}</option>
           {% endfor %}
         </select>
-        <button type="button" class="btn" id="btn-new-athlete">+ Nouveau</button>
+        <button type="button" class="btn" id="btn-new-athlete" data-i18n="common.new">+ Nouveau</button>
       </div>
     </div>
 
     <div class="upload-zone" id="dropzone">
       <div class="upload-icon">🎬</div>
-      <p class="upload-label">Glisse ta vidéo ici</p>
-      <p class="upload-hint">ou</p>
-      <label class="btn btn-primary" for="file-input">Choisir un fichier</label>
+      <p class="upload-label" data-i18n="index.drop_here">Glisse ta vidéo ici</p>
+      <p class="upload-hint" data-i18n="index.or">ou</p>
+      <label class="btn btn-primary" for="file-input" data-i18n="index.pick_file">Choisir un fichier</label>
       <input type="file" id="file-input" accept="video/*" style="display:none">
-      <p class="upload-formats">MP4 · MOV · AVI</p>
+      <p class="upload-formats" data-i18n="index.supported_formats">MP4 · MOV · AVI</p>
     </div>
   </div>
 
   <!-- ÉTAPE 2 : Sélection du gate drop -->
   <div id="step-gate" style="display:none">
     <div class="gate-select-box">
-      <h2>📍 Identifie le gate drop</h2>
-      <p class="section-note">
+      <h2 data-i18n="index.step_2_gate">📍 Identifie le gate drop</h2>
+      <p class="section-note" data-i18n-html="index.gate_hint">
         Scrub jusqu'au moment où la grille commence à tomber, puis clique sur
         <strong>Marquer</strong>.
       </p>
@@ -60,12 +63,13 @@
         <button class="btn-frame btn-frame-dark" onclick="gateStep(+1)">&#9654;</button>
       </div>
       <div class="gate-marker" id="gate-marker">
-        Gate drop : <strong id="gate-marker-val">non défini</strong>
+        <span data-i18n="index.gate_marker_label">Gate drop :</span>
+        <strong id="gate-marker-val" data-i18n="index.gate_marker_unset">non défini</strong>
       </div>
       <div class="gate-actions">
-        <button class="btn btn-gate-mark" onclick="markGate()">📌 Marquer le gate ici</button>
+        <button class="btn btn-gate-mark" onclick="markGate()" data-i18n="index.mark_gate_btn">📌 Marquer le gate ici</button>
         <button class="btn btn-primary" id="btn-confirm-gate"
-                onclick="confirmGate()" disabled>
+                onclick="confirmGate()" disabled data-i18n="index.confirm_btn">
           ✓ Confirmer et analyser
         </button>
       </div>
@@ -76,7 +80,7 @@
   <div id="step-progress" style="display:none">
     <div class="progress-block" style="display:flex">
       <div class="spinner"></div>
-      <p class="progress-label" id="progress-label">En cours...</p>
+      <p class="progress-label" id="progress-label" data-i18n="index.in_progress">En cours...</p>
       <div class="progress-bar-wrap">
         <div class="progress-bar" id="progress-bar"></div>
       </div>
@@ -117,12 +121,12 @@
     }
 
     document.getElementById('btn-new-athlete').addEventListener('click', async () => {
-      const name = prompt("Nom de l'athlète :");
+      const name = prompt(t('index.create_athlete_prompt', "Nom de l'athlète :"));
       if (!name || !name.trim()) return;
       const fd = new FormData();
       fd.append('name', name.trim());
       const res  = await fetch('/athletes', { method: 'POST', body: fd });
-      if (!res.ok) { alert('Erreur lors de la création.'); return; }
+      if (!res.ok) { alert(t('index.create_athlete_error', 'Erreur lors de la création.')); return; }
       const data = await res.json();
       const opt  = document.createElement('option');
       opt.value  = data.id;
@@ -151,7 +155,7 @@
       const banner = document.getElementById('detect-banner');
       banner.style.display = 'block';
       banner.className     = 'detect-banner detect-pending';
-      banner.textContent   = '🔊 Détection audio en cours…';
+      banner.textContent   = t('index.audio_detecting', '🔊 Détection audio en cours…');
       try {
         const res  = await fetch(`/detect_gate/${jobId}`, { method: 'POST' });
         const data = await res.json();
@@ -159,40 +163,43 @@
           const f = data.gate_frame;
           gateVideo.currentTime   = f / videoFps;
           gateScrub.value         = f;
-          gateCounter.textContent = `Frame ${f}`;
+          gateCounter.textContent = `${t('common.frame', 'Frame')} ${f}`;
           gateFrame = f;
-          // Le 1er beep — utilisé comme ancrage du temps de réaction
           if (data.beeps_t && data.beeps_t.length > 0) {
             bip1Time = data.beeps_t[0];
           }
           document.getElementById('gate-marker-val').textContent =
-            `Frame ${f}  (t = ${(f / videoFps).toFixed(3)}s)`;
+            t('index.gate_marker_set', `Frame ${f}  (t = ${(f / videoFps).toFixed(3)}s)`)
+              .replace('{frame}', f).replace('{t}', (f / videoFps).toFixed(3));
           document.getElementById('btn-confirm-gate').disabled = false;
           banner.className = 'detect-banner detect-success';
-          banner.innerHTML =
-            `🎯 Gate auto-détecté (4 beeps audio) à <strong>frame ${f}</strong> ` +
-            `(t = ${(f / videoFps).toFixed(3)}s)` +
-            (bip1Time !== null ? `, 1<sup>er</sup> bip à t = ${bip1Time.toFixed(3)}s.` : '.') +
-            ` Confirme ou ajuste si besoin.`;
+          const bipExtra = (bip1Time !== null)
+            ? t('index.audio_detected_bip1', `, 1<sup>er</sup> bip à t = ${bip1Time.toFixed(3)}s.`)
+                .replace('{t}', bip1Time.toFixed(3))
+            : '.';
+          banner.innerHTML = t('index.audio_detected_msg',
+              `🎯 Gate auto-détecté (4 beeps audio) à <strong>frame ${f}</strong> (t = ${(f / videoFps).toFixed(3)}s)${bipExtra} Confirme ou ajuste si besoin.`)
+            .replace('{frame}', f).replace('{t}', (f / videoFps).toFixed(3))
+            .replace('{bipExtra}', bipExtra);
         } else {
           banner.className = 'detect-banner detect-fail';
-          banner.textContent = '🔇 Détection audio impossible — identifie manuellement.';
+          banner.textContent = t('index.audio_failed', '🔇 Détection audio impossible — identifie manuellement.');
         }
       } catch (e) {
         banner.className   = 'detect-banner detect-fail';
-        banner.textContent = '⚠️ Erreur lors de la détection audio — identifie manuellement.';
+        banner.textContent = t('index.audio_error', '⚠️ Erreur lors de la détection audio — identifie manuellement.');
       }
     }
 
     gateVideo.addEventListener('timeupdate', () => {
       if (!scrubbing) gateScrub.value = Math.round(gateVideo.currentTime * videoFps);
-      gateCounter.textContent = `Frame ${Math.round(gateVideo.currentTime * videoFps)}`;
+      gateCounter.textContent = `${t('common.frame', 'Frame')} ${Math.round(gateVideo.currentTime * videoFps)}`;
     });
     gateScrub.addEventListener('mousedown',  () => { scrubbing = true; });
     gateScrub.addEventListener('touchstart', () => { scrubbing = true; }, {passive:true});
     gateScrub.addEventListener('input', () => {
       gateVideo.currentTime   = gateScrub.value / videoFps;
-      gateCounter.textContent = `Frame ${gateScrub.value}`;
+      gateCounter.textContent = `${t('common.frame', 'Frame')} ${gateScrub.value}`;
     });
     gateScrub.addEventListener('mouseup',  () => { scrubbing = false; });
     gateScrub.addEventListener('touchend', () => { scrubbing = false; });
@@ -210,13 +217,14 @@
       const f = Math.max(0, Math.round(gateVideo.currentTime * videoFps) + dir);
       gateVideo.currentTime   = f / videoFps;
       gateScrub.value         = f;
-      gateCounter.textContent = `Frame ${f}`;
+      gateCounter.textContent = `${t('common.frame', 'Frame')} ${f}`;
     }
 
     function markGate() {
       gateFrame = Math.round(gateVideo.currentTime * videoFps);
       document.getElementById('gate-marker-val').textContent =
-        `Frame ${gateFrame}  (t = ${(gateFrame / videoFps).toFixed(3)}s)`;
+        t('index.gate_marker_set', `Frame ${gateFrame}  (t = ${(gateFrame / videoFps).toFixed(3)}s)`)
+          .replace('{frame}', gateFrame).replace('{t}', (gateFrame / videoFps).toFixed(3));
       document.getElementById('btn-confirm-gate').disabled = false;
     }
 
