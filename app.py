@@ -95,8 +95,12 @@ def load_jobs() -> dict:
     return {}
 
 def save_jobs(jobs: dict):
-    # On ne persiste que les jobs terminés (status == done)
-    done = {k: v for k, v in jobs.items() if v.get("status") == "done"}
+    # On ne persiste que les jobs terminés ET rattachés à un athlète.
+    # Les jobs sans athlete_id sont éphémères : ils disparaissent au prochain
+    # redémarrage du serveur (mais leurs fichiers sur disque restent jusqu'à
+    # la purge manuelle depuis /settings).
+    done = {k: v for k, v in jobs.items()
+            if v.get("status") == "done" and v.get("athlete_id")}
     JOBS_DB.write_text(json.dumps(done, indent=2, ensure_ascii=False))
 
 def load_athletes() -> dict:
@@ -113,6 +117,90 @@ def save_athletes(athletes: dict):
 pros:     dict = load_pros()
 jobs:     dict = load_jobs()
 athletes: dict = load_athletes()
+
+
+# ── Nettoyage des jobs orphelins (sans athlète) ──────────────────────────────
+def _delete_job_artifacts(job_id: str, job: dict | None = None) -> int:
+    """Supprime tous les fichiers sur disque liés à ce job.
+    Retourne le nb de fichiers supprimés. Idempotent."""
+    n = 0
+    # Fichier source uploadé
+    if job:
+        vp = job.get("video_path")
+        if vp:
+            p = Path(vp)
+            try:
+                if p.exists(): p.unlink(); n += 1
+            except Exception:
+                pass
+    # Tous les artefacts en sortie commencent par "{job_id}_"
+    for d in (UPLOAD_DIR, OUTPUT_DIR):
+        if not d.exists(): continue
+        for f in d.glob(f"{job_id}_*"):
+            try:
+                f.unlink(); n += 1
+            except Exception:
+                pass
+    return n
+
+
+def _orphan_job_ids() -> list[str]:
+    """Jobs en mémoire sans athlete_id (status=done)."""
+    return [jid for jid, j in jobs.items()
+            if j.get("status") == "done" and not j.get("athlete_id")]
+
+
+def _orphan_files_on_disk() -> list[Path]:
+    """Fichiers en sortie dont le préfixe job_id n'est plus dans la mémoire.
+    Utile après un redémarrage : les jobs orphelins ne sont pas persistés,
+    mais leurs fichiers traînent. On les détecte par préfixe."""
+    valid_prefixes = set(jobs.keys()) | {f"pro_{pid}" for pid in pros.keys()}
+    out: list[Path] = []
+    if not OUTPUT_DIR.exists(): return out
+    for f in OUTPUT_DIR.iterdir():
+        if not f.is_file(): continue
+        # Ignore les db json
+        if f.name.endswith("_db.json"): continue
+        # Préfixe = tout avant le 1er "_"
+        prefix = f.name.split("_", 1)[0]
+        if prefix == "pro" and "_" in f.name[4:]:
+            # Fichiers pros commencent par "pro_<id>_..."
+            pid = f.name[4:].split("_", 1)[0]
+            if f"pro_{pid}" in valid_prefixes or pid in pros:
+                continue
+            out.append(f)
+        elif prefix in valid_prefixes:
+            continue
+        else:
+            out.append(f)
+    # Aussi les fichiers source d'upload sans job associé
+    if UPLOAD_DIR.exists():
+        for f in UPLOAD_DIR.iterdir():
+            if not f.is_file(): continue
+            prefix = f.name.split("_", 1)[0]
+            if prefix not in valid_prefixes:
+                out.append(f)
+    return out
+
+
+def purge_orphans() -> dict:
+    """Purge les jobs orphelins en mémoire ET les fichiers orphelins sur disque.
+    Retourne un récap pour l'UI."""
+    n_jobs   = 0
+    n_files  = 0
+    for jid in _orphan_job_ids():
+        j = jobs.pop(jid, None)
+        if j: n_jobs += 1
+        n_files += _delete_job_artifacts(jid, j)
+    for f in _orphan_files_on_disk():
+        try:
+            f.unlink(); n_files += 1
+        except Exception:
+            pass
+    # On ne persiste plus les orphelins de toute façon, mais on garde
+    # l'appel pour rester cohérent si autre chose a changé.
+    save_jobs(jobs)
+    return {"jobs_removed": n_jobs, "files_removed": n_files}
 
 
 def _job_compare_entry(jid: str, j: dict, athlete_name: str | None = None) -> dict:
@@ -578,7 +666,20 @@ async def manual_reaction_upload(file: UploadFile = File(...)):
 # ── Paramètres (thème, etc.) ─────────────────────────────────────────────────
 @app.get("/settings")
 async def settings_page(request: Request):
-    return templates.TemplateResponse(request, "settings.html", {})
+    # Compteurs pour la carte "Nettoyage" (orphelins = sans athlète)
+    n_orphan_jobs  = len(_orphan_job_ids())
+    n_orphan_files = len(_orphan_files_on_disk())
+    return templates.TemplateResponse(request, "settings.html", {
+        "n_orphan_jobs":  n_orphan_jobs,
+        "n_orphan_files": n_orphan_files,
+    })
+
+
+@app.post("/jobs/purge_orphans")
+async def jobs_purge_orphans():
+    """Supprime tous les jobs en mémoire sans athlète + les fichiers orphelins
+    sur disque (préfixe job_id qui ne correspond à aucun job/pro connu)."""
+    return purge_orphans()
 
 
 # ── Outils (calculateurs gear / pression) ────────────────────────────────────

@@ -17,6 +17,26 @@
       <label class="radio-card"><input type="radio" name="theme" value="light"><span class="rc-name">☀️ Clair</span><span class="rc-delta">lumière du jour</span></label>
     </div>
   </div>
+
+  <div class="section">
+    <h2>Nettoyage</h2>
+    <p class="section-note">
+      Les analyses sans athlète assigné ne sont plus conservées au redémarrage. Tu peux aussi forcer leur suppression maintenant (vidéos + CSV sur disque inclus). Action irréversible.
+    </p>
+    <div class="purge-card">
+      <div class="purge-card-text">
+        <div class="purge-card-counts">
+          <strong id="purge-jobs-count">{{ n_orphan_jobs }}</strong> analyse{{ 's' if n_orphan_jobs != 1 else '' }} sans athlète
+          · <strong id="purge-files-count">{{ n_orphan_files }}</strong> fichier{{ 's' if n_orphan_files != 1 else '' }} orphelin{{ 's' if n_orphan_files != 1 else '' }} sur disque
+        </div>
+        <div class="purge-card-sub">Fichiers détectés : vidéos uploadées + annotées + CSV landmarks + JSON résultats dont le préfixe ne correspond plus à aucun job ni pro.</div>
+      </div>
+      <button type="button" id="btn-purge-orphans" class="btn btn-purge"
+              {% if n_orphan_jobs == 0 and n_orphan_files == 0 %}disabled{% endif %}>
+        🗑 Purger maintenant
+      </button>
+    </div>
+  </div>
 {% endblock %}
 
 {% block scripts %}
@@ -37,5 +57,34 @@
       else                document.documentElement.removeAttribute('data-theme');
     });
   });
+
+  // Purge des analyses orphelines
+  const btnPurge = document.getElementById('btn-purge-orphans');
+  if (btnPurge) {
+    btnPurge.addEventListener('click', async () => {
+      const nJ = document.getElementById('purge-jobs-count').textContent;
+      const nF = document.getElementById('purge-files-count').textContent;
+      if (!confirm(`Supprimer ${nJ} analyse(s) + ${nF} fichier(s) ? Cette action est irréversible.`)) return;
+      btnPurge.disabled = true;
+      const original = btnPurge.textContent;
+      btnPurge.textContent = 'Purge en cours…';
+      try {
+        const res  = await fetch('/jobs/purge_orphans', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+          alert('Erreur : ' + (data.error || res.status));
+          btnPurge.disabled = false;
+          btnPurge.textContent = original;
+          return;
+        }
+        alert(`✅ ${data.jobs_removed} analyse(s) et ${data.files_removed} fichier(s) supprimé(s).`);
+        location.reload();
+      } catch (e) {
+        alert('Erreur réseau : ' + e.message);
+        btnPurge.disabled = false;
+        btnPurge.textContent = original;
+      }
+    });
+  }
 </script>
 {% endblock %}

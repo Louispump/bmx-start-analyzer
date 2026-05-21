@@ -539,6 +539,49 @@ header h1 {
 }
 .btn-delete:hover { color: var(--red); border-color: var(--red); background: var(--red-soft); }
 
+/* ── Carte purge (settings) ───────────────────────────────────────── */
+.purge-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  flex-wrap: wrap;
+}
+.purge-card-text { flex: 1 1 auto; min-width: 0; }
+.purge-card-counts {
+  font-size: .95rem;
+  color: var(--text);
+}
+.purge-card-counts strong { color: var(--text-strong); font-weight: 700; }
+.purge-card-sub {
+  margin-top: 4px;
+  font-size: .8rem;
+  color: var(--muted);
+}
+.btn-purge {
+  background: var(--red-soft);
+  color: var(--red);
+  border: 1px solid rgba(255, 77, 74, 0.3);
+  border-radius: var(--radius);
+  padding: 9px 16px;
+  font-size: .9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  min-height: 44px;
+  white-space: nowrap;
+}
+.btn-purge:hover:not(:disabled) {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+.btn-purge:disabled { opacity: 0.45; cursor: not-allowed; }
+
 /* ══════════════════════════════════════════════════════════════════════
    INPUTS
    ══════════════════════════════════════════════════════════════════════ */
