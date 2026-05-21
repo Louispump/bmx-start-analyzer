@@ -536,11 +536,36 @@ async def result(request: Request, job_id: str):
                                           {"error": "Analyse pas encore terminée."})
     aid = job.get("athlete_id")
     athlete = athletes.get(aid) if aid else None
+    # Liste triée des athlètes pour le picker "Assigner / changer"
+    athletes_options = sorted(
+        [{"id": a["id"], "name": a["name"]} for a in athletes.values()],
+        key=lambda x: x["name"].lower(),
+    )
     return templates.TemplateResponse(request, "result.html", {
-        "job_id":  job_id,
-        "results": job["results"],
-        "athlete": athlete,
+        "job_id":           job_id,
+        "results":          job["results"],
+        "athlete":          athlete,
+        "athletes_options": athletes_options,
     })
+
+
+@app.post("/jobs/{job_id}/athlete")
+async def jobs_set_athlete(job_id: str, athlete_id: str = Form("")):
+    """Assigne / change / retire l'athlète d'un job. Assigner persiste le job
+    (il sortira de l'état éphémère). Retirer le rendra à nouveau éphémère."""
+    job = jobs.get(job_id)
+    if not job:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    aid = athlete_id.strip() or None
+    if aid and aid not in athletes:
+        return JSONResponse({"error": "Athlète introuvable."}, status_code=400)
+    job["athlete_id"] = aid
+    save_jobs(jobs)
+    return {
+        "ok":         True,
+        "athlete_id": aid,
+        "athlete":    athletes.get(aid) if aid else None,
+    }
 
 
 # ── Athlètes (dossiers) ───────────────────────────────────────────────────────

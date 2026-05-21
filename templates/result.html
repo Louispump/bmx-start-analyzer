@@ -7,26 +7,71 @@
   <header>
     <div class="header-row">
       {% if athlete %}
-        <a href="/athletes/{{ athlete.id }}" class="back-link">← Dossier {{ athlete.name }}</a>
+        <a href="/athletes/{{ athlete.id }}" class="back-link" id="back-link">← Dossier {{ athlete.name }}</a>
       {% else %}
-        <a href="/" class="back-link">← Nouvelle vidéo</a>
+        <a href="/" class="back-link" id="back-link">← Nouvelle vidéo</a>
       {% endif %}
       <a href="/compare/{{ job_id }}" class="compare-link">Comparer les riders</a>
     </div>
     <h1>{{ results.video_name }}</h1>
     <p class="subtitle">
-      {% if athlete %}
-        <a href="/athletes/{{ athlete.id }}" class="athlete-pill">
+      <span id="athlete-pill-wrap">
+        {% if athlete %}
+        <a href="/athletes/{{ athlete.id }}" class="athlete-pill" id="athlete-pill">
           <span class="athlete-avatar">{{ athlete.name[0]|upper }}</span>
           {{ athlete.name }}
         </a>
-      {% endif %}
+        {% endif %}
+      </span>
+      <button type="button" class="btn-athlete-edit" id="btn-athlete-edit"
+              title="{{ 'Changer l’athlète assigné' if athlete else 'Assigner un athlète' }}">
+        {% if athlete %}✎ Changer{% else %}+ Assigner un athlète{% endif %}
+      </button>
       {{ results.fps }} fps · {{ results.total_frames }} frames · {{ results.duration_s }}s
       <span class="gate-badge gate-{{ results.gate_method }}">
         {{ "Audio" if results.gate_method == "audio" else "Visuel" }}
       </span>
     </p>
+    {% if not athlete %}
+    <div class="ephemeral-banner" id="ephemeral-banner">
+      ⚠️ Cette analyse n'est pas sauvegardée — elle disparaîtra au prochain redémarrage du serveur. Assigne un athlète pour la conserver.
+    </div>
+    {% endif %}
   </header>
+
+  <!-- Popover assignation athlète -->
+  <div class="athlete-popover" id="athlete-popover" hidden>
+    <div class="athlete-popover-head">
+      <strong>Assigner à un athlète</strong>
+      <button type="button" class="athlete-popover-close" id="athlete-popover-close" aria-label="Fermer">✕</button>
+    </div>
+    <div class="athlete-popover-list" id="athlete-popover-list">
+      {% if athletes_options %}
+        {% for a in athletes_options %}
+        <button type="button" class="athlete-popover-row"
+                data-athlete-id="{{ a.id }}"
+                {% if athlete and athlete.id == a.id %}data-current="1"{% endif %}>
+          <span class="athlete-avatar">{{ a.name[0]|upper }}</span>
+          <span class="athlete-popover-name">{{ a.name }}</span>
+          {% if athlete and athlete.id == a.id %}<span class="athlete-popover-check">✓</span>{% endif %}
+        </button>
+        {% endfor %}
+      {% else %}
+        <div class="athlete-popover-empty">Aucun athlète enregistré.</div>
+      {% endif %}
+    </div>
+    <div class="athlete-popover-create">
+      <input type="text" id="athlete-popover-new-name" placeholder="Nouveau nom d'athlète…" maxlength="60">
+      <button type="button" id="athlete-popover-create-btn">+ Créer & assigner</button>
+    </div>
+    {% if athlete %}
+    <div class="athlete-popover-foot">
+      <button type="button" class="athlete-popover-unassign" id="athlete-popover-unassign">
+        Retirer l'athlète (rendra l'analyse éphémère)
+      </button>
+    </div>
+    {% endif %}
+  </div>
 
   <!-- Métriques clés -->
   <section class="metrics-grid">
@@ -190,6 +235,91 @@
 
 {% block scripts %}
   <script>
+    // ── Assignation / changement d'athlète ─────────────────────────
+    (function() {
+      const btn      = document.getElementById('btn-athlete-edit');
+      const popover  = document.getElementById('athlete-popover');
+      const closeBtn = document.getElementById('athlete-popover-close');
+      const newInput = document.getElementById('athlete-popover-new-name');
+      const createBtn= document.getElementById('athlete-popover-create-btn');
+      const unassign = document.getElementById('athlete-popover-unassign');
+      if (!btn || !popover) return;
+
+      function open()  { popover.hidden = false; setTimeout(() => newInput && newInput.focus(), 100); }
+      function close() { popover.hidden = true; }
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        popover.hidden ? open() : close();
+      });
+      closeBtn.addEventListener('click', close);
+      document.addEventListener('click', e => {
+        if (popover.hidden) return;
+        if (popover.contains(e.target) || btn.contains(e.target)) return;
+        close();
+      });
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && !popover.hidden) close();
+      });
+
+      async function setAthlete(athleteId) {
+        const fd = new FormData();
+        fd.append('athlete_id', athleteId || '');
+        const res = await fetch('/jobs/{{ job_id }}/athlete', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          alert('Erreur : ' + (data.error || res.status));
+          return false;
+        }
+        // Reload pour rafraîchir le pill, le banner, le back-link et la liste
+        location.reload();
+        return true;
+      }
+
+      // Clic sur une ligne existante
+      popover.querySelectorAll('.athlete-popover-row').forEach(row => {
+        row.addEventListener('click', () => {
+          if (row.dataset.current === '1') { close(); return; }
+          setAthlete(row.dataset.athleteId);
+        });
+      });
+
+      // Créer un nouvel athlète et assigner
+      if (createBtn) {
+        async function createAndAssign() {
+          const name = (newInput.value || '').trim();
+          if (!name) { newInput.focus(); return; }
+          createBtn.disabled = true;
+          const fd = new FormData();
+          fd.append('name', name);
+          try {
+            const res = await fetch('/athletes', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (!res.ok || !data.id) {
+              alert('Erreur création : ' + (data.error || res.status));
+              createBtn.disabled = false;
+              return;
+            }
+            await setAthlete(data.id);
+          } catch (e) {
+            alert('Erreur réseau : ' + e.message);
+            createBtn.disabled = false;
+          }
+        }
+        createBtn.addEventListener('click', createAndAssign);
+        newInput.addEventListener('keydown', e => {
+          if (e.key === 'Enter') { e.preventDefault(); createAndAssign(); }
+        });
+      }
+
+      // Retirer l'athlète (devient éphémère)
+      if (unassign) {
+        unassign.addEventListener('click', () => {
+          if (!confirm("Retirer l'athlète ? L'analyse deviendra éphémère et disparaîtra au prochain restart serveur.")) return;
+          setAthlete('');
+        });
+      }
+    })();
+
     const video    = document.getElementById('main-video');
     const cursor   = document.getElementById('tl-cursor');
     const counter  = document.getElementById('frame-counter');
