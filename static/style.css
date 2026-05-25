@@ -654,6 +654,8 @@ header h1 {
 }
 .btn-cal:hover { color: var(--accent); border-color: var(--accent); }
 .muted { color: var(--muted); }
+.cal-audio-ok   { color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.cal-audio-fail { color: var(--red); font-weight: 500; cursor: help; }
 
 .cal-detail-grid {
   display: grid;

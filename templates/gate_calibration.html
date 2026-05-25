@@ -49,6 +49,11 @@
 
   <section class="section">
     <h2>Vidéos</h2>
+    <p class="section-note">
+      <strong>Audio</strong> = ce que le détecteur trouve dans la piste audio (UCI 4 bips).
+      <strong>Stocké</strong> = ce que ton analyse utilise (audio confirmé ou ajusté à la main à l'upload).
+      <strong>Toi</strong> = la "vraie" frame que tu marques après scrub visuel.
+    </p>
     {% if not rows %}
     <div class="empty-state">Aucune vidéo analysée.</div>
     {% else %}
@@ -57,10 +62,11 @@
         <thead>
           <tr>
             <th>Vidéo</th>
-            <th>Gate stocké</th>
-            <th>Audio (live)</th>
-            <th>Toi</th>
-            <th>Diff</th>
+            <th>🔵 Audio</th>
+            <th>🟦 Stocké</th>
+            <th>🟧 Toi</th>
+            <th>Audio − Stocké</th>
+            <th>Audio − Toi</th>
             <th></th>
           </tr>
         </thead>
@@ -70,14 +76,28 @@
             <td>
               <a href="/gate_calibration/{{ r.job_id }}" class="cal-link">{{ r.display_name }}</a>
             </td>
+            <td>
+              {% if r.audio_detected %}
+                <span class="cal-audio-ok">{{ "%.3f"|format(r.audio_t) }}s</span>
+              {% else %}
+                <span class="cal-audio-fail" title="{{ r.audio_reason }}">⚠ fail</span>
+              {% endif %}
+            </td>
             <td>{% if r.stored_gate_t is not none %}{{ "%.3f"|format(r.stored_gate_t) }}s{% else %}—{% endif %}</td>
-            <td>{% if r.audio_t is not none %}{{ "%.3f"|format(r.audio_t) }}s{% else %}—{% endif %}</td>
-            <td>{% if r.true_t is not none %}{{ "%.3f"|format(r.true_t) }}s{% else %}—{% endif %}</td>
+            <td>{% if r.true_t is not none %}{{ "%.3f"|format(r.true_t) }}s{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>
+              {% if r.audio_detected and r.stored_gate_t is not none %}
+                {% set d = ((r.audio_t - r.stored_gate_t) * 1000) | round(0, 'common') | int %}
+                <span class="cal-diff {% if d|abs <= 50 %}cal-diff-good{% elif d|abs <= 200 %}cal-diff-warn{% else %}cal-diff-bad{% endif %}">
+                  {{ "%+d"|format(d) }} ms
+                </span>
+              {% else %}<span class="muted">—</span>{% endif %}
+            </td>
             <td>
               {% if r.diff_ms is not none %}
-                <span class="cal-diff {% if r.diff_ms|abs <= 50 %}cal-diff-good{% elif r.diff_ms|abs <= 100 %}cal-diff-warn{% else %}cal-diff-bad{% endif %}">
+                <span class="cal-diff {% if r.diff_ms|abs <= 50 %}cal-diff-good{% elif r.diff_ms|abs <= 200 %}cal-diff-warn{% else %}cal-diff-bad{% endif %}">
                   {{ "%+.0f"|format(r.diff_ms) }} ms
-                  ({{ "%+d"|format(r.diff_frames) }} f)
+                  ({{ "%+d"|format(r.diff_frames) }}f)
                 </span>
               {% else %}
                 <span class="muted">—</span>

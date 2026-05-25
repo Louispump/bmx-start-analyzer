@@ -859,23 +859,58 @@ async def settings_page(request: Request):
 
 
 # ── Calibration du gate drop ─────────────────────────────────────────────────
+def _get_or_run_audio_detection(jid: str, j: dict, force: bool = False) -> dict:
+    """Cache la détection audio sur le job. Run une seule fois par job sauf force.
+    Persiste dans jobs_db (snapshot auto)."""
+    cached = j.get("audio_detection")
+    if cached and not force:
+        return cached
+    vp_str = j.get("video_path")
+    if not vp_str:
+        return {"detected": False, "reason": "no video_path"}
+    vp = Path(vp_str)
+    if not vp.exists():
+        return {"detected": False, "reason": "video file missing"}
+    try:
+        res = detect_gate_drop(vp)
+    except Exception as e:
+        res = {"detected": False, "reason": f"audio error: {e}"}
+    # Stocke seulement les champs sérialisables utiles
+    summary = {
+        "detected":         bool(res.get("detected")),
+        "gate_t":           res.get("gate_t"),
+        "beeps_t":          res.get("beeps_t"),
+        "mean_interval_ms": res.get("mean_interval_ms"),
+        "confidence":       res.get("confidence"),
+        "reason":           res.get("reason"),
+    }
+    j["audio_detection"] = summary
+    save_jobs(jobs)
+    return summary
+
+
 @app.get("/gate_calibration")
 async def gate_calibration_list(request: Request):
-    """Liste des jobs avec leur statut de calibration et stats agrégées."""
+    """Liste des jobs avec leur statut de calibration et stats agrégées.
+    Run audio detection pour chaque job (cache après 1er run)."""
     import statistics
     rows = []
     for jid, j in jobs.items():
         if j.get("status") != "done": continue
-        r   = j.get("results", {})
-        cal = j.get("gate_calibration") or {}
+        r     = j.get("results", {})
+        cal   = j.get("gate_calibration") or {}
+        audio = _get_or_run_audio_detection(jid, j)
         rows.append({
             "job_id":         jid,
             "display_name":   _display_name(jid, j),
             "added_at":       j.get("added_at", ""),
             "fps":            r.get("fps"),
             "stored_gate_t":  r.get("gate_drop_t"),
+            "audio_detected": audio.get("detected"),
+            "audio_t":        audio.get("gate_t") if audio.get("detected") else None,
+            "audio_reason":   audio.get("reason"),
+            "audio_conf":     audio.get("confidence"),
             "calibrated":     bool(cal),
-            "audio_t":        cal.get("audio_t"),
             "true_t":         cal.get("true_gate_t"),
             "diff_ms":        cal.get("diff_t_ms"),
             "diff_frames":    cal.get("diff_frames"),
@@ -907,14 +942,7 @@ async def gate_calibration_detail(request: Request, job_id: str):
     if not j or j.get("status") != "done":
         return templates.TemplateResponse(request, "index.html",
                                           {"error": "Job introuvable."})
-    # Re-run audio détection à la volée pour avoir la valeur brute du algo
-    audio_info = None
-    try:
-        vp = Path(j.get("video_path", ""))
-        if vp.exists():
-            audio_info = detect_gate_drop(vp)
-    except Exception as e:
-        audio_info = {"detected": False, "reason": f"audio rerun failed: {e}"}
+    audio_info = _get_or_run_audio_detection(job_id, j)
     return templates.TemplateResponse(request, "gate_calibration_detail.html", {
         "job_id":        job_id,
         "display_name":  _display_name(job_id, j),
@@ -923,6 +951,17 @@ async def gate_calibration_detail(request: Request, job_id: str):
         "audio_info":    audio_info or {"detected": False},
         "calibration":   j.get("gate_calibration") or {},
     })
+
+
+@app.post("/jobs/{job_id}/rerun_audio")
+async def jobs_rerun_audio(job_id: str):
+    """Force un re-run de la détection audio (vide le cache et recalcule)."""
+    j = jobs.get(job_id)
+    if not j:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    j.pop("audio_detection", None)
+    audio = _get_or_run_audio_detection(job_id, j, force=True)
+    return {"ok": True, "audio": audio}
 
 
 @app.post("/jobs/{job_id}/gate_calibration")
