@@ -54,6 +54,27 @@
       ⚠️ Cette analyse n'est pas sauvegardée — elle disparaîtra au prochain redémarrage du serveur. Assigne un athlète pour la conserver.
     </div>
     {% endif %}
+
+    <!-- Tag + notes (auto-save) -->
+    <div class="session-meta">
+      <div class="session-tags">
+        <span class="session-tags-label">Type :</span>
+        <button type="button" class="session-tag {% if not current_tag %}session-tag-active{% endif %}"
+                data-tag="">Aucun</button>
+        {% for t in tag_options %}
+        <button type="button" class="session-tag session-tag-{{ t.id }} {% if current_tag == t.id %}session-tag-active{% endif %}"
+                data-tag="{{ t.id }}">{{ t.label }}</button>
+        {% endfor %}
+        <span class="session-tag-status" id="tag-status"></span>
+      </div>
+      <div class="session-notes-wrap">
+        <label for="session-notes" class="session-notes-label">Notes</label>
+        <textarea id="session-notes" class="session-notes" rows="2"
+                  maxlength="2000"
+                  placeholder="Observations sur ce départ (vent, sensation, technique à corriger…)">{{ current_notes }}</textarea>
+        <span class="session-notes-status" id="notes-status"></span>
+      </div>
+    </div>
   </header>
 
   <!-- Popover assignation athlète -->
@@ -311,6 +332,68 @@
         save(input.value.trim());
       });
       reset.addEventListener('click', () => save(''));
+    })();
+
+    // ── Tag de session ─────────────────────────────────────────────
+    (function() {
+      const buttons = document.querySelectorAll('.session-tag');
+      const status  = document.getElementById('tag-status');
+      if (!buttons.length) return;
+      let statusTimer = null;
+      function flash(msg, ok=true) {
+        status.textContent = msg;
+        status.className   = 'session-tag-status ' + (ok ? 'st-ok' : 'st-err');
+        if (statusTimer) clearTimeout(statusTimer);
+        statusTimer = setTimeout(() => { status.textContent = ''; }, 1800);
+      }
+      buttons.forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const tag = btn.dataset.tag || '';
+          const fd  = new FormData();
+          fd.append('tag', tag);
+          try {
+            const res  = await fetch('/jobs/{{ job_id }}/tag', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (!res.ok || !data.ok) { flash('Erreur', false); return; }
+            buttons.forEach(b => b.classList.toggle('session-tag-active',
+                                                    (b.dataset.tag || '') === (data.tag || '')));
+            flash(data.tag_label ? `✓ ${data.tag_label}` : '✓ Tag retiré');
+          } catch (e) { flash('Erreur réseau', false); }
+        });
+      });
+    })();
+
+    // ── Notes de session (auto-save debounce 600ms) ───────────────
+    (function() {
+      const ta     = document.getElementById('session-notes');
+      const status = document.getElementById('notes-status');
+      if (!ta) return;
+      let timer = null;
+      let statusTimer = null;
+      function flash(msg, ok=true) {
+        status.textContent = msg;
+        status.className   = 'session-notes-status ' + (ok ? 'st-ok' : 'st-err');
+        if (statusTimer) clearTimeout(statusTimer);
+        statusTimer = setTimeout(() => { status.textContent = ''; }, 1800);
+      }
+      async function save() {
+        const fd = new FormData();
+        fd.append('notes', ta.value);
+        try {
+          const res  = await fetch('/jobs/{{ job_id }}/notes', { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok || !data.ok) { flash('Erreur', false); return; }
+          flash('✓ Sauvegardé');
+        } catch (e) { flash('Erreur réseau', false); }
+      }
+      ta.addEventListener('input', () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(save, 600);
+      });
+      // Save aussi au blur (pour pas perdre quand on change d'onglet)
+      ta.addEventListener('blur', () => {
+        if (timer) { clearTimeout(timer); timer = null; save(); }
+      });
     })();
 
     // ── Assignation / changement d'athlète ─────────────────────────

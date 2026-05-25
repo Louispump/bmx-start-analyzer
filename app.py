@@ -314,6 +314,17 @@ def _display_name(job_id: str, job: dict) -> str:
     return f"{name} — {date_fr} — {seq:02d}"
 
 
+# ── Tags + notes par session ─────────────────────────────────────────────────
+# 4 tags fixes (un seul par job). Stockés en lowercase, affichés via TAG_LABELS.
+VALID_TAGS  = {"course", "entrainement", "warmup", "pb"}
+TAG_LABELS  = {
+    "course":       "Course",
+    "entrainement": "Entraînement",
+    "warmup":       "Warmup",
+    "pb":           "PB",
+}
+
+
 def _job_compare_entry(jid: str, j: dict, athlete_name: str | None = None) -> dict:
     """Format compact d'un job pour le sélecteur "Comparer avec" sur la page
     Compare. Retourne tout ce qu'il faut pour piloter le panneau référence."""
@@ -330,16 +341,21 @@ def _job_compare_entry(jid: str, j: dict, athlete_name: str | None = None) -> di
         "added_at":         j.get("added_at", ""),
         "athlete_id":       j.get("athlete_id"),
         "athlete_name":     athlete_name,
+        "tag":              j.get("tag"),
+        "tag_label":        TAG_LABELS.get(j.get("tag") or "", ""),
     }
 
 
-def _athlete_jobs(athlete_id: str) -> list[dict]:
-    """Retourne tous les jobs (terminés) liés à cet athlète, triés du plus récent au plus ancien."""
+def _athlete_jobs(athlete_id: str, filter_tag: str | None = None) -> list[dict]:
+    """Retourne tous les jobs (terminés) liés à cet athlète, triés du plus récent
+    au plus ancien. Si `filter_tag` est défini, ne garde que les jobs avec ce tag."""
     out = []
     for jid, j in jobs.items():
         if j.get("status") != "done":
             continue
         if j.get("athlete_id") != athlete_id:
+            continue
+        if filter_tag is not None and j.get("tag") != filter_tag:
             continue
         out.append({
             "job_id":       jid,
@@ -351,9 +367,29 @@ def _athlete_jobs(athlete_id: str) -> list[dict]:
             "reaction":     j.get("results", {}).get("reaction", {}),
             "gate_drop_t":  j.get("results", {}).get("gate_drop_t"),
             "excluded":     bool(j.get("excluded_from_stats", False)),
+            "tag":          j.get("tag"),
+            "tag_label":    TAG_LABELS.get(j.get("tag") or "", ""),
+            "notes":        j.get("notes", ""),
         })
     out.sort(key=lambda x: x.get("added_at", ""), reverse=True)
     return out
+
+
+def _athlete_tag_counts(athlete_id: str) -> dict:
+    """Compteur de jobs par tag pour cet athlète (utilisé par les pills de filtre)."""
+    counts = {"total": 0, "untagged": 0}
+    for tag in VALID_TAGS:
+        counts[tag] = 0
+    for jid, j in jobs.items():
+        if j.get("status") != "done": continue
+        if j.get("athlete_id") != athlete_id: continue
+        counts["total"] += 1
+        t = j.get("tag")
+        if t in VALID_TAGS:
+            counts[t] += 1
+        else:
+            counts["untagged"] += 1
+    return counts
 
 
 def _athlete_stats(athlete_jobs: list[dict]) -> dict:
@@ -670,6 +706,9 @@ async def result(request: Request, job_id: str):
         "display_name":     _display_name(job_id, job),
         "custom_name":      job.get("custom_name", ""),
         "auto_name":        _display_name(job_id, {**job, "custom_name": ""}),
+        "current_tag":      job.get("tag", ""),
+        "current_notes":    job.get("notes", ""),
+        "tag_options":      [{"id": k, "label": v} for k, v in TAG_LABELS.items()],
     })
 
 
@@ -757,19 +796,61 @@ async def athletes_create(name: str = Form(...), notes: str = Form("")):
 
 
 @app.get("/athletes/{athlete_id}")
-async def athlete_detail(request: Request, athlete_id: str):
+async def athlete_detail(request: Request, athlete_id: str, tag: str = ""):
     a = athletes.get(athlete_id)
     if not a:
         return templates.TemplateResponse(request, "athletes.html",
                                           {"athletes_list": [],
                                            "error": "Athlète introuvable."})
-    a_jobs = _athlete_jobs(athlete_id)
+    # Validation du filtre tag
+    active_tag = tag.lower() if tag.lower() in VALID_TAGS else None
+    a_jobs = _athlete_jobs(athlete_id, filter_tag=active_tag)
     stats  = _athlete_stats(a_jobs)
+    counts = _athlete_tag_counts(athlete_id)
     return templates.TemplateResponse(request, "athlete_detail.html", {
         "athlete":      a,
         "athlete_jobs": a_jobs,
         "stats":        stats,
+        "active_tag":   active_tag,
+        "tag_counts":   counts,
+        "tag_labels":   TAG_LABELS,
     })
+
+
+@app.post("/jobs/{job_id}/tag")
+async def jobs_set_tag(job_id: str, tag: str = Form("")):
+    """Définit le tag d'un job. Chaîne vide / invalide = retire le tag."""
+    j = jobs.get(job_id)
+    if not j:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    t = (tag or "").strip().lower()
+    if t and t in VALID_TAGS:
+        j["tag"] = t
+    else:
+        j.pop("tag", None)
+    save_jobs(jobs)
+    return {
+        "ok":        True,
+        "tag":       j.get("tag"),
+        "tag_label": TAG_LABELS.get(j.get("tag") or "", ""),
+    }
+
+
+@app.post("/jobs/{job_id}/notes")
+async def jobs_set_notes(job_id: str, notes: str = Form("")):
+    """Définit / met à jour les notes libres d'un job. Vide = retire les notes."""
+    j = jobs.get(job_id)
+    if not j:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    text = (notes or "").strip()
+    if len(text) > 2000:
+        return JSONResponse({"error": "Trop long (max 2000 caractères)."}, status_code=400)
+    if text:
+        j["notes"] = text
+    else:
+        j.pop("notes", None)
+    save_jobs(jobs)
+    return {"ok": True, "notes": j.get("notes", "")}
 
 
 @app.delete("/athletes/{athlete_id}")

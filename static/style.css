@@ -950,6 +950,167 @@ header h1 {
   font-style: italic;
 }
 
+/* ── Tag + notes par session (sur /result) ────────────────────────── */
+.session-meta {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.session-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.session-tags-label {
+  font-size: .82rem;
+  color: var(--muted);
+  margin-right: 4px;
+}
+.session-tag {
+  background: var(--surface-elevated);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: .82rem;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: var(--transition);
+  min-height: 32px;
+}
+.session-tag:hover { border-color: var(--accent); color: var(--accent); }
+.session-tag-active {
+  background: var(--accent);
+  color: #001820;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.session-tag-active.session-tag-course      { background: var(--red);    color: #fff; border-color: var(--red); }
+.session-tag-active.session-tag-entrainement { background: #4a8be8;       color: #fff; border-color: #4a8be8; }
+.session-tag-active.session-tag-warmup      { background: var(--orange); color: #fff; border-color: var(--orange); }
+.session-tag-active.session-tag-pb          { background: var(--green);  color: #fff; border-color: var(--green); }
+.session-tag-status {
+  font-size: .78rem;
+  margin-left: 8px;
+  min-height: 1em;
+}
+.session-tag-status.st-ok  { color: var(--green); }
+.session-tag-status.st-err { color: var(--red); }
+
+.session-notes-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.session-notes-label {
+  font-size: .82rem;
+  color: var(--muted);
+}
+.session-notes {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-family: var(--font);
+  font-size: .9rem;
+  resize: vertical;
+  min-height: 50px;
+  outline: none;
+  transition: var(--transition);
+}
+.session-notes:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.session-notes-status {
+  font-size: .76rem;
+  align-self: flex-end;
+  min-height: 1em;
+}
+.session-notes-status.st-ok  { color: var(--green); }
+.session-notes-status.st-err { color: var(--red); }
+
+/* ── Pills de filtre par tag (sur /athletes/<id>) ─────────────────── */
+.tag-filter-pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-size: .85rem;
+  text-decoration: none;
+  transition: var(--transition);
+}
+.tag-pill:hover { border-color: var(--accent); color: var(--accent); }
+.tag-pill-count {
+  background: var(--surface-hover);
+  color: var(--muted);
+  font-size: .72rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  min-width: 20px;
+  text-align: center;
+}
+.tag-pill-active {
+  background: var(--accent);
+  color: #001820;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.tag-pill-active .tag-pill-count { background: rgba(0,0,0,0.18); color: #001820; }
+.tag-pill-active.tag-pill-course      { background: var(--red);    color: #fff; border-color: var(--red); }
+.tag-pill-active.tag-pill-entrainement { background: #4a8be8;       color: #fff; border-color: #4a8be8; }
+.tag-pill-active.tag-pill-warmup      { background: var(--orange); color: #fff; border-color: var(--orange); }
+.tag-pill-active.tag-pill-pb          { background: var(--green);  color: #fff; border-color: var(--green); }
+.tag-pill-untagged-hint {
+  color: var(--muted);
+  font-size: .82rem;
+  margin-left: 4px;
+}
+
+/* ── Badges de tag dans la liste de sessions ──────────────────────── */
+.session-tag-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: .7rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+.session-tag-badge.session-tag-course      { background: var(--red-soft);    color: var(--red);    border: 1px solid rgba(255,77,74,.25); }
+.session-tag-badge.session-tag-entrainement { background: rgba(74,139,232,.12); color: #6ba5f0;     border: 1px solid rgba(74,139,232,.25); }
+.session-tag-badge.session-tag-warmup      { background: rgba(245,156,24,.12); color: var(--orange); border: 1px solid rgba(245,156,24,.25); }
+.session-tag-badge.session-tag-pb          { background: var(--green-soft);  color: var(--green);  border: 1px solid rgba(45,205,110,.25); }
+
+.pro-name-row { display: inline-flex; align-items: center; flex-wrap: wrap; }
+.pro-notes {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: .82rem;
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    INPUTS
    ══════════════════════════════════════════════════════════════════════ */

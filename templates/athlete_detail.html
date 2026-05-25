@@ -64,11 +64,39 @@
 
   <!-- Liste des vidéos -->
   <section class="section">
-    <h2>Vidéos <span class="section-tag">{{ athlete_jobs|length }}</span></h2>
-    {% if not athlete_jobs %}
-    <div class="empty-state">
-      Aucune vidéo encore. <a href="/?athlete={{ athlete.id }}" style="color:var(--accent)">Lance une nouvelle analyse</a> avec cet athlète pré-sélectionné.
+    <h2>Vidéos <span class="section-tag">{{ athlete_jobs|length }}{% if active_tag %} / {{ tag_counts.total }}{% endif %}</span></h2>
+
+    <!-- Pills filtre par tag -->
+    {% if tag_counts.total > 0 %}
+    <div class="tag-filter-pills">
+      <a href="/athletes/{{ athlete.id }}" class="tag-pill {% if not active_tag %}tag-pill-active{% endif %}">
+        Tous <span class="tag-pill-count">{{ tag_counts.total }}</span>
+      </a>
+      {% for tid, tlabel in tag_labels.items() %}
+        {% if tag_counts[tid] > 0 %}
+        <a href="/athletes/{{ athlete.id }}?tag={{ tid }}"
+           class="tag-pill tag-pill-{{ tid }} {% if active_tag == tid %}tag-pill-active{% endif %}">
+          {{ tlabel }} <span class="tag-pill-count">{{ tag_counts[tid] }}</span>
+        </a>
+        {% endif %}
+      {% endfor %}
+      {% if tag_counts.untagged > 0 %}
+      <span class="tag-pill-untagged-hint">· {{ tag_counts.untagged }} sans tag</span>
+      {% endif %}
     </div>
+    {% endif %}
+
+    {% if not athlete_jobs %}
+      {% if active_tag %}
+      <div class="empty-state">
+        Aucune vidéo avec le tag <strong>{{ tag_labels[active_tag] }}</strong>.
+        <a href="/athletes/{{ athlete.id }}" style="color:var(--accent)">Voir toutes</a>.
+      </div>
+      {% else %}
+      <div class="empty-state">
+        Aucune vidéo encore. <a href="/?athlete={{ athlete.id }}" style="color:var(--accent)">Lance une nouvelle analyse</a> avec cet athlète pré-sélectionné.
+      </div>
+      {% endif %}
     {% else %}
     {% if stats.n_excluded > 0 %}
     <p class="section-note exclusion-hint">
@@ -82,10 +110,18 @@
       <div class="pro-row pro-row-link{% if j.excluded %} pro-row-excluded{% endif %}" data-job-id="{{ j.job_id }}">
         <a class="pro-row-link-inner" href="/result/{{ j.job_id }}">
           <div class="pro-info">
-            <span class="pro-name-text">{{ j.display_name }}</span>
+            <span class="pro-name-row">
+              <span class="pro-name-text">{{ j.display_name }}</span>
+              {% if j.tag %}
+              <span class="session-tag-badge session-tag-{{ j.tag }}">{{ j.tag_label }}</span>
+              {% endif %}
+            </span>
             <span class="pro-meta">
               {{ j.added_at }} · {{ j.fps }} fps · {{ j.duration_s }}s
             </span>
+            {% if j.notes %}
+            <span class="pro-notes">📝 {{ j.notes }}</span>
+            {% endif %}
           </div>
           <div class="pro-status">
             {% if j.reaction.type == 'false_start' %}
