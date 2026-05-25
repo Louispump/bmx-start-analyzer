@@ -19,6 +19,33 @@
   </div>
 
   <div class="section">
+    <h2>Sauvegarde</h2>
+    <p class="section-note">
+      Toutes les écritures de tes données (jobs, athlètes, pros) sont sauvegardées automatiquement.
+      Un snapshot est pris chaque jour dans <code>output/backups/</code>, gardés <strong>{{ backup.retention_days }} jours</strong>.
+      <strong>Télécharge le ZIP de temps en temps</strong> et garde-le dans iCloud / Drive / clé USB pour te protéger d'un crash disque.
+    </p>
+    <div class="backup-card">
+      <div class="backup-card-text">
+        <div class="backup-card-counts">
+          {% if backup.last_snapshot %}
+            Dernier snapshot : <strong>{{ backup.last_snapshot }}</strong> ·
+            <strong>{{ backup.snapshot_count }}</strong> snapshot{{ 's' if backup.snapshot_count != 1 else '' }} conservé{{ 's' if backup.snapshot_count != 1 else '' }} ·
+            <strong>{{ backup.total_kb }}</strong> KB
+          {% else %}
+            Aucun snapshot encore. Le prochain save d'un job / athlète / pro en créera un.
+          {% endif %}
+        </div>
+        <div class="backup-card-sub">Le ZIP contient les 3 DBs courantes + tout l'historique des snapshots.</div>
+      </div>
+      <div class="backup-card-actions">
+        <a href="/settings/backup.zip" class="btn btn-backup" download>📦 Télécharger le ZIP</a>
+        <button type="button" id="btn-backup-now" class="btn">↻ Snapshot maintenant</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
     <h2>Nettoyage</h2>
     <p class="section-note">
       Les analyses sans athlète assigné ne sont plus conservées au redémarrage. Tu peux aussi forcer leur suppression maintenant (vidéos + CSV sur disque inclus). Action irréversible.
@@ -57,6 +84,28 @@
       else                document.documentElement.removeAttribute('data-theme');
     });
   });
+
+  // Snapshot manuel des DBs
+  const btnSnap = document.getElementById('btn-backup-now');
+  if (btnSnap) {
+    btnSnap.addEventListener('click', async () => {
+      btnSnap.disabled = true;
+      const original = btnSnap.textContent;
+      btnSnap.textContent = '⏳ Snapshot…';
+      try {
+        const res  = await fetch('/settings/backup_snapshot', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) { alert('Erreur : ' + (data.error || res.status)); return; }
+        alert(`✅ Snapshot pris. ${data.status.snapshot_count} snapshot(s) au total.`);
+        location.reload();
+      } catch (e) {
+        alert('Erreur réseau : ' + e.message);
+      } finally {
+        btnSnap.disabled = false;
+        btnSnap.textContent = original;
+      }
+    });
+  }
 
   // Purge des analyses orphelines
   const btnPurge = document.getElementById('btn-purge-orphans');

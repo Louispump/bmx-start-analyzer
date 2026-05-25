@@ -13,13 +13,13 @@ import json
 import shutil
 import traceback
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import cv2
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from jinja2 import Environment, FileSystemLoader
 
 import numpy as np
@@ -83,8 +83,68 @@ def load_pros() -> dict:
             pass
     return {}
 
+# ── Sauvegardes automatiques ─────────────────────────────────────────────────
+# Tout write d'une DB JSON :
+#   1. Atomic : write dans un .tmp puis os.replace (jamais de fichier corrompu
+#      mi-écrit même si Python crashe en plein milieu).
+#   2. Snapshot du résultat dans output/backups/YYYY-MM-DD/<filename>. Un seul
+#      snapshot par jour (overwrite intra-jour), retention 14 jours. Si tu
+#      découvres demain qu'un job a été pourri, t'as la version d'hier.
+BACKUP_DIR             = OUTPUT_DIR / "backups"
+BACKUP_RETENTION_DAYS  = 14
+
+def _atomic_write_text(path: Path, content: str):
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, path)
+
+def _snapshot_db(path: Path):
+    if not path.exists(): return
+    today = datetime.now().strftime("%Y-%m-%d")
+    dest_dir = BACKUP_DIR / today
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(path, dest_dir / path.name)
+
+def _prune_old_backups():
+    if not BACKUP_DIR.exists(): return
+    cutoff = datetime.now() - timedelta(days=BACKUP_RETENTION_DAYS)
+    for d in BACKUP_DIR.iterdir():
+        if not d.is_dir(): continue
+        try:
+            dt = datetime.strptime(d.name, "%Y-%m-%d")
+            if dt < cutoff:
+                shutil.rmtree(d, ignore_errors=True)
+        except ValueError:
+            pass  # nom de dossier inattendu → on touche pas
+
+def _save_db_with_backup(path: Path, content: str):
+    _atomic_write_text(path, content)
+    try:
+        _snapshot_db(path)
+        _prune_old_backups()
+    except Exception as e:
+        # Une erreur de snapshot ne doit JAMAIS empêcher le save principal
+        print(f"[backup] snapshot failed for {path.name}: {e}")
+
+def _backup_status() -> dict:
+    if not BACKUP_DIR.exists():
+        return {"snapshot_count": 0, "last_snapshot": None, "total_kb": 0}
+    folders = sorted([d.name for d in BACKUP_DIR.iterdir() if d.is_dir()])
+    total = 0
+    for f in BACKUP_DIR.rglob("*"):
+        if f.is_file():
+            try: total += f.stat().st_size
+            except Exception: pass
+    return {
+        "snapshot_count": len(folders),
+        "last_snapshot":  folders[-1] if folders else None,
+        "total_kb":       total // 1024,
+        "retention_days": BACKUP_RETENTION_DAYS,
+    }
+
+
 def save_pros(pros: dict):
-    PROS_DB.write_text(json.dumps(pros, indent=2, ensure_ascii=False))
+    _save_db_with_backup(PROS_DB, json.dumps(pros, indent=2, ensure_ascii=False))
 
 def load_jobs() -> dict:
     if JOBS_DB.exists():
@@ -101,7 +161,7 @@ def save_jobs(jobs: dict):
     # la purge manuelle depuis /settings).
     done = {k: v for k, v in jobs.items()
             if v.get("status") == "done" and v.get("athlete_id")}
-    JOBS_DB.write_text(json.dumps(done, indent=2, ensure_ascii=False))
+    _save_db_with_backup(JOBS_DB, json.dumps(done, indent=2, ensure_ascii=False))
 
 def load_athletes() -> dict:
     if ATHLETES_DB.exists():
@@ -112,7 +172,7 @@ def load_athletes() -> dict:
     return {}
 
 def save_athletes(athletes: dict):
-    ATHLETES_DB.write_text(json.dumps(athletes, indent=2, ensure_ascii=False))
+    _save_db_with_backup(ATHLETES_DB, json.dumps(athletes, indent=2, ensure_ascii=False))
 
 pros:     dict = load_pros()
 jobs:     dict = load_jobs()
@@ -794,6 +854,7 @@ async def settings_page(request: Request):
     return templates.TemplateResponse(request, "settings.html", {
         "n_orphan_jobs":  n_orphan_jobs,
         "n_orphan_files": n_orphan_files,
+        "backup":         _backup_status(),
     })
 
 
@@ -802,6 +863,42 @@ async def jobs_purge_orphans():
     """Supprime tous les jobs en mémoire sans athlète + les fichiers orphelins
     sur disque (préfixe job_id qui ne correspond à aucun job/pro connu)."""
     return purge_orphans()
+
+
+@app.get("/settings/backup.zip")
+async def settings_backup_zip():
+    """ZIP contenant :
+       - current/  → les 3 DBs JSON actuelles
+       - history/  → tous les snapshots quotidiens (jusqu'à 14 jours)
+    À télécharger régulièrement et garder dans iCloud / Drive / clé USB."""
+    import io, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in (PROS_DB, JOBS_DB, ATHLETES_DB):
+            if p.exists():
+                zf.write(p, arcname=f"current/{p.name}")
+        if BACKUP_DIR.exists():
+            for f in BACKUP_DIR.rglob("*.json"):
+                arc = "history/" + f.relative_to(BACKUP_DIR).as_posix()
+                zf.write(f, arcname=arc)
+    fname = f"bmx-backup-{datetime.now().strftime('%Y-%m-%d_%H%M')}.zip"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@app.post("/settings/backup_snapshot")
+async def settings_backup_snapshot():
+    """Force un snapshot immédiat des 3 DBs (utile avant une opération risquée)."""
+    try:
+        for p in (PROS_DB, JOBS_DB, ATHLETES_DB):
+            _snapshot_db(p)
+        _prune_old_backups()
+        return {"ok": True, "status": _backup_status()}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # ── Outils (calculateurs gear / pression) ────────────────────────────────────

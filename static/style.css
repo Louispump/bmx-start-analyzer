@@ -582,6 +582,45 @@ header h1 {
 }
 .btn-purge:disabled { opacity: 0.45; cursor: not-allowed; }
 
+/* ── Carte sauvegarde (settings) ──────────────────────────────────── */
+.backup-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  flex-wrap: wrap;
+}
+.backup-card-text  { flex: 1 1 auto; min-width: 0; }
+.backup-card-counts { font-size: .95rem; color: var(--text); }
+.backup-card-counts strong { color: var(--text-strong); font-weight: 700; }
+.backup-card-sub {
+  margin-top: 4px;
+  font-size: .8rem;
+  color: var(--muted);
+}
+.backup-card-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+.btn-backup {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-mid);
+  border-radius: var(--radius);
+  padding: 9px 16px;
+  font-size: .9rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: var(--transition);
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.btn-backup:hover { background: var(--accent); color: #001820; border-color: var(--accent); }
+
 /* ── Bandeau analyse éphémère + bouton athlète + popover ──────────── */
 .ephemeral-banner {
   margin-top: 10px;
