@@ -145,6 +145,10 @@
     <button type="button" class="btn btn-anno-toggle" id="btn-anno-mode" title="Activer le mode annotation">
       ✏️ Annoter
     </button>
+    <button type="button" class="btn btn-export-frame" id="btn-export-frame"
+            title="Exporter la frame courante des 2 vidéos + annotations en PNG">
+      📷 Exporter
+    </button>
     <div class="anno-tools" id="anno-tools" style="display:none">
       <span class="anno-tools-group">
         <button type="button" class="anno-tool tool-active" data-tool="arrow" title="Flèche">→</button>
@@ -1431,6 +1435,164 @@
       vRider.addEventListener(ev, updateAnnoInfo);
       vPro.addEventListener(ev,   updateAnnoInfo);
     });
+
+    // ═════════════════════════════════════════════════════════════
+    // Export PNG : les 2 panneaux côte à côte + annotations
+    // ═════════════════════════════════════════════════════════════
+    function paintAnnotationsScaled(ctx, panel, W, H, offsetX, offsetY, scale) {
+      const f = getCurrentFrame(panel);
+      for (const a of annotations) {
+        if (a.video !== panel || a.frame !== f) continue;
+        if (a.type === 'arrow') {
+          ctx.strokeStyle = a.color; ctx.fillStyle = a.color;
+          ctx.lineWidth = 3 * scale; ctx.lineCap = 'round';
+          const x1 = offsetX + a.x1 * W, y1 = offsetY + a.y1 * H;
+          const x2 = offsetX + a.x2 * W, y2 = offsetY + a.y2 * H;
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          const angle = Math.atan2(y2 - y1, x2 - x1);
+          const ah = 14 * scale;
+          ctx.beginPath();
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(x2 - ah * Math.cos(angle - 0.45), y2 - ah * Math.sin(angle - 0.45));
+          ctx.lineTo(x2 - ah * Math.cos(angle + 0.45), y2 - ah * Math.sin(angle + 0.45));
+          ctx.closePath(); ctx.fill();
+        } else if (a.type === 'circle') {
+          ctx.strokeStyle = a.color; ctx.lineWidth = 3 * scale;
+          ctx.beginPath();
+          ctx.arc(offsetX + a.cx * W, offsetY + a.cy * H,
+                  Math.max(2, a.r * Math.min(W, H)), 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (a.type === 'text') {
+          const fontPx = Math.round(18 * scale);
+          ctx.font = `bold ${fontPx}px Inter, sans-serif`;
+          const m = ctx.measureText(a.text || '');
+          const pad = 6 * scale;
+          const x = offsetX + a.x * W, y = offsetY + a.y * H;
+          ctx.fillStyle = 'rgba(0,0,0,0.72)';
+          ctx.fillRect(x - pad, y - fontPx - pad/2, m.width + pad * 2, fontPx + pad * 1.6);
+          ctx.fillStyle = a.color;
+          ctx.fillText(a.text || '', x, y);
+        }
+      }
+    }
+
+    function slugifyForFile(s) {
+      return (s || 'frame')
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-zA-Z0-9 _.-]+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 80) || 'frame';
+    }
+
+    const RIDER_DISPLAY_NAME = {{ rider_display_name|tojson }};
+    async function exportComparisonFrame() {
+      const btn = document.getElementById('btn-export-frame');
+      const original = btn.textContent;
+      try {
+        if (!vRider.videoWidth || !vRider.videoHeight) {
+          alert('Vidéo rider non chargée.');
+          return;
+        }
+        const hasPro = vPro.videoWidth && vPro.videoHeight;
+        btn.disabled = true;
+        btn.textContent = '⏳ Composition…';
+        vRider.pause();
+        if (hasPro) vPro.pause();
+
+        // Normalise les 2 panneaux à la même hauteur cible
+        const targetH = Math.max(vRider.videoHeight, hasPro ? vPro.videoHeight : 0);
+        const rW = Math.round(vRider.videoWidth  * targetH / vRider.videoHeight);
+        const rH = targetH;
+        const pW = hasPro ? Math.round(vPro.videoWidth  * targetH / vPro.videoHeight) : 0;
+        const pH = hasPro ? targetH : 0;
+
+        const scale  = Math.max(1, targetH / 720);
+        const gutter = Math.round(24 * scale);
+        const headerH = Math.round(56 * scale);
+        const footerH = Math.round(44 * scale);
+
+        const W = rW + (hasPro ? (gutter + pW) : 0);
+        const H = headerH + targetH + footerH;
+
+        const canvas = document.createElement('canvas');
+        canvas.width  = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+
+        // Fond
+        ctx.fillStyle = '#080c12';
+        ctx.fillRect(0, 0, W, H);
+
+        // Headers : libellés sur chaque panneau
+        const titleFont = Math.round(20 * scale);
+        ctx.font = `bold ${titleFont}px Inter, sans-serif`;
+        ctx.textBaseline = 'middle';
+        // Rider header
+        ctx.fillStyle = 'rgba(0, 212, 255, 0.12)';
+        ctx.fillRect(0, 0, rW, headerH);
+        ctx.fillStyle = '#00d4ff';
+        ctx.fillText('RIDER', Math.round(16 * scale), Math.round(headerH * 0.35));
+        ctx.fillStyle = '#f0f4ff';
+        ctx.font = `${Math.round(18 * scale)}px Inter, sans-serif`;
+        ctx.fillText(RIDER_DISPLAY_NAME, Math.round(16 * scale), Math.round(headerH * 0.7));
+
+        if (hasPro) {
+          const refName = (document.getElementById('pro-name')?.textContent || 'Référence').trim();
+          ctx.font = `bold ${titleFont}px Inter, sans-serif`;
+          ctx.fillStyle = 'rgba(255, 59, 155, 0.12)';
+          ctx.fillRect(rW + gutter, 0, pW, headerH);
+          ctx.fillStyle = '#ff3b9b';
+          ctx.fillText('RÉFÉRENCE', rW + gutter + Math.round(16 * scale), Math.round(headerH * 0.35));
+          ctx.fillStyle = '#f0f4ff';
+          ctx.font = `${Math.round(18 * scale)}px Inter, sans-serif`;
+          ctx.fillText(refName, rW + gutter + Math.round(16 * scale), Math.round(headerH * 0.7));
+        }
+
+        // Vidéos
+        ctx.drawImage(vRider, 0, headerH, rW, rH);
+        if (hasPro) ctx.drawImage(vPro, rW + gutter, headerH, pW, pH);
+
+        // Annotations sur chaque panneau
+        paintAnnotationsScaled(ctx, 'rider', rW, rH, 0,            headerH, scale);
+        if (hasPro) paintAnnotationsScaled(ctx, 'pro', pW, pH, rW + gutter, headerH, scale);
+
+        // Footer : T offset + frames
+        const T = (typeof currentSyncOffset !== 'undefined') ? currentSyncOffset : 0;
+        const fR = getCurrentFrame('rider');
+        const fP = hasPro ? getCurrentFrame('pro') : null;
+        const Tstr = T >= 0 ? `T +${T.toFixed(3)}s` : `T ${T.toFixed(3)}s`;
+        const footTxt = hasPro
+          ? `${Tstr} · Rider frame ${fR} · Réf frame ${fP}`
+          : `${Tstr} · Rider frame ${fR}`;
+        const footFont = Math.round(16 * scale);
+        ctx.font = `${footFont}px Inter, sans-serif`;
+        ctx.fillStyle = '#1c2538';
+        ctx.fillRect(0, headerH + targetH, W, footerH);
+        ctx.fillStyle = '#d8e0ee';
+        ctx.fillText(footTxt, Math.round(16 * scale), headerH + targetH + footerH / 2);
+
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        if (!blob) throw new Error('toBlob a renvoyé null');
+        const refName = hasPro ? (document.getElementById('pro-name')?.textContent || 'ref').trim() : 'solo';
+        const fname = `${slugifyForFile(RIDER_DISPLAY_NAME)} vs ${slugifyForFile(refName)} - ${Tstr.replace(/[+ ]/g, '')}.png`;
+        const url = URL.createObjectURL(blob);
+        const a   = document.createElement('a');
+        a.href     = url;
+        a.download = fname;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (e) {
+        console.error(e);
+        alert('Erreur export : ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    }
+    document.getElementById('btn-export-frame').addEventListener('click', exportComparisonFrame);
 
     // Init : charger les annotations existantes
     (async () => {

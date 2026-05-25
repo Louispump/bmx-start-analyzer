@@ -178,6 +178,10 @@
       <button type="button" class="btn btn-anno-toggle" id="btn-anno-mode" title="Activer le mode annotation">
         ✏️ Annoter
       </button>
+      <button type="button" class="btn btn-export-frame" id="btn-export-frame"
+              title="Exporter la frame courante avec ses annotations en PNG">
+        📷 Exporter
+      </button>
       <div class="anno-tools" id="anno-tools" style="display:none">
         <span class="anno-tools-group">
           <button type="button" class="anno-tool tool-active" data-tool="arrow" title="Flèche">→</button>
@@ -738,6 +742,110 @@
       el.textContent = `${here} sur cette frame · ${total} au total · sauvegardé auto`;
     }
     ['timeupdate', 'seeked'].forEach(ev => video.addEventListener(ev, updateAnnoInfo));
+
+    // ═════════════════════════════════════════════════════════════
+    // Export PNG : frame courante + annotations à la résolution native
+    // ═════════════════════════════════════════════════════════════
+    function paintAnnotationsScaled(ctx, W, H, scale) {
+      const f = currentFrameInt();
+      for (const a of annotations) {
+        if (a.video !== ANNO_PANEL || a.frame !== f) continue;
+        if (a.type === 'arrow') {
+          ctx.strokeStyle = a.color; ctx.fillStyle = a.color;
+          ctx.lineWidth = 3 * scale; ctx.lineCap = 'round';
+          const x1 = a.x1 * W, y1 = a.y1 * H;
+          const x2 = a.x2 * W, y2 = a.y2 * H;
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          const angle = Math.atan2(y2 - y1, x2 - x1);
+          const ah = 14 * scale;
+          ctx.beginPath();
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(x2 - ah * Math.cos(angle - 0.45), y2 - ah * Math.sin(angle - 0.45));
+          ctx.lineTo(x2 - ah * Math.cos(angle + 0.45), y2 - ah * Math.sin(angle + 0.45));
+          ctx.closePath(); ctx.fill();
+        } else if (a.type === 'circle') {
+          ctx.strokeStyle = a.color; ctx.lineWidth = 3 * scale;
+          ctx.beginPath();
+          ctx.arc(a.cx * W, a.cy * H, Math.max(2, a.r * Math.min(W, H)), 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (a.type === 'text') {
+          const fontPx = Math.round(18 * scale);
+          ctx.font = `bold ${fontPx}px Inter, sans-serif`;
+          const m = ctx.measureText(a.text || '');
+          const pad = 6 * scale;
+          const x = a.x * W, y = a.y * H;
+          ctx.fillStyle = 'rgba(0,0,0,0.72)';
+          ctx.fillRect(x - pad, y - fontPx - pad/2, m.width + pad * 2, fontPx + pad * 1.6);
+          ctx.fillStyle = a.color;
+          ctx.fillText(a.text || '', x, y);
+        }
+      }
+    }
+
+    function slugifyForFile(s) {
+      return (s || 'frame')
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')  // strip accents
+        .replace(/[^a-zA-Z0-9 _.-]+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 80) || 'frame';
+    }
+
+    async function exportCurrentFrame() {
+      const btn = document.getElementById('btn-export-frame');
+      const original = btn.textContent;
+      try {
+        if (!video.videoWidth || !video.videoHeight) {
+          alert('Vidéo non chargée — attends qu\'elle soit prête.');
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = '⏳ Composition…';
+        video.pause();
+        const W = video.videoWidth;
+        const H = video.videoHeight;
+        const canvas = document.createElement('canvas');
+        canvas.width  = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, W, H);
+        const scale = Math.max(1, Math.min(W, H) / 720);
+        paintAnnotationsScaled(ctx, W, H, scale);
+        // Petit badge en bas à droite : nom + frame
+        const f = currentFrameInt();
+        const t = (f / fps).toFixed(3);
+        const displayName = {{ display_name|tojson }};
+        const badgeText = `${displayName} · frame ${f} · t=${t}s`;
+        const fontPx = Math.round(16 * scale);
+        ctx.font = `${fontPx}px Inter, sans-serif`;
+        const m = ctx.measureText(badgeText);
+        const pad = 8 * scale;
+        const bx = W - m.width - pad * 3;
+        const by = H - fontPx - pad * 2;
+        ctx.fillStyle = 'rgba(8,12,18,0.78)';
+        ctx.fillRect(bx, by, m.width + pad * 2, fontPx + pad * 1.4);
+        ctx.fillStyle = '#d8e0ee';
+        ctx.fillText(badgeText, bx + pad, by + fontPx + pad * 0.2);
+
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        if (!blob) throw new Error('toBlob a renvoyé null');
+        const url = URL.createObjectURL(blob);
+        const a   = document.createElement('a');
+        a.href     = url;
+        a.download = `${slugifyForFile(displayName)} - frame ${f}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (e) {
+        console.error(e);
+        alert('Erreur export : ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    }
+    document.getElementById('btn-export-frame').addEventListener('click', exportCurrentFrame);
 
     (async () => {
       try {
