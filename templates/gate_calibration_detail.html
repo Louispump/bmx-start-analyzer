@@ -1,0 +1,206 @@
+{% extends "_base.html" %}
+
+{% block title %}Calibration — {{ display_name }}{% endblock %}
+{% set active = "settings" %}
+
+{% block content %}
+  <header>
+    <a href="/gate_calibration" class="back-link">← Liste calibration</a>
+    <h1>{{ display_name }}</h1>
+    <p class="subtitle">
+      Scrubbe à la frame <strong>où tu vois le gate tomber</strong>, puis clique
+      <strong>Marquer ici</strong>. Tu peux re-marquer autant de fois que tu veux.
+    </p>
+  </header>
+
+  <section class="section">
+    <div class="cal-detail-grid">
+      <!-- ───── colonne vidéo ───── -->
+      <div>
+        <div class="gate-video-wrap">
+          <video id="cal-video" playsinline preload="auto" src="{{ video_url }}"></video>
+        </div>
+        <div class="gate-scrubber-wrap">
+          <input type="range" class="scrubber scrubber-light" id="cal-scrub"
+                 min="0" max="1000" value="0" step="1">
+        </div>
+        <div class="gate-controls">
+          <button class="btn-frame btn-frame-dark" onclick="step(-1)">&#9664;</button>
+          <span class="frame-counter-dark" id="cal-counter">Frame 0</span>
+          <button class="btn-frame btn-frame-dark" onclick="step(+1)">&#9654;</button>
+        </div>
+      </div>
+
+      <!-- ───── colonne markers ───── -->
+      <div>
+        <div class="cal-marker cal-marker-audio">
+          <div class="cal-marker-head">
+            <span class="cal-dot cal-dot-audio"></span>
+            <span class="cal-marker-label">Audio (algo)</span>
+          </div>
+          {% if audio_info.detected %}
+            <div class="cal-marker-value">
+              Frame <strong id="cal-audio-frame">{{ (audio_info.gate_t * results.fps) | round | int }}</strong>
+              <span class="cal-marker-sub">· t = {{ "%.3f"|format(audio_info.gate_t) }}s</span>
+            </div>
+            <div class="cal-marker-meta">
+              Confiance {{ "%.0f"|format((audio_info.confidence or 0) * 100) }}% ·
+              4 bips détectés à {{ audio_info.beeps_t | map("round", 3) | join(", ") if audio_info.beeps_t else '—' }}s
+            </div>
+            <button class="btn btn-sm" onclick="jumpToAudio()">⏵ Aller à cette frame</button>
+          {% else %}
+            <div class="cal-marker-value cal-marker-fail">
+              ⚠ Audio non détecté
+              <span class="cal-marker-sub">({{ audio_info.reason or '—' }})</span>
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="cal-marker cal-marker-stored">
+          <div class="cal-marker-head">
+            <span class="cal-dot cal-dot-stored"></span>
+            <span class="cal-marker-label">Stocké (analyse actuelle)</span>
+          </div>
+          <div class="cal-marker-value">
+            Frame <strong>{{ (results.gate_drop_t * results.fps) | round | int }}</strong>
+            <span class="cal-marker-sub">· t = {{ "%.3f"|format(results.gate_drop_t) }}s</span>
+          </div>
+          <div class="cal-marker-meta">Ce que l'analyse utilise pour calculer les phases / réaction.</div>
+          <button class="btn btn-sm" onclick="jumpToStored()">⏵ Aller à cette frame</button>
+        </div>
+
+        <div class="cal-marker cal-marker-you">
+          <div class="cal-marker-head">
+            <span class="cal-dot cal-dot-you"></span>
+            <span class="cal-marker-label">Toi (vraie frame visuelle)</span>
+          </div>
+          <div class="cal-marker-value">
+            {% if calibration %}
+              Frame <strong id="cal-true-frame">{{ calibration.true_gate_frame }}</strong>
+              <span class="cal-marker-sub">· t = <span id="cal-true-t">{{ "%.3f"|format(calibration.true_gate_t) }}</span>s</span>
+            {% else %}
+              <em id="cal-true-empty">Pas encore marqué</em>
+              <strong id="cal-true-frame" hidden></strong>
+              <span class="cal-marker-sub">· t = <span id="cal-true-t"></span>s</span>
+            {% endif %}
+          </div>
+          <div class="cal-marker-actions">
+            <button class="btn btn-primary" id="btn-mark-true">📍 Marquer cette frame</button>
+            {% if calibration %}
+            <button class="btn btn-cal-reset" id="btn-reset-cal">↺ Reset</button>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="cal-diff-box" id="cal-diff-box"
+             {% if not calibration %}hidden{% endif %}>
+          <div class="cal-diff-label">Écart audio − toi</div>
+          <div class="cal-diff-value">
+            <span id="cal-diff-ms">{% if calibration %}{{ "%+.0f"|format(calibration.diff_t_ms or 0) }}{% endif %}</span> ms
+            (<span id="cal-diff-frames">{% if calibration %}{{ "%+d"|format(calibration.diff_frames or 0) }}{% endif %}</span> frames)
+          </div>
+          <div class="cal-diff-hint">
+            Positif = audio en retard sur ton œil · Négatif = audio en avance
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const FPS         = {{ results.fps }};
+  const AUDIO_T     = {% if audio_info.detected %}{{ audio_info.gate_t }}{% else %}null{% endif %};
+  const STORED_T    = {{ results.gate_drop_t }};
+  const JOB_ID      = {{ job_id|tojson }};
+
+  const video   = document.getElementById('cal-video');
+  const scrub   = document.getElementById('cal-scrub');
+  const counter = document.getElementById('cal-counter');
+  let scrubbing = false;
+
+  function fmtFrame(t) { return Math.round(t * FPS); }
+
+  function onLoaded() {
+    scrub.max = Math.max(1, Math.round(video.duration * FPS) - 1);
+    // Démarre 0.5s avant le gate stocké
+    video.currentTime = Math.max(0, STORED_T - 0.5);
+    video.pause();
+    syncUI();
+  }
+  if (video.readyState >= 1) onLoaded();
+  else video.addEventListener('loadedmetadata', onLoaded, { once: true });
+
+  function syncUI() {
+    if (!video.duration) return;
+    const f = fmtFrame(video.currentTime);
+    counter.textContent = `Frame ${f} · t=${video.currentTime.toFixed(3)}s`;
+    if (!scrubbing) scrub.value = f;
+  }
+  ['timeupdate', 'seeked', 'loadedmetadata'].forEach(ev =>
+    video.addEventListener(ev, syncUI));
+
+  scrub.addEventListener('mousedown',  () => { scrubbing = true; video.pause(); });
+  scrub.addEventListener('touchstart', () => { scrubbing = true; video.pause(); }, { passive: true });
+  scrub.addEventListener('input', () => {
+    const f = parseInt(scrub.value, 10) || 0;
+    video.currentTime = f / FPS;
+    counter.textContent = `Frame ${f} · t=${(f/FPS).toFixed(3)}s`;
+  });
+  scrub.addEventListener('mouseup',  () => { scrubbing = false; });
+  scrub.addEventListener('touchend', () => { scrubbing = false; });
+
+  function step(dir) {
+    video.pause();
+    const f = Math.max(0, fmtFrame(video.currentTime) + dir);
+    video.currentTime = f / FPS;
+  }
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    if      (e.key === 'ArrowRight') { e.preventDefault(); step(+1); }
+    else if (e.key === 'ArrowLeft')  { e.preventDefault(); step(-1); }
+    else if (e.key === ' ')          { e.preventDefault(); video.paused ? video.play() : video.pause(); }
+    else if (e.key === 'm' || e.key === 'M') { document.getElementById('btn-mark-true').click(); }
+  });
+
+  function jumpToAudio()  { if (AUDIO_T !== null) { video.currentTime = AUDIO_T; video.pause(); } }
+  function jumpToStored() { video.currentTime = STORED_T; video.pause(); }
+
+  // ── Marquer la vraie frame ───────────────────────────────────────
+  document.getElementById('btn-mark-true').addEventListener('click', async () => {
+    const t = video.currentTime;
+    const f = fmtFrame(t);
+    const fd = new FormData();
+    fd.append('true_gate_t', t);
+    if (AUDIO_T !== null) fd.append('audio_t', AUDIO_T);
+    const res = await fetch(`/jobs/${JOB_ID}/gate_calibration`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok || !data.ok) { alert('Erreur : ' + (data.error || res.status)); return; }
+    const cal = data.calibration;
+    // Update UI sans reload
+    const trueFrameEl = document.getElementById('cal-true-frame');
+    const trueTEl     = document.getElementById('cal-true-t');
+    const emptyEl     = document.getElementById('cal-true-empty');
+    if (emptyEl) emptyEl.hidden = true;
+    trueFrameEl.hidden = false;
+    trueFrameEl.textContent = cal.true_gate_frame;
+    trueTEl.textContent = cal.true_gate_t.toFixed(3);
+    if (cal.diff_t_ms !== null && cal.diff_t_ms !== undefined) {
+      document.getElementById('cal-diff-ms').textContent     = (cal.diff_t_ms >= 0 ? '+' : '') + cal.diff_t_ms;
+      document.getElementById('cal-diff-frames').textContent = (cal.diff_frames >= 0 ? '+' : '') + cal.diff_frames;
+      document.getElementById('cal-diff-box').hidden = false;
+    }
+  });
+
+  const resetBtn = document.getElementById('btn-reset-cal');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', async () => {
+      if (!confirm('Supprimer la calibration de cette vidéo ?')) return;
+      const res = await fetch(`/jobs/${JOB_ID}/gate_calibration`, { method: 'DELETE' });
+      if (res.ok) location.reload();
+      else       alert('Erreur lors du reset');
+    });
+  }
+</script>
+{% endblock %}

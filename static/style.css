@@ -621,6 +621,108 @@ header h1 {
 }
 .btn-backup:hover { background: var(--accent); color: #001820; border-color: var(--accent); }
 
+/* ── Calibration gate ─────────────────────────────────────────────── */
+.cal-table-wrap { overflow-x: auto; }
+.cal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .9rem;
+}
+.cal-table th, .cal-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.cal-table th { color: var(--muted); font-weight: 500; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+.cal-table tr.cal-row-done { background: rgba(0, 212, 255, 0.04); }
+.cal-link { color: var(--text-strong); text-decoration: none; font-weight: 500; }
+.cal-link:hover { color: var(--accent); }
+.cal-diff { font-variant-numeric: tabular-nums; font-weight: 600; }
+.cal-diff-good { color: var(--green); }
+.cal-diff-warn { color: var(--orange); }
+.cal-diff-bad  { color: var(--red); }
+.btn-cal {
+  background: var(--surface-elevated);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  font-size: .82rem;
+  text-decoration: none;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+.btn-cal:hover { color: var(--accent); border-color: var(--accent); }
+.muted { color: var(--muted); }
+
+.cal-detail-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 24px;
+}
+@media (max-width: 1000px) { .cal-detail-grid { grid-template-columns: 1fr; } }
+
+.cal-marker {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.cal-marker-head { display: flex; align-items: center; gap: 8px; font-size: .82rem; color: var(--muted); }
+.cal-marker-label { font-weight: 500; }
+.cal-marker-value { font-size: 1.05rem; color: var(--text-strong); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.cal-marker-sub { color: var(--muted); font-size: .85rem; margin-left: 6px; font-weight: normal; }
+.cal-marker-meta { color: var(--muted); font-size: .78rem; margin-top: 4px; }
+.cal-marker-fail { color: var(--red); }
+.cal-marker-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.cal-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.cal-dot-audio  { background: #00d4ff; }
+.cal-dot-stored { background: #9bb0d4; }
+.cal-dot-you    { background: #ff9447; }
+.cal-marker-audio  { border-left: 3px solid #00d4ff; }
+.cal-marker-stored { border-left: 3px solid #9bb0d4; }
+.cal-marker-you    { border-left: 3px solid #ff9447; }
+.btn-sm {
+  background: var(--surface-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: .78rem;
+  cursor: pointer;
+  margin-top: 6px;
+}
+.btn-sm:hover { color: var(--accent); border-color: var(--accent); }
+.btn-cal-reset {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: .82rem;
+  cursor: pointer;
+}
+.btn-cal-reset:hover { color: var(--red); border-color: var(--red); }
+.cal-diff-box {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-mid);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-top: 8px;
+}
+.cal-diff-label { color: var(--accent); font-size: .82rem; font-weight: 500; }
+.cal-diff-value { font-size: 1.6rem; font-weight: 700; color: var(--text-strong); font-variant-numeric: tabular-nums; margin-top: 4px; }
+.cal-diff-hint { color: var(--muted); font-size: .78rem; margin-top: 4px; }
+.alert-info {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-mid);
+  color: var(--text);
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  font-size: .88rem;
+}
+
 /* ── Bandeau analyse éphémère + bouton athlète + popover ──────────── */
 .ephemeral-banner {
   margin-top: 10px;

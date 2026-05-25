@@ -858,6 +858,107 @@ async def settings_page(request: Request):
     })
 
 
+# ── Calibration du gate drop ─────────────────────────────────────────────────
+@app.get("/gate_calibration")
+async def gate_calibration_list(request: Request):
+    """Liste des jobs avec leur statut de calibration et stats agrégées."""
+    import statistics
+    rows = []
+    for jid, j in jobs.items():
+        if j.get("status") != "done": continue
+        r   = j.get("results", {})
+        cal = j.get("gate_calibration") or {}
+        rows.append({
+            "job_id":         jid,
+            "display_name":   _display_name(jid, j),
+            "added_at":       j.get("added_at", ""),
+            "fps":            r.get("fps"),
+            "stored_gate_t":  r.get("gate_drop_t"),
+            "calibrated":     bool(cal),
+            "audio_t":        cal.get("audio_t"),
+            "true_t":         cal.get("true_gate_t"),
+            "diff_ms":        cal.get("diff_t_ms"),
+            "diff_frames":    cal.get("diff_frames"),
+            "calibrated_at":  cal.get("calibrated_at"),
+        })
+    rows.sort(key=lambda r: r["added_at"], reverse=True)
+    # Stats globales sur les calibrés
+    diffs_ms = [r["diff_ms"] for r in rows if r["calibrated"] and r["diff_ms"] is not None]
+    stats = None
+    if diffs_ms:
+        stats = {
+            "count":       len(diffs_ms),
+            "median_ms":   round(statistics.median(diffs_ms), 1),
+            "mean_ms":     round(sum(diffs_ms) / len(diffs_ms), 1),
+            "stdev_ms":    round(statistics.stdev(diffs_ms) if len(diffs_ms) > 1 else 0.0, 1),
+            "abs_mean_ms": round(sum(abs(d) for d in diffs_ms) / len(diffs_ms), 1),
+            "min_ms":      round(min(diffs_ms), 1),
+            "max_ms":      round(max(diffs_ms), 1),
+        }
+    return templates.TemplateResponse(request, "gate_calibration.html", {
+        "rows": rows, "stats": stats,
+    })
+
+
+@app.get("/gate_calibration/{job_id}")
+async def gate_calibration_detail(request: Request, job_id: str):
+    """Vue détaillée : vidéo + marker audio + marker user pour 1 job."""
+    j = get_job_or_recover(job_id)
+    if not j or j.get("status") != "done":
+        return templates.TemplateResponse(request, "index.html",
+                                          {"error": "Job introuvable."})
+    # Re-run audio détection à la volée pour avoir la valeur brute du algo
+    audio_info = None
+    try:
+        vp = Path(j.get("video_path", ""))
+        if vp.exists():
+            audio_info = detect_gate_drop(vp)
+    except Exception as e:
+        audio_info = {"detected": False, "reason": f"audio rerun failed: {e}"}
+    return templates.TemplateResponse(request, "gate_calibration_detail.html", {
+        "job_id":        job_id,
+        "display_name":  _display_name(job_id, j),
+        "results":       j["results"],
+        "video_url":     j.get("video_url"),
+        "audio_info":    audio_info or {"detected": False},
+        "calibration":   j.get("gate_calibration") or {},
+    })
+
+
+@app.post("/jobs/{job_id}/gate_calibration")
+async def jobs_set_gate_calibration(job_id: str,
+                                     true_gate_t: float = Form(...),
+                                     audio_t: float    = Form(-1.0)):
+    """Sauve la frame "vraie" marquée visuellement par l'user + le diff avec audio."""
+    j = jobs.get(job_id)
+    if not j:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    fps = j.get("results", {}).get("fps") or 30.0
+    diff_t = (audio_t - true_gate_t) if audio_t >= 0 else None
+    j["gate_calibration"] = {
+        "true_gate_t":     float(true_gate_t),
+        "true_gate_frame": int(round(true_gate_t * fps)),
+        "audio_t":         float(audio_t) if audio_t >= 0 else None,
+        "audio_frame":     int(round(audio_t * fps)) if audio_t >= 0 else None,
+        "diff_t_ms":       round(diff_t * 1000, 1) if diff_t is not None else None,
+        "diff_frames":     int(round(diff_t * fps)) if diff_t is not None else None,
+        "calibrated_at":   datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    save_jobs(jobs)
+    return {"ok": True, "calibration": j["gate_calibration"]}
+
+
+@app.delete("/jobs/{job_id}/gate_calibration")
+async def jobs_delete_gate_calibration(job_id: str):
+    j = jobs.get(job_id)
+    if not j:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    if "gate_calibration" in j:
+        del j["gate_calibration"]
+        save_jobs(jobs)
+    return {"ok": True}
+
+
 @app.post("/jobs/purge_orphans")
 async def jobs_purge_orphans():
     """Supprime tous les jobs en mémoire sans athlète + les fichiers orphelins

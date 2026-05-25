@@ -1,0 +1,98 @@
+{% extends "_base.html" %}
+
+{% block title %}Calibration gate — BMX Start Analyzer{% endblock %}
+{% set active = "settings" %}
+
+{% block content %}
+  <header>
+    <a href="/settings" class="back-link">← Paramètres</a>
+    <h1>Calibration du gate drop</h1>
+    <p class="subtitle">
+      Compare ce que la <strong>détection audio</strong> propose vs ce que <strong>ton œil</strong> voit
+      sur la vidéo. Si un offset systématique se dégage, on saura comment l'ajuster.
+    </p>
+  </header>
+
+  {% if stats %}
+  <section class="section">
+    <h2>Stats agrégées <span class="section-tag">{{ stats.count }} vidéo{{ 's' if stats.count != 1 else '' }} calibrée{{ 's' if stats.count != 1 else '' }}</span></h2>
+    <div class="metrics-grid">
+      <div class="metric-card {% if stats.abs_mean_ms <= 50 %}card-green{% elif stats.abs_mean_ms <= 100 %}card-orange{% else %}card-red{% endif %}">
+        <div class="metric-label">Écart moyen absolu</div>
+        <div class="metric-value">{{ stats.abs_mean_ms }}<span class="metric-unit">ms</span></div>
+        <div class="metric-sub">audio vs ton œil</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Médiane signée</div>
+        <div class="metric-value">{{ "%+.1f"|format(stats.median_ms) }}<span class="metric-unit">ms</span></div>
+        <div class="metric-sub">+ = audio en retard / − = audio en avance</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Écart-type</div>
+        <div class="metric-value">{{ stats.stdev_ms }}<span class="metric-unit">ms</span></div>
+        <div class="metric-sub">dispersion des diffs</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Min / Max</div>
+        <div class="metric-value" style="font-size:1rem">{{ "%+.0f"|format(stats.min_ms) }} / {{ "%+.0f"|format(stats.max_ms) }}<span class="metric-unit">ms</span></div>
+        <div class="metric-sub">extrêmes des écarts</div>
+      </div>
+    </div>
+    {% if stats.count >= 5 and stats.stdev_ms < 30 %}
+    <div class="alert alert-info" style="margin-top:14px">
+      💡 L'écart est cohérent (écart-type {{ stats.stdev_ms }} ms). Si la médiane est non nulle,
+      tu peux appliquer une correction systématique à la détection audio.
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section class="section">
+    <h2>Vidéos</h2>
+    {% if not rows %}
+    <div class="empty-state">Aucune vidéo analysée.</div>
+    {% else %}
+    <div class="cal-table-wrap">
+      <table class="cal-table">
+        <thead>
+          <tr>
+            <th>Vidéo</th>
+            <th>Gate stocké</th>
+            <th>Audio (live)</th>
+            <th>Toi</th>
+            <th>Diff</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+          <tr class="{% if r.calibrated %}cal-row-done{% endif %}">
+            <td>
+              <a href="/gate_calibration/{{ r.job_id }}" class="cal-link">{{ r.display_name }}</a>
+            </td>
+            <td>{% if r.stored_gate_t is not none %}{{ "%.3f"|format(r.stored_gate_t) }}s{% else %}—{% endif %}</td>
+            <td>{% if r.audio_t is not none %}{{ "%.3f"|format(r.audio_t) }}s{% else %}—{% endif %}</td>
+            <td>{% if r.true_t is not none %}{{ "%.3f"|format(r.true_t) }}s{% else %}—{% endif %}</td>
+            <td>
+              {% if r.diff_ms is not none %}
+                <span class="cal-diff {% if r.diff_ms|abs <= 50 %}cal-diff-good{% elif r.diff_ms|abs <= 100 %}cal-diff-warn{% else %}cal-diff-bad{% endif %}">
+                  {{ "%+.0f"|format(r.diff_ms) }} ms
+                  ({{ "%+d"|format(r.diff_frames) }} f)
+                </span>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="/gate_calibration/{{ r.job_id }}" class="btn btn-cal">
+                {% if r.calibrated %}↻ Recalibrer{% else %}🎯 Calibrer{% endif %}
+              </a>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+{% endblock %}
