@@ -20,7 +20,8 @@
       </button>
       <div class="anno-tools" id="anno-tools" style="display:none">
         <span class="anno-tools-group">
-          <button type="button" class="anno-tool tool-active" data-tool="arrow" title="Flèche">→</button>
+          <button type="button" class="anno-tool tool-active" data-tool="arrow"  title="Flèche">→</button>
+          <button type="button" class="anno-tool"           data-tool="pencil" title="Crayon (dessin libre)">✎</button>
           <button type="button" class="anno-tool"           data-tool="circle" title="Cercle">○</button>
           <button type="button" class="anno-tool"           data-tool="text"   title="Texte">T</button>
           <button type="button" class="anno-tool"           data-tool="erase"  title="Effacer">⌫</button>
@@ -148,6 +149,7 @@
     let currentColor = '#00d4ff';
     let drawStart    = null;
     let drawPreview  = null;
+    let pencilPoints = [];
     const annoCanvas = document.getElementById('anno-canvas-main');
 
     function currentFrameInt() {
@@ -186,6 +188,23 @@
       ctx.fillRect(x - pad, y - 22, m.width + pad * 2, 28);
       ctx.fillStyle = color; ctx.fillText(text, x, y);
     }
+    function drawPencilA(ctx, points, color, W, H, lineWidth = 3) {
+      if (!points || points.length === 0) return;
+      ctx.strokeStyle = color; ctx.fillStyle = color;
+      ctx.lineWidth = lineWidth; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      if (points.length === 1) {
+        ctx.beginPath();
+        ctx.arc(points[0].x * W, points[0].y * H, lineWidth / 2, 0, Math.PI * 2);
+        ctx.fill();
+        return;
+      }
+      ctx.beginPath();
+      ctx.moveTo(points[0].x * W, points[0].y * H);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x * W, points[i].y * H);
+      }
+      ctx.stroke();
+    }
     function renderAnno() {
       const { W, H } = fitCanvas();
       const ctx = annoCanvas.getContext('2d');
@@ -196,6 +215,7 @@
         if      (a.type === 'arrow')  drawArrow(ctx, a.x1*W, a.y1*H, a.x2*W, a.y2*H, a.color);
         else if (a.type === 'circle') drawCircleA(ctx, a.cx*W, a.cy*H, a.r*Math.min(W,H), a.color);
         else if (a.type === 'text')   drawTextA(ctx,  a.x*W, a.y*H, a.text || '', a.color);
+        else if (a.type === 'pencil') drawPencilA(ctx, a.points, a.color, W, H);
       }
       if (drawPreview && drawStart && annoMode) {
         const c = currentColor;
@@ -203,6 +223,9 @@
         else if (currentTool === 'circle') {
           const r = Math.hypot(drawPreview.x - drawStart.x, drawPreview.y - drawStart.y);
           drawCircleA(ctx, drawStart.x*W, drawStart.y*H, r * Math.min(W, H), c);
+        }
+        else if (currentTool === 'pencil' && pencilPoints.length > 0) {
+          drawPencilA(ctx, pencilPoints, c, W, H);
         }
       }
     }
@@ -261,6 +284,20 @@
         return Math.abs(d - a.r);
       }
       if (a.type === 'text') return Math.hypot(x - a.x, y - a.y);
+      if (a.type === 'pencil') {
+        if (!a.points || a.points.length === 0) return Infinity;
+        if (a.points.length === 1) return Math.hypot(x - a.points[0].x, y - a.points[0].y);
+        let minD = Infinity;
+        for (let i = 1; i < a.points.length; i++) {
+          const p1 = a.points[i-1], p2 = a.points[i];
+          const dx = p2.x - p1.x, dy = p2.y - p1.y;
+          const len2 = dx*dx + dy*dy;
+          const t = len2 > 0 ? Math.max(0, Math.min(1, ((x-p1.x)*dx + (y-p1.y)*dy) / len2)) : 0;
+          const d = Math.hypot(x - (p1.x + t*dx), y - (p1.y + t*dy));
+          if (d < minD) minD = d;
+        }
+        return minD;
+      }
       return Infinity;
     }
 
@@ -295,11 +332,21 @@
         }
         return;
       }
-      drawStart = p; drawPreview = p; renderAnno();
+      drawStart = p; drawPreview = p;
+      if (currentTool === 'pencil') pencilPoints = [p];
+      renderAnno();
     });
     annoCanvas.addEventListener('pointermove', e => {
       if (!annoMode || !drawStart) return;
-      drawPreview = canvasPos(e); renderAnno();
+      const p = canvasPos(e);
+      drawPreview = p;
+      if (currentTool === 'pencil') {
+        const last = pencilPoints[pencilPoints.length - 1];
+        if (!last || Math.hypot(p.x - last.x, p.y - last.y) > 0.004) {
+          pencilPoints.push(p);
+        }
+      }
+      renderAnno();
     });
     annoCanvas.addEventListener('pointerup', e => {
       if (!annoMode || !drawStart) return;
@@ -320,11 +367,26 @@
                              color: currentColor });
           scheduleSave();
         }
+      } else if (currentTool === 'pencil') {
+        const last = pencilPoints[pencilPoints.length - 1];
+        if (!last || Math.hypot(p.x - last.x, p.y - last.y) > 0.001) {
+          pencilPoints.push(p);
+        }
+        if (pencilPoints.length >= 2) {
+          annotations.push({ video: ANNO_PANEL, frame: f, type: 'pencil',
+                             points: pencilPoints.slice(),
+                             color: currentColor });
+          scheduleSave();
+        }
+        pencilPoints = [];
       }
       drawStart = null; drawPreview = null; renderAnno();
     });
     annoCanvas.addEventListener('pointercancel', () => {
-      if (drawStart) { drawStart = null; drawPreview = null; renderAnno(); }
+      if (drawStart) {
+        drawStart = null; drawPreview = null; pencilPoints = [];
+        renderAnno();
+      }
     });
 
     let saveTimer = null;
