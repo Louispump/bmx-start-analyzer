@@ -24,6 +24,15 @@ MAX_INTERVAL_S = 0.400
 # Tolérance de régularité (écart-type / moyenne des intervalles)
 MAX_REGULARITY = 0.35
 
+# Décalage audio → chute visuelle du gate.
+# L'onset du 4e bip = clic mécanique du déclencheur capté par le micro.
+# La chute visuelle du gate suit avec ~95 ms de délai (temps mécanique entre
+# déclenchement et grille effectivement au sol).
+# Mesuré sur 4 vidéos via /gate_calibration (mai 2026) :
+# diffs -90.4 / -90.4 / -97.3 / -130.7 ms (médiane -94 ms).
+# À recalibrer si on accumule des calibrations divergentes.
+GATE_VISUAL_OFFSET_S = 0.095
+
 
 def _extract_audio(video_path: Path) -> np.ndarray | None:
     """Extrait l'audio en mono float32 normalisé via ffmpeg. None si échec."""
@@ -138,14 +147,18 @@ def detect_gate_drop(video_path: Path) -> dict:
     if best is None:
         return {"detected": False, "reason": "no_4_beep_pattern"}
 
+    # Applique la correction visuelle : on retourne le moment où le gate est
+    # visuellement tombé, pas le moment où le micro entend le clic.
+    # beeps_t reste l'audio brut (bip1 sert d'ancrage du temps de réaction).
     return {
         "detected": True,
-        "gate_t": best["gate_t"],
+        "gate_t": best["gate_t"] + GATE_VISUAL_OFFSET_S,
         "beeps_t": best["beeps_t"],
         "mean_interval_ms": best["mean_interval_ms"],
         "regularity": best["regularity"],
         "confidence": min(1.0, best["score"] / 5.0),
         "method": best["method"],
+        "gate_t_audio_raw": best["gate_t"],  # avant correction (debug)
     }
 
 
