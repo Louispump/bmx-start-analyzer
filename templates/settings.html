@@ -5,47 +5,33 @@
 
 {% block content %}
   <header>
-    <h1 data-i18n="settings.title">Paramètres</h1>
-    <p class="subtitle" data-i18n="settings.subtitle">Réglages d'affichage de l'application.</p>
+    <h1>Paramètres</h1>
+    <p class="subtitle">Réglages d'affichage de l'application.</p>
   </header>
 
   <div class="section">
-    <h2 data-i18n="settings.theme_title">Thème</h2>
-    <p class="section-note" data-i18n="settings.theme_note">Choisis l'apparence de l'interface. Le réglage est sauvegardé localement et appliqué à toutes les pages.</p>
+    <h2>Thème</h2>
+    <p class="section-note">Choisis l'apparence de l'interface. Le réglage est sauvegardé localement et appliqué à toutes les pages.</p>
     <div class="radio-cards" id="theme-cards">
-      <label class="radio-card"><input type="radio" name="theme" value="dark"><span class="rc-name" data-i18n="settings.theme_dark">🌙 Sombre</span><span class="rc-delta" data-i18n="settings.theme_dark_sub">par défaut</span></label>
-      <label class="radio-card"><input type="radio" name="theme" value="light"><span class="rc-name" data-i18n="settings.theme_light">☀️ Clair</span><span class="rc-delta" data-i18n="settings.theme_light_sub">lumière du jour</span></label>
+      <label class="radio-card"><input type="radio" name="theme" value="dark"><span class="rc-name">🌙 Sombre</span><span class="rc-delta">par défaut</span></label>
+      <label class="radio-card"><input type="radio" name="theme" value="light"><span class="rc-name">☀️ Clair</span><span class="rc-delta">lumière du jour</span></label>
     </div>
   </div>
 
   <div class="section">
-    <h2 data-i18n="settings.language_title">Langue</h2>
-    <p class="section-note" data-i18n="settings.language_note">Choisis la langue de l'interface. Le choix est sauvegardé localement sur cet appareil.</p>
-    <div class="radio-cards" id="lang-cards">
-      <label class="radio-card"><input type="radio" name="lang" value="fr"><span class="rc-name" data-i18n="settings.lang_fr">🇫🇷 Français</span></label>
-      <label class="radio-card"><input type="radio" name="lang" value="en"><span class="rc-name" data-i18n="settings.lang_en">🇬🇧 English</span></label>
-      <label class="radio-card"><input type="radio" name="lang" value="es"><span class="rc-name" data-i18n="settings.lang_es">🇪🇸 Español</span></label>
-    </div>
-  </div>
-
-  <div class="section">
-    <h2 data-i18n="settings.cleanup_title">Nettoyage</h2>
-    <p class="section-note" data-i18n="settings.cleanup_note">
+    <h2>Nettoyage</h2>
+    <p class="section-note">
       Les analyses sans athlète assigné ne sont plus conservées au redémarrage. Tu peux aussi forcer leur suppression maintenant (vidéos + CSV sur disque inclus). Action irréversible.
     </p>
     <div class="purge-card">
       <div class="purge-card-text">
         <div class="purge-card-counts">
-          <strong id="purge-jobs-count">{{ n_orphan_jobs }}</strong>
-          <span data-i18n="settings.cleanup_jobs">analyses sans athlète</span>
-          ·
-          <strong id="purge-files-count">{{ n_orphan_files }}</strong>
-          <span data-i18n="settings.cleanup_files">fichiers orphelins sur disque</span>
+          <strong id="purge-jobs-count">{{ n_orphan_jobs }}</strong> analyse{{ 's' if n_orphan_jobs != 1 else '' }} sans athlète
+          · <strong id="purge-files-count">{{ n_orphan_files }}</strong> fichier{{ 's' if n_orphan_files != 1 else '' }} orphelin{{ 's' if n_orphan_files != 1 else '' }} sur disque
         </div>
-        <div class="purge-card-sub" data-i18n="settings.cleanup_detail">Fichiers détectés : vidéos uploadées + annotées + CSV landmarks + JSON résultats dont le préfixe ne correspond plus à aucun job ni pro.</div>
+        <div class="purge-card-sub">Fichiers détectés : vidéos uploadées + annotées + CSV landmarks + JSON résultats dont le préfixe ne correspond plus à aucun job ni pro.</div>
       </div>
       <button type="button" id="btn-purge-orphans" class="btn btn-purge"
-              data-i18n="settings.cleanup_btn"
               {% if n_orphan_jobs == 0 and n_orphan_files == 0 %}disabled{% endif %}>
         🗑 Purger maintenant
       </button>
@@ -72,45 +58,29 @@
     });
   });
 
-  // Langue : init + bascule live via window.i18n.set()
-  (function() {
-    const current = (window.i18n && window.i18n.lang) || 'fr';
-    const input = document.querySelector(`input[name="lang"][value="${current}"]`);
-    if (input) input.checked = true;
-  })();
-  document.querySelectorAll('input[name="lang"]').forEach(r => {
-    r.addEventListener('change', () => {
-      if (window.i18n) window.i18n.set(r.value);
-    });
-  });
-
   // Purge des analyses orphelines
   const btnPurge = document.getElementById('btn-purge-orphans');
   if (btnPurge) {
     btnPurge.addEventListener('click', async () => {
       const nJ = document.getElementById('purge-jobs-count').textContent;
       const nF = document.getElementById('purge-files-count').textContent;
-      const tConfirm = (window.t ? window.t('settings.cleanup_confirm') : 'Supprimer {jobs} analyse(s) + {files} fichier(s) ? Cette action est irréversible.')
-        .replace('{jobs}', nJ).replace('{files}', nF);
-      if (!confirm(tConfirm)) return;
+      if (!confirm(`Supprimer ${nJ} analyse(s) + ${nF} fichier(s) ? Cette action est irréversible.`)) return;
       btnPurge.disabled = true;
       const original = btnPurge.textContent;
-      btnPurge.textContent = (window.t ? window.t('settings.cleanup_progress') : 'Purge en cours…');
+      btnPurge.textContent = 'Purge en cours…';
       try {
         const res  = await fetch('/jobs/purge_orphans', { method: 'POST' });
         const data = await res.json();
         if (!res.ok) {
-          alert((window.t ? window.t('common.error') : 'Erreur') + ' : ' + (data.error || res.status));
+          alert('Erreur : ' + (data.error || res.status));
           btnPurge.disabled = false;
           btnPurge.textContent = original;
           return;
         }
-        const tDone = (window.t ? window.t('settings.cleanup_done') : '✅ {jobs} analyse(s) et {files} fichier(s) supprimé(s).')
-          .replace('{jobs}', data.jobs_removed).replace('{files}', data.files_removed);
-        alert(tDone);
+        alert(`✅ ${data.jobs_removed} analyse(s) et ${data.files_removed} fichier(s) supprimé(s).`);
         location.reload();
       } catch (e) {
-        alert((window.t ? window.t('common.network_error') : 'Erreur réseau : ') + e.message);
+        alert('Erreur réseau : ' + e.message);
         btnPurge.disabled = false;
         btnPurge.textContent = original;
       }

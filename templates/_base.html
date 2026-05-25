@@ -21,7 +21,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/i18n.js"></script>
   {% block head %}{% endblock %}
 </head>
 <body class="app-shell {% block body_class %}{% endblock %}">
@@ -60,48 +59,48 @@
     <nav class="sidebar-nav">
       <a href="/" class="nav-item {% if active == 'index' %}active{% endif %}">
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M3 10v7h14v-7M10 2v12M5 7l5-5 5 5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span data-i18n="sidebar.new_analysis">Nouvelle analyse</span>
+        <span>Nouvelle analyse</span>
       </a>
       <a href="/athletes" class="nav-item {% if active == 'athletes' %}active{% endif %}">
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 10a3 3 0 100-6 3 3 0 000 6zM4 17c0-3 2.7-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span data-i18n="sidebar.athletes">Athlètes</span>
+        <span>Athlètes</span>
       </a>
       <a href="/pros" class="nav-item {% if active == 'pros' %}active{% endif %}">
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M5 17v-5l5-3 5 3v5M3 8l7-5 7 5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span data-i18n="sidebar.pros_bank">Banque de pros</span>
+        <span>Banque de pros</span>
       </a>
       <a href="/manual_reaction" class="nav-item {% if active == 'manual_reaction' %}active{% endif %}">
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 5v5l3.5 2M10 18A8 8 0 1010 2a8 8 0 000 16z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span data-i18n="sidebar.manual_reaction">Mesure manuelle</span>
+        <span>Mesure manuelle</span>
       </a>
       {% set tools_active = active in ['tools_gear', 'tools_pressure'] %}
       <a href="/tools/gear" class="nav-item {% if tools_active %}active{% endif %}">
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.6 5.6l1.4 1.4M13 13l1.4 1.4M5.6 14.4L7 13M13 7l1.4-1.4M10 13a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span data-i18n="sidebar.tools">Outils</span>
+        <span>Outils</span>
       </a>
       {% if tools_active %}
       <a href="/tools/gear" class="nav-item nav-sub {% if active == 'tools_gear' %}active{% endif %}">
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 6a4 4 0 100 8 4 4 0 000-8z" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
-        <span data-i18n="sidebar.tools_gear">Gear ratio</span>
+        <span>Gear ratio</span>
       </a>
       <a href="/tools/pressure" class="nav-item nav-sub {% if active == 'tools_pressure' %}active{% endif %}">
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 3v7M10 17a4 4 0 100-8 4 4 0 000 8z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
-        <span data-i18n="sidebar.tools_pressure">Pression pneus</span>
+        <span>Pression pneus</span>
       </a>
       {% endif %}
       <a href="/settings" class="nav-item {% if active == 'settings' %}active{% endif %}">
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M10 13a3 3 0 100-6 3 3 0 000 6zM10 1.5v2M10 16.5v2M18.5 10h-2M3.5 10h-2M16 4l-1.5 1.5M5.5 14.5L4 16M16 16l-1.5-1.5M5.5 5.5L4 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
-        <span data-i18n="sidebar.settings">Paramètres</span>
+        <span>Paramètres</span>
       </a>
       {% if active == 'result' or active == 'compare' %}
       <div class="nav-divider"></div>
       <a href="/result/{{ job_id }}" class="nav-item nav-sub {% if active == 'result' %}active{% endif %}">
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M3 6h14M3 10h14M3 14h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        <span data-i18n="result.title_suffix">Analyse</span>
+        <span>Analyse</span>
       </a>
       <a href="/compare/{{ job_id }}" class="nav-item nav-sub {% if active == 'compare' %}active{% endif %}">
         <svg viewBox="0 0 20 20" class="nav-icon"><path d="M5 4v12M15 4v12M5 10h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        <span data-i18n="compare.title">Comparaison</span>
+        <span>Comparaison</span>
       </a>
       {% endif %}
     </nav>

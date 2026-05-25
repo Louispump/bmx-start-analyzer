@@ -5,20 +5,19 @@
 
 {% block content %}
   <header>
-    <h1 data-i18n="pros.title">Banque de pros</h1>
-    <p class="subtitle" data-i18n="pros.subtitle">Vidéos de référence pour la comparaison côte à côte. Upload une vidéo, identifie le gate drop, et le squelette est généré.</p>
+    <h1>Banque de pros</h1>
+    <p class="subtitle">Vidéos de référence pour la comparaison côte à côte. Upload une vidéo, identifie le gate drop, et le squelette est généré.</p>
   </header>
 
   <!-- ÉTAPE 1 : Nom + upload -->
   <section class="section" id="step-upload">
     <div class="save-rider-box">
-      <h2 data-i18n="pros.add_pro">Ajouter un pro</h2>
-      <p class="section-note" data-i18n="pros.subtitle_form">Upload une vidéo → identifie le gate → le squelette est généré.</p>
+      <h2>Ajouter un pro</h2>
+      <p class="section-note">Upload une vidéo → identifie le gate → le squelette est généré.</p>
       <div class="save-form">
         <input type="text" id="pro-name-input" class="rider-name-input"
-               data-i18n-attr="placeholder:pros.pro_name_placeholder"
                placeholder="Nom (ex: Sylvain André…)" maxlength="40">
-        <label class="btn btn-primary" for="pro-file-input" data-i18n="pros.pick_video">Choisir une vidéo</label>
+        <label class="btn btn-primary" for="pro-file-input">Choisir une vidéo</label>
         <input type="file" id="pro-file-input" accept="video/*" style="display:none">
       </div>
     </div>
@@ -27,8 +26,8 @@
   <!-- ÉTAPE 2 : Sélection du gate drop -->
   <section class="section" id="step-gate" style="display:none">
     <div class="gate-select-box">
-      <h2 data-i18n="index.step_2_gate">📍 Identifie le gate drop</h2>
-      <p class="section-note" data-i18n-html="index.gate_hint">
+      <h2>📍 Identifie le gate drop</h2>
+      <p class="section-note">
         Scrub jusqu'au moment où la grille tombe, puis clique sur <strong>Marquer</strong>.
       </p>
       <div class="gate-video-wrap">
@@ -45,13 +44,12 @@
         <button class="btn-frame btn-frame-dark" onclick="gateStep(+1)">&#9654;</button>
       </div>
       <div class="gate-marker" id="gate-marker">
-        <span data-i18n="index.gate_marker_label">Gate drop :</span>
-        <strong id="gate-marker-val" data-i18n="index.gate_marker_unset">non défini</strong>
+        Gate drop : <strong id="gate-marker-val">non défini</strong>
       </div>
       <div class="gate-actions">
-        <button class="btn btn-gate-mark" onclick="markGate()" data-i18n="index.mark_gate_btn">📌 Marquer le gate ici</button>
+        <button class="btn btn-gate-mark" onclick="markGate()">📌 Marquer le gate ici</button>
         <button class="btn btn-primary" id="btn-confirm-gate"
-                onclick="confirmGate()" disabled data-i18n="pros.confirm_skeleton_btn">
+                onclick="confirmGate()" disabled>
           ✓ Confirmer et générer le squelette
         </button>
       </div>
@@ -62,7 +60,7 @@
   <section class="section" id="step-progress" style="display:none">
     <div class="progress-block" style="display:flex">
       <div class="spinner"></div>
-      <p class="progress-label" id="progress-label" data-i18n="pros.generating_skeleton">Génération du squelette...</p>
+      <p class="progress-label" id="progress-label">Génération du squelette...</p>
       <div class="progress-bar-wrap">
         <div class="progress-bar" id="progress-bar"></div>
       </div>
@@ -71,9 +69,9 @@
 
   <!-- Liste des pros -->
   <section class="section">
-    <h2><span data-i18n="pros.list_title">Pros enregistrés</span> <span class="section-tag">{{ pros|length }}</span></h2>
+    <h2>Pros enregistrés <span class="section-tag">{{ pros|length }}</span></h2>
     {% if not pros %}
-    <div class="empty-state" data-i18n="pros.empty_state">
+    <div class="empty-state">
       Aucun pro enregistré. Ajoute ta première vidéo de référence ci-dessus.
     </div>
     {% else %}
@@ -86,21 +84,21 @@
         </div>
         <div class="pro-status">
           {% if pro.status == 'done' %}
-            <span class="status-badge status-done" data-i18n="pros.status_ready">✓ Prêt</span>
+            <span class="status-badge status-done">✓ Prêt</span>
           {% elif pro.status == 'error' %}
-            <span class="status-badge status-error" data-i18n="pros.status_error">✗ Erreur</span>
+            <span class="status-badge status-error">✗ Erreur</span>
           {% elif pro.status == 'pending_gate' %}
-            <span class="status-badge status-processing" data-i18n="pros.status_pending_gate">⏳ Gate non défini</span>
+            <span class="status-badge status-processing">⏳ Gate non défini</span>
           {% else %}
             <span class="status-badge status-processing">⟳ {{ pro.progress or 'En cours…' }}</span>
           {% endif %}
         </div>
         {% if pro.status == 'done' %}
-        <a class="btn btn-pro-view" href="/pros/{{ pro.id }}/view" data-i18n="pros.view_btn">▶ Voir</a>
+        <a class="btn btn-pro-view" href="/pros/{{ pro.id }}/view">▶ Voir</a>
         {% else %}
         <span></span>
         {% endif %}
-        <button class="btn-delete" onclick="deletePro('{{ pro.id }}')">✕</button>
+        <button class="btn-delete" onclick="deletePro('{{ pro.id }}')" title="Retirer">✕</button>
       </div>
       {% endfor %}
     </div>
@@ -151,13 +149,13 @@
 
     gateVideo.addEventListener('timeupdate', () => {
       if (!scrubbing) gateScrub.value = Math.round(gateVideo.currentTime * videoFps);
-      gateCounter.textContent = `${t('common.frame', 'Frame')} ${Math.round(gateVideo.currentTime * videoFps)}`;
+      gateCounter.textContent = `Frame ${Math.round(gateVideo.currentTime * videoFps)}`;
     });
     gateScrub.addEventListener('mousedown',  () => { scrubbing = true; });
     gateScrub.addEventListener('touchstart', () => { scrubbing = true; }, {passive:true});
     gateScrub.addEventListener('input', () => {
       gateVideo.currentTime   = gateScrub.value / videoFps;
-      gateCounter.textContent = `${t('common.frame', 'Frame')} ${gateScrub.value}`;
+      gateCounter.textContent = `Frame ${gateScrub.value}`;
     });
     gateScrub.addEventListener('mouseup',  () => { scrubbing = false; });
     gateScrub.addEventListener('touchend', () => { scrubbing = false; });
@@ -174,7 +172,7 @@
       const banner = document.getElementById('detect-banner');
       banner.style.display = 'block';
       banner.className     = 'detect-banner detect-pending';
-      banner.textContent   = t('index.audio_detecting', '🔊 Détection audio en cours…');
+      banner.textContent   = '🔊 Détection audio en cours…';
       try {
         const res  = await fetch(`/pros/detect_gate/${proId}`, { method: 'POST' });
         const data = await res.json();
@@ -182,31 +180,27 @@
           const f = data.gate_frame;
           gateVideo.currentTime   = f / videoFps;
           gateScrub.value         = f;
-          gateCounter.textContent = `${t('common.frame', 'Frame')} ${f}`;
+          gateCounter.textContent = `Frame ${f}`;
           gateFrame = f;
           if (data.beeps_t && data.beeps_t.length > 0) {
             bip1Time = data.beeps_t[0];
           }
           document.getElementById('gate-marker-val').textContent =
-            t('index.gate_marker_set', `Frame ${f}  (t = ${(f / videoFps).toFixed(3)}s)`)
-              .replace('{frame}', f).replace('{t}', (f / videoFps).toFixed(3));
+            `Frame ${f}  (t = ${(f / videoFps).toFixed(3)}s)`;
           document.getElementById('btn-confirm-gate').disabled = false;
           banner.className = 'detect-banner detect-success';
-          const bipExtra = (bip1Time !== null)
-            ? t('index.audio_detected_bip1', `, 1<sup>er</sup> bip à t = ${bip1Time.toFixed(3)}s.`)
-                .replace('{t}', bip1Time.toFixed(3))
-            : '.';
-          banner.innerHTML = t('index.audio_detected_msg', '')
-            .replace('{frame}', f).replace('{t}', (f / videoFps).toFixed(3))
-            .replace('{bipExtra}', bipExtra)
-            || `🎯 Gate auto-détecté (4 beeps audio) à <strong>frame ${f}</strong> (t = ${(f / videoFps).toFixed(3)}s)${bipExtra} Confirme ou ajuste si besoin.`;
+          banner.innerHTML =
+            `🎯 Gate auto-détecté (4 beeps audio) à <strong>frame ${f}</strong> ` +
+            `(t = ${(f / videoFps).toFixed(3)}s)` +
+            (bip1Time !== null ? `, 1<sup>er</sup> bip à t = ${bip1Time.toFixed(3)}s.` : '.') +
+            ` Confirme ou ajuste si besoin.`;
         } else {
           banner.className   = 'detect-banner detect-fail';
-          banner.textContent = t('index.audio_failed', '🔇 Détection audio impossible — identifie manuellement.');
+          banner.textContent = '🔇 Détection audio impossible — identifie manuellement.';
         }
       } catch (e) {
         banner.className   = 'detect-banner detect-fail';
-        banner.textContent = t('index.audio_error', '⚠️ Erreur lors de la détection audio — identifie manuellement.');
+        banner.textContent = '⚠️ Erreur lors de la détection audio — identifie manuellement.';
       }
     }
 
@@ -215,14 +209,13 @@
       const f = Math.max(0, Math.round(gateVideo.currentTime * videoFps) + dir);
       gateVideo.currentTime   = f / videoFps;
       gateScrub.value         = f;
-      gateCounter.textContent = `${t('common.frame', 'Frame')} ${f}`;
+      gateCounter.textContent = `Frame ${f}`;
     }
 
     function markGate() {
       gateFrame = Math.round(gateVideo.currentTime * videoFps);
       document.getElementById('gate-marker-val').textContent =
-        t('index.gate_marker_set', `Frame ${gateFrame}  (t = ${(gateFrame / videoFps).toFixed(3)}s)`)
-          .replace('{frame}', gateFrame).replace('{t}', (gateFrame / videoFps).toFixed(3));
+        `Frame ${gateFrame}  (t = ${(gateFrame / videoFps).toFixed(3)}s)`;
       document.getElementById('btn-confirm-gate').disabled = false;
     }
 
@@ -260,7 +253,7 @@
     }
 
     async function deletePro(id) {
-      if (!confirm(t('pros.confirm_delete_pro', 'Retirer ce pro ?'))) return;
+      if (!confirm('Retirer ce pro ?')) return;
       await fetch(`/pros/${id}`, { method: 'DELETE' });
       location.reload();
     }

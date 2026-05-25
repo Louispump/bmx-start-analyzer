@@ -11,24 +11,24 @@
       {% else %}
         <a href="/" class="back-link" id="back-link">← Nouvelle vidéo</a>
       {% endif %}
-      <a href="/compare/{{ job_id }}" class="compare-link" data-i18n="result.compare_link">Comparer les riders</a>
+      <a href="/compare/{{ job_id }}" class="compare-link">Comparer les riders</a>
     </div>
     <div class="title-edit-wrap">
       <h1 id="job-title">{{ display_name }}</h1>
       <button type="button" class="btn-title-edit" id="btn-title-edit"
-              data-i18n-attr="title:result.rename_title">✎</button>
+              title="Renommer cette vidéo">✎</button>
       <form class="title-edit-form" id="title-edit-form" hidden>
         <input type="text" id="title-edit-input" maxlength="120"
                value="{{ custom_name }}"
                placeholder="{{ auto_name }}">
-        <button type="submit" class="btn-title-save" data-i18n="result.rename_save">Enregistrer</button>
+        <button type="submit" class="btn-title-save">Enregistrer</button>
         <button type="button" class="btn-title-reset" id="btn-title-reset"
-                data-i18n="result.rename_auto">↺ Auto</button>
+                title="Revenir au nom automatique">↺ Auto</button>
         <button type="button" class="btn-title-cancel" id="btn-title-cancel">✕</button>
       </form>
       <span class="title-auto-hint" id="title-auto-hint"
             {% if not custom_name %}hidden{% endif %}>
-        <span data-i18n="result.rename_auto_hint">Nom auto : </span>{{ auto_name }}
+        Nom auto : {{ auto_name }}
       </span>
     </div>
     <p class="subtitle">
@@ -41,17 +41,16 @@
         {% endif %}
       </span>
       <button type="button" class="btn-athlete-edit" id="btn-athlete-edit"
-              data-i18n="{{ 'result.change_athlete' if athlete else 'result.assign_athlete' }}">
+              title="{{ 'Changer l’athlète assigné' if athlete else 'Assigner un athlète' }}">
         {% if athlete %}✎ Changer{% else %}+ Assigner un athlète{% endif %}
       </button>
       {{ results.fps }} fps · {{ results.total_frames }} frames · {{ results.duration_s }}s
-      <span class="gate-badge gate-{{ results.gate_method }}"
-            data-i18n="{{ 'result.gate_audio' if results.gate_method == 'audio' else 'result.gate_visual' }}">
+      <span class="gate-badge gate-{{ results.gate_method }}">
         {{ "Audio" if results.gate_method == "audio" else "Visuel" }}
       </span>
     </p>
     {% if not athlete %}
-    <div class="ephemeral-banner" id="ephemeral-banner" data-i18n="result.ephemeral_warning">
+    <div class="ephemeral-banner" id="ephemeral-banner">
       ⚠️ Cette analyse n'est pas sauvegardée — elle disparaîtra au prochain redémarrage du serveur. Assigne un athlète pour la conserver.
     </div>
     {% endif %}
@@ -60,7 +59,7 @@
   <!-- Popover assignation athlète -->
   <div class="athlete-popover" id="athlete-popover" hidden>
     <div class="athlete-popover-head">
-      <strong data-i18n="result.popover_title">Assigner à un athlète</strong>
+      <strong>Assigner à un athlète</strong>
       <button type="button" class="athlete-popover-close" id="athlete-popover-close" aria-label="Fermer">✕</button>
     </div>
     <div class="athlete-popover-list" id="athlete-popover-list">
@@ -75,18 +74,16 @@
         </button>
         {% endfor %}
       {% else %}
-        <div class="athlete-popover-empty" data-i18n="result.popover_empty">Aucun athlète enregistré.</div>
+        <div class="athlete-popover-empty">Aucun athlète enregistré.</div>
       {% endif %}
     </div>
     <div class="athlete-popover-create">
-      <input type="text" id="athlete-popover-new-name"
-             data-i18n-attr="placeholder:result.popover_create_placeholder"
-             placeholder="Nouveau nom d'athlète…" maxlength="60">
-      <button type="button" id="athlete-popover-create-btn" data-i18n="result.popover_create_btn">+ Créer & assigner</button>
+      <input type="text" id="athlete-popover-new-name" placeholder="Nouveau nom d'athlète…" maxlength="60">
+      <button type="button" id="athlete-popover-create-btn">+ Créer & assigner</button>
     </div>
     {% if athlete %}
     <div class="athlete-popover-foot">
-      <button type="button" class="athlete-popover-unassign" id="athlete-popover-unassign" data-i18n="result.popover_unassign">
+      <button type="button" class="athlete-popover-unassign" id="athlete-popover-unassign">
         Retirer l'athlète (rendra l'analyse éphémère)
       </button>
     </div>
@@ -102,10 +99,10 @@
       {% elif results.reaction.type == 'bip' %}       card-orange
       {% else %}                                       card-green
       {% endif %}">
-      <div class="metric-label" data-i18n="result.metric_reaction">Temps de réaction</div>
+      <div class="metric-label">Temps de réaction</div>
       <div class="metric-value">
         {% if results.reaction.type == 'false_start' %}
-          <span data-i18n="result.metric_reaction_false">⚠ Faux départ</span>
+          ⚠ Faux départ
         {% elif has_bip %}
           {{ results.reaction.from_bip1_ms }}<span class="metric-unit">ms</span>
         {% else %}
@@ -116,35 +113,35 @@
         {% if results.reaction.type == 'false_start' %}
           Mouvement avant le bip 1 ({{ results.reaction.from_bip1_ms }} ms)
         {% elif has_bip %}
-          <span data-i18n="result.metric_reaction_from_bip1">Depuis le 1<sup>er</sup> bip</span> ·
+          Depuis le 1<sup>er</sup> bip ·
           {% if results.reaction.from_gate_ms < 0 %}
-            {{ results.reaction.from_gate_ms | abs }} <span data-i18n="result.metric_reaction_before_gate">ms avant le gate</span>
+            {{ results.reaction.from_gate_ms | abs }} ms avant le gate
           {% else %}
-            {{ results.reaction.from_gate_ms }} <span data-i18n="result.metric_reaction_after_gate">ms après le gate</span>
+            {{ results.reaction.from_gate_ms }} ms après le gate
           {% endif %}
         {% else %}
-          <span data-i18n="result.metric_reaction_from_gate">Depuis le gate drop (audio non détecté)</span>
+          Depuis le gate drop (audio non détecté)
         {% endif %}
       </div>
     </div>
 
     <div class="metric-card">
-      <div class="metric-label" data-i18n="result.metric_gate">Gate drop</div>
+      <div class="metric-label">Gate drop</div>
       <div class="metric-value">{{ results.gate_drop_t }}<span class="metric-unit">s</span></div>
       <div class="metric-sub">{{ results.fps }} fps · frame {{ (results.gate_drop_t * results.fps) | round | int }}</div>
     </div>
 
     <div class="metric-card">
-      <div class="metric-label" data-i18n="result.metric_foot">Pied avant</div>
-      <div class="metric-value" data-i18n="{{ 'common.front_foot_left' if results.front_foot == 'L' else 'common.front_foot_right' }}">{{ "Gauche" if results.front_foot == "L" else "Droit" }}</div>
-      <div class="metric-sub" data-i18n="result.metric_foot_sub">Côté analysé du rider</div>
+      <div class="metric-label">Pied avant</div>
+      <div class="metric-value">{{ "Gauche" if results.front_foot == "L" else "Droit" }}</div>
+      <div class="metric-sub">Côté analysé du rider</div>
     </div>
 
   </section>
 
   <!-- Timeline des phases -->
   <section class="section">
-    <h2><span data-i18n="result.phases_title">Phases</span> <span class="section-tag">Kalichová</span></h2>
+    <h2>Phases <span class="section-tag">Kalichová</span></h2>
     <div class="timeline-wrap">
       <div class="timeline" id="timeline">
         {% set total = results.duration_s %}
@@ -174,19 +171,19 @@
 
   <!-- Lecteur vidéo annoté + annotations -->
   <section class="section">
-    <h2 data-i18n="result.video_title">Vidéo annotée</h2>
+    <h2>Vidéo annotée</h2>
 
     <!-- Barre d'annotation -->
     <div class="anno-bar" id="anno-bar">
-      <button type="button" class="btn btn-anno-toggle" id="btn-anno-mode" data-i18n="result.anno_toggle">
+      <button type="button" class="btn btn-anno-toggle" id="btn-anno-mode" title="Activer le mode annotation">
         ✏️ Annoter
       </button>
       <div class="anno-tools" id="anno-tools" style="display:none">
         <span class="anno-tools-group">
-          <button type="button" class="anno-tool tool-active" data-tool="arrow" data-i18n-attr="title:result.anno_arrow" title="Flèche">→</button>
-          <button type="button" class="anno-tool"           data-tool="circle" data-i18n-attr="title:result.anno_circle" title="Cercle">○</button>
-          <button type="button" class="anno-tool"           data-tool="text"   data-i18n-attr="title:result.anno_text" title="Texte">T</button>
-          <button type="button" class="anno-tool"           data-tool="erase"  data-i18n-attr="title:result.anno_erase" title="Effacer">⌫</button>
+          <button type="button" class="anno-tool tool-active" data-tool="arrow" title="Flèche">→</button>
+          <button type="button" class="anno-tool"           data-tool="circle" title="Cercle">○</button>
+          <button type="button" class="anno-tool"           data-tool="text"   title="Texte">T</button>
+          <button type="button" class="anno-tool"           data-tool="erase"  title="Effacer">⌫</button>
         </span>
         <span class="anno-tools-group">
           <button type="button" class="anno-color color-active" data-color="#00d4ff" style="background:#00d4ff" title="Cyan"></button>
@@ -194,10 +191,10 @@
           <button type="button" class="anno-color"              data-color="#f7cc00" style="background:#f7cc00" title="Jaune"></button>
           <button type="button" class="anno-color"              data-color="#ff4d4a" style="background:#ff4d4a" title="Rouge"></button>
         </span>
-        <button type="button" class="btn btn-anno-clear" id="btn-anno-clear" data-i18n="result.anno_clear_frame">
+        <button type="button" class="btn btn-anno-clear" id="btn-anno-clear" title="Effacer les annotations de la frame courante">
           🗑 Vider la frame
         </button>
-        <span class="anno-info" id="anno-info" data-i18n="result.anno_info">
+        <span class="anno-info" id="anno-info">
           Clic-glisse = créer · gomme = clic sur une annotation pour la supprimer
         </span>
       </div>
@@ -217,12 +214,12 @@
     </div>
 
     <div class="video-controls">
-      <button class="btn-frame" id="btn-prev">&#9664;</button>
-      <button class="btn-frame btn-play" id="btn-play" data-i18n="common.play">▶ Play</button>
-      <button class="btn-frame" id="btn-next">&#9654;</button>
+      <button class="btn-frame" id="btn-prev" title="Frame précédente (←)">&#9664;</button>
+      <button class="btn-frame btn-play" id="btn-play" title="Play / pause (espace)">▶ Play</button>
+      <button class="btn-frame" id="btn-next" title="Frame suivante (→)">&#9654;</button>
       <span class="frame-counter" id="frame-counter">Frame —</span>
       <span class="speed-control">
-        <label for="speed-select" data-i18n="common.speed">Vitesse</label>
+        <label for="speed-select">Vitesse</label>
         <select id="speed-select" class="pro-select speed-select">
           <option value="0.25">0.25×</option>
           <option value="0.5">0.5×</option>
@@ -233,10 +230,10 @@
         </select>
       </span>
     </div>
-    <p class="video-hint" data-i18n="result.video_hint">Glisse le scrubber pour balayer · ← → frame par frame · espace = play/pause</p>
+    <p class="video-hint">Glisse le scrubber pour balayer · ← → frame par frame · espace = play/pause</p>
 
     <div class="adjust-gate-bar">
-      <button type="button" class="btn btn-gate-mark" id="btn-adjust-gate" data-i18n="result.adjust_gate_btn">
+      <button type="button" class="btn btn-gate-mark" id="btn-adjust-gate" title="Recalcule les phases sans relancer la pose detection">
         ↻ Ajuster le gate drop ici
       </button>
       <span class="adjust-gate-info" id="adjust-gate-info">
@@ -247,7 +244,7 @@
 
   <!-- Comparer avec un pro -->
   <section class="section section-cta">
-    <a href="/compare/{{ job_id }}" class="btn btn-compare" data-i18n="result.compare_cta">
+    <a href="/compare/{{ job_id }}" class="btn btn-compare">
       Comparer avec un pro →
     </a>
   </section>
@@ -390,7 +387,7 @@
       // Retirer l'athlète (devient éphémère)
       if (unassign) {
         unassign.addEventListener('click', () => {
-          if (!confirm(t('result.confirm_unassign', "Retirer l'athlète ? L'analyse deviendra éphémère et disparaîtra au prochain restart serveur."))) return;
+          if (!confirm("Retirer l'athlète ? L'analyse deviendra éphémère et disparaîtra au prochain restart serveur.")) return;
           setAthlete('');
         });
       }
@@ -462,11 +459,8 @@
     btnPlay.addEventListener('click', () => {
       if (video.paused) video.play(); else video.pause();
     });
-    video.addEventListener('play',  () => { btnPlay.textContent = t('common.pause', '⏸ Pause'); });
-    video.addEventListener('pause', () => { btnPlay.textContent = t('common.play',  '▶ Play');  });
-    document.addEventListener('i18n:applied', () => {
-      btnPlay.textContent = video.paused ? t('common.play', '▶ Play') : t('common.pause', '⏸ Pause');
-    });
+    video.addEventListener('play',  () => { btnPlay.textContent = '⏸ Pause'; });
+    video.addEventListener('pause', () => { btnPlay.textContent = '▶ Play';  });
 
     document.addEventListener('keydown', e => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
@@ -485,16 +479,18 @@
       const currentFrame    = Math.round(video.currentTime * fps);
       const currentGateFrame = Math.round(gateT * fps);
       if (currentFrame === currentGateFrame) {
-        alert(t('result.adjust_gate_same', "Tu es déjà sur la frame du gate actuel. Déplace la vidéo et réessaie."));
+        alert("Tu es déjà sur la frame du gate actuel. Déplace la vidéo et réessaie.");
         return;
       }
-      const msg = t('result.adjust_gate_confirm',
-          `Remplacer le gate drop par la frame ${currentFrame} (t = ${(currentFrame / fps).toFixed(3)}s) ?\n\nPhases et temps de réaction seront recalculés instantanément.`)
-        .replace('{frame}', currentFrame).replace('{t}', (currentFrame / fps).toFixed(3));
-      if (!confirm(msg)) return;
+      const ok = confirm(
+        `Remplacer le gate drop par la frame ${currentFrame} ` +
+        `(t = ${(currentFrame / fps).toFixed(3)}s) ?\n\n` +
+        `Phases et temps de réaction seront recalculés instantanément.`
+      );
+      if (!ok) return;
       const btn  = document.getElementById('btn-adjust-gate');
       const info = document.getElementById('adjust-gate-info');
-      btn.disabled = true; info.textContent = t('result.adjust_gate_progress', "Recalcul en cours…");
+      btn.disabled = true; info.textContent = "Recalcul en cours…";
       try {
         const fd = new FormData();
         fd.append('gate_frame', currentFrame);
@@ -600,7 +596,7 @@
       const btn   = document.getElementById('btn-anno-mode');
       const tools = document.getElementById('anno-tools');
       btn.classList.toggle('btn-anno-active', on);
-      btn.textContent = on ? t('result.anno_active', '✓ Annotation active') : t('result.anno_toggle', '✏️ Annoter');
+      btn.textContent = on ? '✓ Annotation active' : '✏️ Annoter';
       tools.style.display = on ? '' : 'none';
       annoCanvas.classList.toggle('anno-active', on);
       if (!on) { drawStart = null; drawPreview = null; renderAnno(); }
@@ -658,7 +654,7 @@
       const p = canvasPos(e);
       video.pause();
       if (currentTool === 'text') {
-        const txt = prompt(t('result.anno_text_prompt', 'Texte :'));
+        const txt = prompt('Texte :');
         if (txt && txt.trim()) {
           annotations.push({ video: ANNO_PANEL, frame: currentFrameInt(),
                              type: 'text', x: p.x, y: p.y, text: txt.trim(),

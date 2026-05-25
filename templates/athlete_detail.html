@@ -5,16 +5,16 @@
 
 {% block content %}
   <header>
-    <a href="/athletes" class="back-link" data-i18n="athletes.detail_back">← Tous les athlètes</a>
+    <a href="/athletes" class="back-link">← Tous les athlètes</a>
     <div class="athlete-header">
       <span class="athlete-avatar lg">{{ athlete.name[0]|upper }}</span>
       <div class="athlete-header-text">
         <h1>{{ athlete.name }}</h1>
-        <p class="subtitle"><span data-i18n="athletes.detail_created">Dossier créé le </span>{{ athlete.created_at }}</p>
+        <p class="subtitle">Dossier créé le {{ athlete.created_at }}</p>
       </div>
       <div class="athlete-header-actions">
-        <a href="/?athlete={{ athlete.id }}" class="btn btn-primary" data-i18n="athletes.detail_new_analysis">+ Nouvelle analyse</a>
-        <button type="button" class="btn-delete"
+        <a href="/?athlete={{ athlete.id }}" class="btn btn-primary">+ Nouvelle analyse</a>
+        <button type="button" class="btn-delete" title="Supprimer le dossier"
                 onclick="deleteAthlete('{{ athlete.id }}')">✕</button>
       </div>
     </div>
@@ -23,40 +23,40 @@
   <!-- Mini dashboard -->
   <section class="metrics-grid">
     <div class="metric-card">
-      <div class="metric-label" data-i18n="athletes.detail_metric_videos">Vidéos analysées</div>
+      <div class="metric-label">Vidéos analysées</div>
       <div class="metric-value">{{ stats.n_videos }}</div>
-      <div class="metric-sub" data-i18n="athletes.detail_metric_videos_sub">au dossier</div>
+      <div class="metric-sub">au dossier</div>
     </div>
     <div class="metric-card {% if stats.best_ms is not none %}card-green{% endif %}">
-      <div class="metric-label" data-i18n="athletes.detail_metric_best">Meilleure réaction</div>
+      <div class="metric-label">Meilleure réaction</div>
       <div class="metric-value">
         {% if stats.best_ms is not none %}{{ stats.best_ms }}<span class="metric-unit">ms</span>{% else %}—{% endif %}
       </div>
-      <div class="metric-sub" data-i18n="athletes.detail_metric_best_sub">depuis le 1<sup>er</sup> bip</div>
+      <div class="metric-sub">depuis le 1<sup>er</sup> bip</div>
     </div>
     <div class="metric-card">
-      <div class="metric-label" data-i18n="athletes.detail_metric_avg">Moyenne</div>
+      <div class="metric-label">Moyenne</div>
       <div class="metric-value">
         {% if stats.avg_ms is not none %}{{ stats.avg_ms }}<span class="metric-unit">ms</span>{% else %}—{% endif %}
       </div>
-      <div class="metric-sub" data-i18n="athletes.detail_metric_avg_sub">sur les analyses valides</div>
+      <div class="metric-sub">sur les analyses valides</div>
     </div>
     <div class="metric-card {% if stats.false_starts > 0 %}card-red{% endif %}">
-      <div class="metric-label" data-i18n="athletes.detail_metric_false">Faux départs</div>
+      <div class="metric-label">Faux départs</div>
       <div class="metric-value">{{ stats.false_starts }}</div>
-      <div class="metric-sub" data-i18n="athletes.detail_metric_false_sub">détectés</div>
+      <div class="metric-sub">détectés</div>
     </div>
   </section>
 
   {% if stats.history|length >= 2 %}
   <!-- Mini graphique évolution -->
   <section class="section">
-    <h2 data-i18n="athletes.detail_chart_title">Évolution du temps de réaction</h2>
+    <h2>Évolution du temps de réaction</h2>
     <div class="mini-chart-wrap">
       <svg id="mini-chart" viewBox="0 0 600 160" preserveAspectRatio="none"></svg>
       <div class="mini-chart-legend">
-        <span data-i18n="athletes.detail_chart_older">← plus ancien</span>
-        <span data-i18n="athletes.detail_chart_newer">plus récent →</span>
+        <span>← plus ancien</span>
+        <span>plus récent →</span>
       </div>
     </div>
   </section>
@@ -64,19 +64,18 @@
 
   <!-- Liste des vidéos -->
   <section class="section">
-    <h2><span data-i18n="athletes.detail_videos_title">Vidéos</span> <span class="section-tag">{{ athlete_jobs|length }}</span></h2>
+    <h2>Vidéos <span class="section-tag">{{ athlete_jobs|length }}</span></h2>
     {% if not athlete_jobs %}
     <div class="empty-state">
-      <span data-i18n="athletes.detail_empty_state">Aucune vidéo encore.</span>
-      <a href="/?athlete={{ athlete.id }}" style="color:var(--accent)" data-i18n="athletes.detail_empty_link">Lance une nouvelle analyse</a>
+      Aucune vidéo encore. <a href="/?athlete={{ athlete.id }}" style="color:var(--accent)">Lance une nouvelle analyse</a> avec cet athlète pré-sélectionné.
     </div>
     {% else %}
     {% if stats.n_excluded > 0 %}
-    <p class="section-note exclusion-hint" data-excluded-count="{{ stats.n_excluded }}">
+    <p class="section-note exclusion-hint">
       <strong>{{ stats.n_excluded }}</strong> session{{ 's' if stats.n_excluded > 1 else '' }} exclue{{ 's' if stats.n_excluded > 1 else '' }} des stats et du graphique. Coche / décoche le ⊘ à droite d'une ligne pour basculer.
     </p>
     {% else %}
-    <p class="section-note" data-i18n="athletes.detail_exclusion_hint_none">Coche le ⊘ à droite d'une session pour l'exclure des stats et du graphique (utile pour un départ raté ou un bug d'analyse).</p>
+    <p class="section-note">Coche le ⊘ à droite d'une session pour l'exclure des stats et du graphique (utile pour un départ raté ou un bug d'analyse).</p>
     {% endif %}
     <div class="pros-list">
       {% for j in athlete_jobs %}
@@ -90,7 +89,7 @@
           </div>
           <div class="pro-status">
             {% if j.reaction.type == 'false_start' %}
-              <span class="status-badge status-error" data-i18n="athletes.false_start_badge">⚠ Faux départ</span>
+              <span class="status-badge status-error">⚠ Faux départ</span>
             {% elif j.reaction.from_bip1_ms is not none %}
               <span class="status-badge status-done">{{ j.reaction.from_bip1_ms }} ms</span>
             {% elif j.reaction.from_gate_ms is not none %}
@@ -103,9 +102,8 @@
         </a>
         <button type="button" class="exclude-toggle{% if j.excluded %} exclude-on{% endif %}"
                 data-job-id="{{ j.job_id }}"
-                data-i18n-attr="title:{{ 'athletes.exclude_tooltip_on' if j.excluded else 'athletes.exclude_tooltip_off' }}"
                 title="{{ 'Réinclure dans les stats' if j.excluded else 'Exclure des stats et du graphique' }}">
-          {% if j.excluded %}<span data-i18n="athletes.excluded_label">⊘ Exclue</span>{% else %}⊘{% endif %}
+          {% if j.excluded %}⊘ Exclue{% else %}⊘{% endif %}
         </button>
       </div>
       {% endfor %}
@@ -147,23 +145,11 @@
     });
 
     async function deleteAthlete(id) {
-      if (!confirm(t('athletes.confirm_delete_athlete', "Supprimer ce dossier ? Les vidéos analysées resteront accessibles mais ne seront plus rattachées à cet athlète."))) return;
+      if (!confirm("Supprimer ce dossier ? Les vidéos analysées resteront accessibles mais ne seront plus rattachées à cet athlète.")) return;
       const res = await fetch('/athletes/' + id, { method: 'DELETE' });
       if (res.ok) { window.location.href = '/athletes'; }
-      else { alert(t('athletes.delete_error', 'Erreur lors de la suppression.')); }
+      else { alert('Erreur lors de la suppression.'); }
     }
-
-    // Met à jour le hint d'exclusion (qui dépend d'un compteur)
-    function renderExclusionHint() {
-      const el = document.querySelector('.exclusion-hint');
-      if (!el || !el.dataset.excludedCount) return;
-      const n = parseInt(el.dataset.excludedCount, 10);
-      const sessionWord = (n > 1) ? t('common.sessions', 'sessions') : t('common.session', 'session');
-      const tail = t('athletes.detail_exclusion_hint_some', "exclue(s) des stats et du graphique. Coche / décoche le ⊘ à droite d'une ligne pour basculer.");
-      el.innerHTML = `<strong>${n}</strong> ${sessionWord} ${tail}`;
-    }
-    renderExclusionHint();
-    document.addEventListener('i18n:applied', renderExclusionHint);
 
     // Mini graphique : évolution du temps de réaction
     const dataEl = document.getElementById('history-data');

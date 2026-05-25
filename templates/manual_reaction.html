@@ -5,32 +5,32 @@
 
 {% block content %}
   <header>
-    <h1 data-i18n="manual_reaction.title">Mesure manuelle du temps de réaction</h1>
-    <p class="subtitle" data-i18n="manual_reaction.subtitle">Tu marques toi-même le gate drop et le premier mouvement frame par frame. Calcul instantané, fonctionne sans audio. Cadence UCI = bip 1 à 360 ms avant le gate drop.</p>
+    <h1>Mesure manuelle du temps de réaction</h1>
+    <p class="subtitle">Tu marques toi-même le gate drop et le premier mouvement frame par frame. Calcul instantané, fonctionne sans audio. Cadence UCI = bip 1 à 360 ms avant le gate drop.</p>
   </header>
 
   <div class="section">
     <div class="tabs">
-      <button type="button" class="tab tab-active" data-source="upload" data-i18n="manual_reaction.tab_new">🎬 Nouvelle vidéo</button>
-      <button type="button" class="tab" data-source="existing" data-i18n="manual_reaction.tab_existing">📁 Vidéo existante</button>
+      <button type="button" class="tab tab-active" data-source="upload">🎬 Nouvelle vidéo</button>
+      <button type="button" class="tab" data-source="existing">📁 Vidéo existante</button>
     </div>
 
     <div id="source-upload">
       <div class="upload-zone" id="dropzone">
         <div class="upload-icon">🎬</div>
-        <p class="upload-label" data-i18n="manual_reaction.drop_here">Glisse une vidéo ici</p>
-        <p class="upload-hint" data-i18n="index.or">ou</p>
-        <label class="btn btn-primary" for="file-input" data-i18n="manual_reaction.pick_file">Choisir un fichier</label>
+        <p class="upload-label">Glisse une vidéo ici</p>
+        <p class="upload-hint">ou</p>
+        <label class="btn btn-primary" for="file-input">Choisir un fichier</label>
         <input type="file" id="file-input" accept="video/*" style="display:none">
-        <p class="upload-formats" data-i18n="index.supported_formats">MP4 · MOV · AVI</p>
+        <p class="upload-formats">MP4 · MOV · AVI</p>
       </div>
     </div>
 
     <div id="source-existing" style="display:none">
       <div class="athlete-pick">
-        <label class="athlete-pick-label" for="existing-select" data-i18n="manual_reaction.choose_existing">Choisis une vidéo déjà analysée</label>
+        <label class="athlete-pick-label" for="existing-select">Choisis une vidéo déjà analysée</label>
         <select id="existing-select" class="pro-select">
-          <option value="" data-i18n="manual_reaction.choose_option">— Choisir —</option>
+          <option value="">— Choisir —</option>
           {% for v in videos_list %}
           <option value="{{ v.url }}" data-fps="{{ v.fps }}">{{ v.label }}</option>
           {% endfor %}
@@ -40,8 +40,8 @@
   </div>
 
   <div class="section" id="video-section" style="display:none">
-    <h2 data-i18n="manual_reaction.mark_both">Marque les deux instants</h2>
-    <p class="section-note" data-i18n-html="manual_reaction.mark_hint">
+    <h2>Marque les deux instants</h2>
+    <p class="section-note">
       Scrub jusqu'au moment exact, puis clique le bouton correspondant. Tu peux re-marquer en revenant dessus.
       Raccourcis : ← / → pour avancer d'une frame, espace pour play/pause, <kbd>G</kbd> pour gate, <kbd>M</kbd> pour mouvement.
     </p>
@@ -62,30 +62,30 @@
     </div>
 
     <div class="marker-buttons">
-      <button class="btn btn-gate-mark" onclick="markGate()" data-i18n="manual_reaction.mark_gate">📍 Marquer le gate drop</button>
-      <button class="btn btn-gate-mark" onclick="markMove()" data-i18n="manual_reaction.mark_movement">🏃 Marquer le 1er mouvement</button>
-      <button class="btn" onclick="resetMarkers()" data-i18n="manual_reaction.reset">↻ Réinitialiser</button>
+      <button class="btn btn-gate-mark" onclick="markGate()">📍 Marquer le gate drop</button>
+      <button class="btn btn-gate-mark" onclick="markMove()">🏃 Marquer le 1er mouvement</button>
+      <button class="btn" onclick="resetMarkers()">↻ Réinitialiser</button>
     </div>
 
     <div class="marker-result" id="marker-result">
       <div class="mr-row">
-        <span class="mr-label" data-i18n="result.metric_gate">Gate drop</span>
-        <span class="mr-val" id="m-gate" data-i18n="manual_reaction.undefined">— non défini —</span>
+        <span class="mr-label">Gate drop</span>
+        <span class="mr-val" id="m-gate">— non défini —</span>
       </div>
       <div class="mr-row">
-        <span class="mr-label" data-i18n="manual_reaction.first_movement">1<sup>er</sup> mouvement</span>
-        <span class="mr-val" id="m-move" data-i18n="manual_reaction.undefined">— non défini —</span>
+        <span class="mr-label">1<sup>er</sup> mouvement</span>
+        <span class="mr-val" id="m-move">— non défini —</span>
       </div>
       <div class="metrics-grid" style="margin-top:14px">
         <div class="metric-card">
-          <div class="metric-label" data-i18n="manual_reaction.reaction_from_gate">Réaction depuis gate</div>
+          <div class="metric-label">Réaction depuis gate</div>
           <div class="metric-value"><span id="m-react-gate">—</span><span class="metric-unit">ms</span></div>
-          <div class="metric-sub" data-i18n="manual_reaction.reaction_from_gate_sub">(1er mouvement − gate drop)</div>
+          <div class="metric-sub">(1er mouvement − gate drop)</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label" data-i18n="manual_reaction.reaction_from_bip1">Réaction depuis bip 1</div>
+          <div class="metric-label">Réaction depuis bip 1</div>
           <div class="metric-value"><span id="m-react-bip">—</span><span class="metric-unit">ms</span></div>
-          <div class="metric-sub" data-i18n="manual_reaction.reaction_from_bip1_sub">cadence UCI +360 ms</div>
+          <div class="metric-sub">cadence UCI +360 ms</div>
         </div>
       </div>
     </div>
@@ -211,9 +211,8 @@
   }
   function resetMarkers() {
     gateT = null; moveT = null;
-    const undef = t('manual_reaction.undefined', '— non défini —');
-    document.getElementById('m-gate').textContent = undef;
-    document.getElementById('m-move').textContent = undef;
+    document.getElementById('m-gate').textContent = '— non défini —';
+    document.getElementById('m-move').textContent = '— non défini —';
     document.getElementById('m-react-gate').textContent = '—';
     document.getElementById('m-react-bip').textContent  = '—';
   }
