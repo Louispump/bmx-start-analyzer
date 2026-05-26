@@ -204,6 +204,38 @@
     </div>
   </section>
 
+  <!-- Explosivité & séquence d'extension (P1+P3 ROADMAP) -->
+  <section class="section burst-section" id="burst-section">
+    <h2>Explosivité & séquence
+      <span class="section-tag">Gross 2017</span>
+      <button type="button" class="burst-help" id="burst-help-btn"
+              aria-label="Comment lire cette carte" title="Comment lire cette carte">?</button>
+    </h2>
+
+    <div class="burst-help-panel" id="burst-help-panel" hidden>
+      <p>
+        On dérive l'angle articulaire dans le temps pour obtenir la <strong>vitesse
+        d'extension ω</strong> (en °/s). Mesure intra-rider — la dérivée temporelle annule
+        les biais de cadrage et d'angle de caméra, contrairement aux angles absolus.
+      </p>
+      <p>
+        <strong>Séquence proximale-distale</strong> : pic hanche → pic genou → pic cheville
+        est le pattern élite (Gross 2017). À &lt; 60 fps la cheville est exclue (résolution
+        temporelle insuffisante).
+      </p>
+      <p class="burst-help-note">
+        ⚠ Pas de benchmark BMX publié pour ω. Référence saut balistique : 400-700°/s au genou.
+        Compare tes propres essais entre eux plutôt qu'à un autre rider.
+      </p>
+    </div>
+
+    <div class="burst-grid" id="burst-grid">
+      <div class="burst-loading" id="burst-loading">Calcul en cours…</div>
+    </div>
+
+    <div class="burst-error" id="burst-error" hidden></div>
+  </section>
+
   <!-- Lecteur vidéo annoté + annotations -->
   <section class="section">
     <h2>Vidéo annotée</h2>
@@ -1066,6 +1098,195 @@
       } catch (e) { /* silencieux */ }
       renderAnno();
       updateAnnoInfo();
+    })();
+
+    // ── Carte Explosivité & séquence ─────────────────────────────────
+    (function() {
+      const grid    = document.getElementById('burst-grid');
+      const loading = document.getElementById('burst-loading');
+      const errBox  = document.getElementById('burst-error');
+      const helpBtn = document.getElementById('burst-help-btn');
+      const helpPnl = document.getElementById('burst-help-panel');
+      if (!grid) return;
+
+      if (helpBtn && helpPnl) {
+        helpBtn.addEventListener('click', () => {
+          helpPnl.hidden = !helpPnl.hidden;
+        });
+      }
+
+      // Palette par articulation (cohérente avec le dark navy + accent cyan)
+      const COLORS = {
+        hip:   '#00d4ff',  // cyan accent
+        knee:  '#b48bff',  // violet
+        ankle: '#f59c18',  // orange
+      };
+      const LABELS = {
+        hip:   'Hanche',
+        knee:  'Genou',
+        ankle: 'Cheville',
+      };
+
+      function fmtOmega(v) {
+        return (v == null) ? '—' : Math.round(v).toLocaleString('fr-FR');
+      }
+      function fmtMs(v) {
+        if (v == null) return '—';
+        return Math.round(v * 1000) + ' ms';
+      }
+
+      function ciBadge(verdict) {
+        const map = {
+          proximal_distal: { txt: '✓ Proximale-distale', cls: 'burst-badge-ok' },
+          simultaneous:    { txt: '≈ Quasi-simultanée', cls: 'burst-badge-mid' },
+          inverted:        { txt: '⚠ Séquence inversée', cls: 'burst-badge-warn' },
+          partial:         { txt: '— Données partielles', cls: 'burst-badge-mute' },
+        };
+        return map[verdict] || map.partial;
+      }
+
+      // Construit un SVG miniature des courbes ω(t) (3 superposées)
+      function buildSparkline(burst) {
+        const W = 520, H = 140, P = 28;
+        const joints = ['hip', 'knee', 'ankle'].filter(k => burst[k] && burst[k].series);
+        if (joints.length === 0) return '';
+
+        // Échelle temps
+        const allT = joints.flatMap(k => burst[k].series.map(p => p.T));
+        const tMin = Math.min(...allT);
+        const tMax = Math.max(...allT);
+        // Échelle omega (inclut négatifs et positifs)
+        const allO = joints.flatMap(k => burst[k].series
+                       .map(p => p.omega).filter(v => v != null));
+        const oMin = Math.min(0, ...allO);
+        const oMax = Math.max(...allO);
+        const oPad = Math.max(20, (oMax - oMin) * 0.05);
+
+        const xScale = t => P + ( (t - tMin) / (tMax - tMin || 1) ) * (W - 2*P);
+        const yScale = o => H - P - ( (o - (oMin - oPad)) /
+                              ((oMax + oPad) - (oMin - oPad) || 1) ) * (H - 2*P);
+
+        const path = (series) => {
+          let d = '';
+          let started = false;
+          series.forEach(pt => {
+            if (pt.omega == null) { started = false; return; }
+            const cmd = started ? 'L' : 'M';
+            d += `${cmd}${xScale(pt.T).toFixed(1)},${yScale(pt.omega).toFixed(1)} `;
+            started = true;
+          });
+          return d.trim();
+        };
+
+        // Ligne ω=0 (séparation flexion/extension)
+        const y0 = yScale(0);
+        // Markers pour les pics
+        const markers = joints.map(k => {
+          const peakT = burst[k].t_peak;
+          const peakO = burst[k].omega_max;
+          if (peakT == null || peakO == null) return '';
+          return `<circle cx="${xScale(peakT).toFixed(1)}" cy="${yScale(peakO).toFixed(1)}"
+                          r="4" fill="${COLORS[k]}" stroke="#0e1420" stroke-width="2"/>`;
+        }).join('');
+
+        // Axes / labels minimaux
+        const tickXs = [0, 0.2, 0.4, 0.6, 0.8].filter(t => t >= tMin && t <= tMax);
+        const tickLabels = tickXs.map(t =>
+          `<text x="${xScale(t).toFixed(1)}" y="${H-8}" text-anchor="middle"
+                  class="burst-tick">${Math.round(t*1000)}</text>`).join('');
+
+        return `
+          <svg viewBox="0 0 ${W} ${H}" class="burst-spark" preserveAspectRatio="none">
+            <!-- Grille -->
+            <line x1="${P}" y1="${y0.toFixed(1)}" x2="${W-P}" y2="${y0.toFixed(1)}"
+                  class="burst-axis"/>
+            <text x="${P-4}" y="${(y0 + 4).toFixed(1)}" text-anchor="end" class="burst-tick">0</text>
+            <!-- Courbes -->
+            ${joints.map(k =>
+              `<path d="${path(burst[k].series)}" fill="none"
+                     stroke="${COLORS[k]}" stroke-width="2" stroke-linejoin="round"/>`
+            ).join('')}
+            ${markers}
+            ${tickLabels}
+            <text x="${W/2}" y="${H-2}" text-anchor="middle" class="burst-axis-label">
+              ms après gate drop
+            </text>
+          </svg>
+        `;
+      }
+
+      function render(burst) {
+        loading.hidden = true;
+        errBox.hidden  = true;
+
+        const badge = ciBadge(burst.ci_verdict);
+        const tiles = ['hip', 'knee', 'ankle'].map(k => {
+          const d = burst[k];
+          const hasData = d && d.omega_max != null;
+          return `
+            <div class="burst-tile ${hasData ? '' : 'burst-tile-empty'}"
+                 style="--burst-color: ${COLORS[k]}">
+              <div class="burst-tile-label">${LABELS[k]}</div>
+              <div class="burst-tile-omega">
+                ${hasData ? fmtOmega(d.omega_max) : '—'}
+                <span class="burst-tile-unit">°/s</span>
+              </div>
+              <div class="burst-tile-peak">
+                ${hasData ? `pic à ${fmtMs(d.t_peak)}` : 'pic non détecté'}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        const fpsNote = burst.fps_est < 60
+          ? `<span class="burst-fps-warn">⚠ ${burst.fps_est} fps — cheville exclue de la séquence (résolution insuffisante)</span>`
+          : `<span class="burst-fps-ok">${burst.fps_est} fps · ${burst.n_samples} frames</span>`;
+
+        grid.innerHTML = `
+          <div class="burst-tiles">${tiles}</div>
+          <div class="burst-chart-wrap">
+            ${buildSparkline(burst)}
+            <div class="burst-legend">
+              <span class="burst-leg-item" style="--burst-color: ${COLORS.hip}">
+                <span class="burst-leg-dot"></span>Hanche
+              </span>
+              <span class="burst-leg-item" style="--burst-color: ${COLORS.knee}">
+                <span class="burst-leg-dot"></span>Genou
+              </span>
+              <span class="burst-leg-item" style="--burst-color: ${COLORS.ankle}">
+                <span class="burst-leg-dot"></span>Cheville${burst.ankle_in_ci ? '' : ' <em>(hors CI)</em>'}
+              </span>
+            </div>
+          </div>
+          <div class="burst-verdict">
+            <span class="burst-badge ${badge.cls}">${badge.txt}</span>
+            <span class="burst-verdict-reason">${burst.ci_reason}</span>
+            <span class="burst-fps">${fpsNote}</span>
+          </div>
+        `;
+      }
+
+      function showError(msg) {
+        loading.hidden = true;
+        grid.innerHTML = '';
+        errBox.hidden  = false;
+        errBox.textContent = msg;
+      }
+
+      (async () => {
+        try {
+          const res = await fetch('/explosivity/{{ job_id }}');
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            showError(data.error || `Erreur ${res.status}`);
+            return;
+          }
+          const burst = await res.json();
+          render(burst);
+        } catch (e) {
+          showError('Erreur réseau : ' + e.message);
+        }
+      })();
     })();
   </script>
 {% endblock %}

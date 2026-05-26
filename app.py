@@ -24,6 +24,7 @@ from jinja2 import Environment, FileSystemLoader
 
 import numpy as np
 import pandas as pd
+from scipy.signal import savgol_filter
 
 from analyze import main as analyze_main, calculate_angle, \
     segment_phases as analyze_segment_phases, PHASE_COLORS
@@ -1893,6 +1894,239 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
                                   row, side, direction, hip0_x, hip0_y, scale0),
         })
     return out
+
+
+# ── Module Explosivité & séquence proximale-distale ──────────────────────────
+# Calcule la vitesse angulaire (ω = dθ/dt) pour hanche, genou, cheville sur la
+# fenêtre [gate_drop, gate_drop + window_s] et l'ordre temporel des pics.
+#
+# Choix méthodologique (cf. ROADMAP §6 P1+P3) :
+#   - Métrique intra-rider uniquement (pas de comparaison à un pro) → la
+#     dérivée temporelle annule les biais constants liés à l'angle de caméra,
+#     aux proportions corporelles et au cadrage, contrairement aux angles
+#     absolus du module /compare_angles.
+#   - Fenêtre 0.8s post-gate : phase d'extension principale (les pics
+#     attendus se situent typiquement entre +50ms et +400ms pour les élites,
+#     mais peuvent monter à +500-700ms pour des riders amateurs).
+#   - Lissage Savitzky-Golay avant dérivation pour réduire l'amplification
+#     du bruit YOLO-Pose par la différentiation.
+#   - Pas de cheville dans le Coordinating Index si fps < 60 : le proxy
+#     pointe-de-pied (+30 px) combiné à la faible amplitude rend le pic
+#     d'ankle peu fiable à basse cadence vidéo.
+def _compute_kinematic_burst(csv_path: Path, gate_t: float, side: str,
+                             window_s: float = 0.8) -> dict | None:
+    """Retourne ω_max (°/s) et t_peak (s, relatif au gate drop) pour hanche,
+    genou, cheville côté pied avant + index de coordination proximale-distale.
+
+    Convention : on cherche le pic de vitesse d'EXTENSION (angle qui
+    augmente), donc ω positive. Si une articulation reste en flexion sur
+    toute la fenêtre, on retourne None pour cette articulation.
+
+    Retour : dict avec
+      - fps_est       : float       (cadence vidéo estimée sur la fenêtre)
+      - window_s      : float       (rappel de la fenêtre utilisée)
+      - n_samples     : int         (nombre de frames analysées)
+      - hip/knee/ankle: {omega_max, t_peak, series:[{T,omega}]} ou None
+      - ci_score      : int  -1/0/1/2  (voir _coordinating_index)
+      - ci_verdict    : str  "proximal_distal" | "simultaneous" | "inverted" | "partial"
+      - ci_reason     : str  texte humain décrivant la séquence
+    Retourne None si lecture CSV impossible ou fenêtre vide.
+    """
+    if not csv_path.exists():
+        return None
+    df = pd.read_csv(csv_path)
+    if "time" not in df.columns or len(df) == 0:
+        return None
+    t_lo = gate_t
+    t_hi = gate_t + window_s
+    sub  = df[(df["time"] >= t_lo) & (df["time"] <= t_hi)].reset_index(drop=True)
+    if len(sub) < 5:
+        return None
+
+    # Direction (face droite/gauche) — médiane sur la fenêtre pour stabilité
+    nose_x = sub.get("nose_x")
+    L_hi_x = sub.get("L_hip_x")
+    R_hi_x = sub.get("R_hip_x")
+    direction = 1
+    if nose_x is not None and L_hi_x is not None and R_hi_x is not None:
+        center_hip = (L_hi_x + R_hi_x) / 2.0
+        diff = (nose_x - center_hip).dropna()
+        if len(diff) > 0:
+            direction = 1 if float(diff.median()) > 0 else -1
+
+    t_arr = sub["time"].to_numpy(dtype=float)
+    # FPS estimée sur la fenêtre (peut différer légèrement du fps global si
+    # frames droppées)
+    dt_arr = np.diff(t_arr)
+    fps_est = float(1.0 / np.median(dt_arr)) if len(dt_arr) and np.median(dt_arr) > 0 else 30.0
+
+    def _col(part: str, axis: str):
+        c = f"{side}_{part}_{axis}"
+        return sub[c].to_numpy(dtype=float) if c in sub.columns else np.full(len(sub), np.nan)
+
+    sh_x, sh_y = _col("shoulder", "x"), _col("shoulder", "y")
+    hi_x, hi_y = _col("hip",      "x"), _col("hip",      "y")
+    kn_x, kn_y = _col("knee",     "x"), _col("knee",     "y")
+    an_x, an_y = _col("ankle",    "x"), _col("ankle",    "y")
+
+    def _angle_series(p1x, p1y, p2x, p2y, p3x, p3y):
+        """Angle (p1, p2, p3) en degrés, frame par frame, NaN si keypoint manquant."""
+        v1x = p1x - p2x;  v1y = p1y - p2y
+        v2x = p3x - p2x;  v2y = p3y - p2y
+        dot   = v1x * v2x + v1y * v2y
+        n1    = np.sqrt(v1x * v1x + v1y * v1y)
+        n2    = np.sqrt(v2x * v2x + v2y * v2y)
+        with np.errstate(invalid='ignore', divide='ignore'):
+            cos = np.clip(dot / (n1 * n2), -1.0, 1.0)
+        return np.degrees(np.arccos(cos))
+
+    knee  = _angle_series(hi_x, hi_y, kn_x, kn_y, an_x, an_y)
+    hip   = _angle_series(sh_x, sh_y, hi_x, hi_y, kn_x, kn_y)
+    # Cheville : proxy pointe-pied (+30 px dans la direction du rider)
+    toe_x = an_x + 30.0 * direction
+    toe_y = an_y
+    ankle = _angle_series(kn_x, kn_y, an_x, an_y, toe_x, toe_y)
+
+    def _omega_peak(angle_arr, label):
+        """Retourne (omega_max, t_peak_rel_gate, series_downsampled) ou None.
+        omega_max = pic de ω positive (extension) en °/s.
+        t_peak_rel_gate = timestamp du pic, relatif au gate drop (s).
+        series_downsampled = liste {T, omega} pour le graphe (max ~30 points).
+        """
+        # Interpole les trous courts (≤3 frames) pour permettre savgol/gradient
+        s = pd.Series(angle_arr).interpolate(method='linear', limit=3,
+                                              limit_area='inside').to_numpy()
+        valid = ~np.isnan(s)
+        if valid.sum() < 5:
+            return None
+        # Pour savgol on a besoin d'un signal sans NaN. On comble les NaN
+        # résiduels (typiquement aux bords) par forward/backward fill — la
+        # sortie omega sera ensuite masquée sur `valid` pour invalider ces
+        # zones extrapolées.
+        s_for_filter = pd.Series(s).ffill().bfill().to_numpy()
+        if np.all(np.isnan(s_for_filter)):
+            return None
+        n = len(s_for_filter)
+        # window adaptatif (impair) ; polyorder=2 < window
+        win = min(7, n if n % 2 == 1 else n - 1)
+        if win >= 5:
+            try:
+                s_smooth = savgol_filter(s_for_filter, window_length=win,
+                                          polyorder=2, mode='interp')
+            except Exception:
+                s_smooth = s_for_filter
+        else:
+            s_smooth = s_for_filter
+        # Dérivée temporelle : °/s
+        omega = np.gradient(s_smooth, t_arr)
+        # On ne garde que les échantillons où l'angle est valide
+        omega = np.where(valid, omega, np.nan)
+        if np.all(np.isnan(omega)):
+            return None
+        # Pic de ω positive (extension) uniquement
+        omega_pos = np.where(omega > 0, omega, np.nan)
+        if np.all(np.isnan(omega_pos)):
+            # Articulation reste en flexion ou statique → pas d'extension
+            return None
+        idx_peak = int(np.nanargmax(omega_pos))
+        omega_max = float(omega[idx_peak])
+        t_peak    = float(t_arr[idx_peak] - gate_t)
+
+        # Downsample la série pour le graphe (max ~30 points)
+        step = max(1, n // 30)
+        series = [
+            {"T": round(float(t_arr[i] - gate_t), 3),
+             "omega": round(float(omega[i]), 1) if not np.isnan(omega[i]) else None}
+            for i in range(0, n, step)
+        ]
+        return {
+            "omega_max": round(omega_max, 1),
+            "t_peak":    round(t_peak, 3),
+            "series":    series,
+        }
+
+    hip_r   = _omega_peak(hip,   "hip")
+    knee_r  = _omega_peak(knee,  "knee")
+    ankle_r = _omega_peak(ankle, "ankle")
+
+    # Coordinating Index — séquence proximale → distale (hanche → genou → cheville)
+    # Tolérance = 2 frames pour la simultanéité (pics à <2/fps secondes d'écart)
+    tol = 2.0 / max(fps_est, 1.0)
+    include_ankle = (fps_est >= 60.0) and (ankle_r is not None)
+    ci_score, ci_verdict, ci_reason = _coordinating_index(
+        hip_r, knee_r, ankle_r if include_ankle else None, tol)
+
+    return {
+        "fps_est":       round(fps_est, 1),
+        "window_s":      window_s,
+        "n_samples":     int(len(sub)),
+        "hip":           hip_r,
+        "knee":          knee_r,
+        "ankle":         ankle_r,
+        "ci_score":      ci_score,
+        "ci_verdict":    ci_verdict,
+        "ci_reason":     ci_reason,
+        "ankle_in_ci":   include_ankle,
+    }
+
+
+def _coordinating_index(hip, knee, ankle, tol_s: float) -> tuple[int, str, str]:
+    """Classe la séquence d'extension :
+      score=2 → proximal-distal correct (hanche puis genou [puis cheville])
+      score=1 → simultanée (tous les pics dans une fenêtre de ±tol)
+      score=0 → inversée (genou avant hanche, ou cheville avant genou)
+      score=-1→ données partielles (au moins une articulation manquante)
+    Retourne (score, verdict, raison_humaine).
+    """
+    pts = []
+    if hip   is not None: pts.append(("hanche",   hip["t_peak"]))
+    if knee  is not None: pts.append(("genou",    knee["t_peak"]))
+    if ankle is not None: pts.append(("cheville", ankle["t_peak"]))
+
+    if len(pts) < 2:
+        return -1, "partial", "Données insuffisantes pour évaluer la séquence."
+
+    # Trie par instant de pic
+    pts_sorted = sorted(pts, key=lambda x: x[1])
+    # L'ordre attendu (proximal → distal)
+    expected = ["hanche", "genou", "cheville"]
+    got      = [name for name, _ in pts_sorted]
+
+    # Vérifie simultanéité : tous les pics dans une fenêtre ±tol
+    t_min = min(t for _, t in pts)
+    t_max = max(t for _, t in pts)
+    if (t_max - t_min) <= tol_s:
+        names = " · ".join(f"{n} ({int(round(t*1000))}ms)" for n, t in pts)
+        return 1, "simultaneous", f"Pics quasi-simultanés ({names})."
+
+    # Vérifie si l'ordre observé est un sous-ordre de l'attendu
+    expected_filtered = [n for n in expected if n in got]
+    if got == expected_filtered:
+        order_str = " → ".join(f"{n} ({int(round(t*1000))}ms)" for n, t in pts_sorted)
+        return 2, "proximal_distal", f"Séquence proximale-distale : {order_str}."
+    else:
+        order_str = " → ".join(f"{n} ({int(round(t*1000))}ms)" for n, t in pts_sorted)
+        return 0, "inverted", f"Séquence non-optimale : {order_str}."
+
+
+@app.get("/explosivity/{job_id}")
+async def explosivity(job_id: str):
+    """Renvoie ω_max (°/s) et la séquence proximale-distale pour un job
+    analysé. Calculé à la volée sur la fenêtre [gate, gate+0.5s] depuis le
+    CSV de landmarks. Voir _compute_kinematic_burst pour la méthode."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return JSONResponse({"error": "Job introuvable ou non terminé."},
+                            status_code=404)
+    results = job["results"]
+    csv_path = OUTPUT_DIR / results["files"]["landmarks_csv"]
+    side     = results.get("front_foot") or "L"
+    gate_t   = float(results.get("gate_drop_t", 0.0))
+    burst    = _compute_kinematic_burst(csv_path, gate_t, side, window_s=0.8)
+    if burst is None:
+        return JSONResponse({"error": "Données insuffisantes sur la fenêtre post-gate."},
+                            status_code=422)
+    return burst
 
 
 @app.post("/compare_angles_sequence/{job_id}")
