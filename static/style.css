@@ -3467,24 +3467,37 @@ canvas[id^="anno"] {
 }
 .burst-spark {
   width: 100%;
-  height: 140px;
+  height: 170px;
   display: block;
 }
-.burst-spark .burst-axis {
+.burst-spark .burst-axis-zero {
+  stroke: var(--border-strong);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+  opacity: 0.85;
+}
+.burst-spark .burst-axis-x,
+.burst-spark .burst-axis-y {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.burst-spark .burst-tick-mark {
   stroke: var(--border-strong);
   stroke-width: 1;
-  stroke-dasharray: 3 3;
 }
 .burst-spark .burst-tick {
   fill: var(--muted);
   font-size: 10px;
   font-family: var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
 }
-.burst-spark .burst-axis-label {
-  fill: var(--muted);
-  font-size: 10px;
+.burst-axis-label {
+  text-align: center;
+  font-size: .7rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 4px;
 }
 
 .burst-legend {

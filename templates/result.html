@@ -1147,7 +1147,9 @@
 
       // Construit un SVG miniature des courbes ω(t) (3 superposées)
       function buildSparkline(burst) {
-        const W = 520, H = 140, P = 28;
+        // ViewBox généreuse : H=170, padding bas pour les ticks, padding haut
+        // pour respirer. preserveAspectRatio "none" pour s'étirer en largeur.
+        const W = 520, H = 170, PL = 38, PR = 16, PT = 14, PB = 28;
         const joints = ['hip', 'knee', 'ankle'].filter(k => burst[k] && burst[k].series);
         if (joints.length === 0) return '';
 
@@ -1160,11 +1162,11 @@
                        .map(p => p.omega).filter(v => v != null));
         const oMin = Math.min(0, ...allO);
         const oMax = Math.max(...allO);
-        const oPad = Math.max(20, (oMax - oMin) * 0.05);
+        const oPad = Math.max(20, (oMax - oMin) * 0.08);
 
-        const xScale = t => P + ( (t - tMin) / (tMax - tMin || 1) ) * (W - 2*P);
-        const yScale = o => H - P - ( (o - (oMin - oPad)) /
-                              ((oMax + oPad) - (oMin - oPad) || 1) ) * (H - 2*P);
+        const xScale = t => PL + ( (t - tMin) / (tMax - tMin || 1) ) * (W - PL - PR);
+        const yScale = o => H - PB - ( (o - (oMin - oPad)) /
+                              ((oMax + oPad) - (oMin - oPad) || 1) ) * (H - PT - PB);
 
         const path = (series) => {
           let d = '';
@@ -1186,32 +1188,44 @@
           const peakO = burst[k].omega_max;
           if (peakT == null || peakO == null) return '';
           return `<circle cx="${xScale(peakT).toFixed(1)}" cy="${yScale(peakO).toFixed(1)}"
-                          r="4" fill="${COLORS[k]}" stroke="#0e1420" stroke-width="2"/>`;
+                          r="4.5" fill="${COLORS[k]}"
+                          stroke="var(--surface-elevated)" stroke-width="2"/>`;
         }).join('');
 
-        // Axes / labels minimaux
+        // Ticks X (ms après gate)
         const tickXs = [0, 0.2, 0.4, 0.6, 0.8].filter(t => t >= tMin && t <= tMax);
         const tickLabels = tickXs.map(t =>
-          `<text x="${xScale(t).toFixed(1)}" y="${H-8}" text-anchor="middle"
-                  class="burst-tick">${Math.round(t*1000)}</text>`).join('');
+          `<g>
+             <line x1="${xScale(t).toFixed(1)}" y1="${H-PB}" x2="${xScale(t).toFixed(1)}"
+                   y2="${H-PB+3}" class="burst-tick-mark"/>
+             <text x="${xScale(t).toFixed(1)}" y="${H-PB+14}" text-anchor="middle"
+                    class="burst-tick">${Math.round(t*1000)}</text>
+           </g>`).join('');
+
+        // Ticks Y : 0 + ω_max global arrondi à la dizaine
+        const oMaxRound = Math.ceil(oMax / 50) * 50;
+        const yTicks = [0, oMaxRound].filter(v => v >= oMin - oPad && v <= oMax + oPad);
+        const yTickLabels = yTicks.map(v =>
+          `<text x="${PL-6}" y="${(yScale(v) + 4).toFixed(1)}" text-anchor="end"
+                  class="burst-tick">${v}</text>`).join('');
 
         return `
           <svg viewBox="0 0 ${W} ${H}" class="burst-spark" preserveAspectRatio="none">
-            <!-- Grille -->
-            <line x1="${P}" y1="${y0.toFixed(1)}" x2="${W-P}" y2="${y0.toFixed(1)}"
-                  class="burst-axis"/>
-            <text x="${P-4}" y="${(y0 + 4).toFixed(1)}" text-anchor="end" class="burst-tick">0</text>
+            <!-- Cadre & ligne ω=0 -->
+            <line x1="${PL}" y1="${y0.toFixed(1)}" x2="${W-PR}" y2="${y0.toFixed(1)}"
+                  class="burst-axis-zero"/>
+            <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${H-PB}" class="burst-axis-y"/>
+            <line x1="${PL}" y1="${H-PB}" x2="${W-PR}" y2="${H-PB}" class="burst-axis-x"/>
+            ${yTickLabels}
             <!-- Courbes -->
             ${joints.map(k =>
               `<path d="${path(burst[k].series)}" fill="none"
-                     stroke="${COLORS[k]}" stroke-width="2" stroke-linejoin="round"/>`
+                     stroke="${COLORS[k]}" stroke-width="2.2" stroke-linejoin="round"/>`
             ).join('')}
             ${markers}
             ${tickLabels}
-            <text x="${W/2}" y="${H-2}" text-anchor="middle" class="burst-axis-label">
-              ms après gate drop
-            </text>
           </svg>
+          <div class="burst-axis-label">ω (°/s) — ms après gate drop</div>
         `;
       }
 
