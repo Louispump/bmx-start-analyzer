@@ -1229,18 +1229,54 @@
         `;
       }
 
-      function render(burst) {
+      function compareTag(current, mean, best) {
+        // Petit tag de comparaison vs moyenne perso : ↑ +12% / ↓ −8% / ≈
+        if (current == null || mean == null || mean < 1) return '';
+        const delta = (current - mean) / mean * 100;
+        if (delta >= 8)  return `<span class="burst-cmp-up">↑ +${Math.round(delta)}%</span>`;
+        if (delta <= -8) return `<span class="burst-cmp-down">↓ ${Math.round(delta)}%</span>`;
+        return `<span class="burst-cmp-eq">≈ moyenne</span>`;
+      }
+
+      function render(burst, perso) {
         loading.hidden = true;
         errBox.hidden  = true;
 
         const badge = ciBadge(burst.ci_verdict);
+        const persoO = (perso && perso.omega) || {};
+        const nSig   = perso ? perso.n_significant : 0;
+
         const tiles = ['hip', 'knee', 'ankle'].map(k => {
           const d = burst[k];
           const hasData = d && d.omega_max != null;
+          const edge = d && d.edge_peak;
+          const ref = persoO[k];
+
+          let refLine = '';
+          if (ref && ref.n >= 2) {
+            const cmp = compareTag(d ? d.omega_max : null, ref.mean, ref.best);
+            refLine = `
+              <div class="burst-tile-ref">
+                <span class="burst-tile-ref-stats">
+                  moy <strong>${fmtOmega(ref.mean)}</strong>
+                  · best <strong>${fmtOmega(ref.best)}</strong>
+                  <em>(n=${ref.n})</em>
+                </span>
+                ${cmp}
+              </div>
+            `;
+          } else if (perso) {
+            refLine = `<div class="burst-tile-ref burst-tile-ref-empty">
+                         Pas assez d'essais perso pour comparer
+                       </div>`;
+          }
+
           return `
             <div class="burst-tile ${hasData ? '' : 'burst-tile-empty'}"
                  style="--burst-color: ${COLORS[k]}">
-              <div class="burst-tile-label">${LABELS[k]}</div>
+              <div class="burst-tile-label">${LABELS[k]}
+                ${edge ? '<span class="burst-tile-edge" title="Pic en bord de fenêtre — mesure incomplète">⚠</span>' : ''}
+              </div>
               <div class="burst-tile-omega">
                 ${hasData ? fmtOmega(d.omega_max) : '—'}
                 <span class="burst-tile-unit">°/s</span>
@@ -1248,6 +1284,7 @@
               <div class="burst-tile-peak">
                 ${hasData ? `pic à ${fmtMs(d.t_peak)}` : 'pic non détecté'}
               </div>
+              ${refLine}
             </div>
           `;
         }).join('');
@@ -1287,18 +1324,27 @@
         errBox.textContent = msg;
       }
 
+      // Athlète assigné (vide si analyse éphémère) — utilisé pour fetcher
+      // le référentiel personnel en parallèle du burst de l'essai courant.
+      const ATHLETE_ID = {{ athlete.id|tojson if athlete else '""' }};
+
       (async () => {
         try {
-          const res = await fetch('/explosivity/{{ job_id }}');
-          if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            showError(data.error || `Erreur ${res.status}`);
-            return;
-          }
-          const burst = await res.json();
-          render(burst);
+          const burstP = fetch('/explosivity/{{ job_id }}').then(r => {
+            if (!r.ok) return r.json().then(d => Promise.reject(d.error || `HTTP ${r.status}`));
+            return r.json();
+          });
+          // exclude_job = courant pour que la moyenne représente l'historique
+          // sans l'essai en cours d'affichage (sinon biais à faible n)
+          const persoP = ATHLETE_ID
+            ? fetch(`/athletes/${ATHLETE_ID}/burst_stats?exclude_job={{ job_id }}`)
+                .then(r => r.ok ? r.json() : null).catch(() => null)
+            : Promise.resolve(null);
+
+          const [burst, perso] = await Promise.all([burstP, persoP]);
+          render(burst, perso);
         } catch (e) {
-          showError('Erreur réseau : ' + e.message);
+          showError(typeof e === 'string' ? e : ('Erreur réseau : ' + (e.message || e)));
         }
       })();
     })();

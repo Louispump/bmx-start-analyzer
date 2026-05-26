@@ -2146,24 +2146,119 @@ def _coordinating_index(hip, knee, ankle, tol_s: float) -> tuple[int, str, str]:
         return 0, "inverted", f"Séquence non-optimale : {order_str}."
 
 
-@app.get("/explosivity/{job_id}")
-async def explosivity(job_id: str):
-    """Renvoie ω_max (°/s) et la séquence proximale-distale pour un job
-    analysé. Calculé à la volée sur la fenêtre [gate, gate+0.5s] depuis le
-    CSV de landmarks. Voir _compute_kinematic_burst pour la méthode."""
-    job = get_job_or_recover(job_id)
-    if not job or job.get("status") != "done":
-        return JSONResponse({"error": "Job introuvable ou non terminé."},
-                            status_code=404)
-    results = job["results"]
-    csv_path = OUTPUT_DIR / results["files"]["landmarks_csv"]
+# Version du schéma de cache burst. Incrémenter à chaque changement de
+# fenêtre/algo qui invaliderait les anciennes valeurs persistées.
+BURST_CACHE_VERSION = "1.1"
+
+
+def _get_or_compute_burst(job_id: str, job: dict, force: bool = False) -> dict | None:
+    """Renvoie le burst d'un job, en utilisant un cache persisté dans
+    `job['results']['kinematic_burst']` si la version correspond. Calcule et
+    persiste sinon. Retourne None si calcul impossible."""
+    results = job.get("results") or {}
+    cached  = results.get("kinematic_burst")
+    if not force and cached and cached.get("_version") == BURST_CACHE_VERSION:
+        return cached
+    csv_path = OUTPUT_DIR / results.get("files", {}).get("landmarks_csv", "")
     side     = results.get("front_foot") or "L"
     gate_t   = float(results.get("gate_drop_t", 0.0))
     burst    = _compute_kinematic_burst(csv_path, gate_t, side)
     if burst is None:
+        return None
+    burst["_version"] = BURST_CACHE_VERSION
+    results["kinematic_burst"] = burst
+    job["results"] = results
+    # Seuls les jobs avec athlète sont persistés (cf. save_jobs).
+    if job.get("athlete_id"):
+        save_jobs(jobs)
+    return burst
+
+
+@app.get("/explosivity/{job_id}")
+async def explosivity(job_id: str):
+    """Renvoie ω_max (°/s) et la séquence proximale-distale pour un job
+    analysé. Mis en cache dans le job après le 1er calcul (invalidé si la
+    version d'algo change). Voir _compute_kinematic_burst pour la méthode."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return JSONResponse({"error": "Job introuvable ou non terminé."},
+                            status_code=404)
+    burst = _get_or_compute_burst(job_id, job)
+    if burst is None:
         return JSONResponse({"error": "Données insuffisantes sur la fenêtre post-gate."},
                             status_code=422)
     return burst
+
+
+def _is_burst_significant(burst: dict, min_omega: float = 50.0) -> bool:
+    """Filtre les essais non-significatifs (warmups, drills statiques) pour
+    le calcul des stats perso. Un essai est gardé si les DEUX articulations
+    principales (hanche + genou) montrent une extension franche."""
+    if burst is None: return False
+    hip = burst.get("hip");  knee = burst.get("knee")
+    if not hip or not knee: return False
+    return (hip.get("omega_max") or 0) > min_omega \
+       and (knee.get("omega_max") or 0) > min_omega
+
+
+@app.get("/athletes/{athlete_id}/burst_stats")
+async def athlete_burst_stats(athlete_id: str, exclude_job: str = ""):
+    """Agrège les ω_max et t_peak de tous les départs significatifs d'un
+    athlète. Sert de référentiel personnel pour la carte Explosivité.
+
+    `exclude_job` permet d'exclure l'essai en cours d'affichage si on veut
+    que la moyenne représente l'historique HORS essai courant (sinon le
+    chiffre courant biaise la moyenne quand l'athlète a peu d'essais).
+    """
+    if athlete_id not in athletes:
+        return JSONResponse({"error": "Athlète introuvable."}, status_code=404)
+
+    # Collecte tous les jobs done de cet athlète
+    aj = [(jid, j) for jid, j in jobs.items()
+          if j.get("status") == "done"
+          and j.get("athlete_id") == athlete_id
+          and not j.get("excluded")
+          and jid != exclude_job]
+
+    bursts: list[dict] = []
+    for jid, j in aj:
+        b = _get_or_compute_burst(jid, j)
+        if _is_burst_significant(b):
+            bursts.append(b)
+
+    def _agg(joint: str, field: str) -> dict | None:
+        vals = [b[joint][field] for b in bursts
+                if b.get(joint) and b[joint].get(field) is not None
+                and not b[joint].get("edge_peak")]
+        if not vals: return None
+        return {
+            "mean":   round(float(np.mean(vals)),   1),
+            "median": round(float(np.median(vals)), 1),
+            "best":   round(float(np.max(vals)),    1),
+            "n":      len(vals),
+        }
+
+    return {
+        "athlete_id":     athlete_id,
+        "athlete_name":   athletes[athlete_id].get("name", ""),
+        "n_significant":  len(bursts),
+        "n_total":        len(aj),
+        "omega": {
+            "hip":   _agg("hip",   "omega_max"),
+            "knee":  _agg("knee",  "omega_max"),
+            "ankle": _agg("ankle", "omega_max"),
+        },
+        "t_peak_ms": {
+            # t_peak est en secondes, on remonte en ms pour l'UI
+            joint: ({
+                "mean":   round(v["mean"]   * 1000, 0),
+                "median": round(v["median"] * 1000, 0),
+                "best":   round(v["best"]   * 1000, 0),  # "best" t_peak = le plus précoce ? non, juste le max
+                "n":      v["n"],
+            } if (v := _agg(joint, "t_peak")) else None)
+            for joint in ("hip", "knee", "ankle")
+        },
+    }
 
 
 @app.post("/compare_angles_sequence/{job_id}")
