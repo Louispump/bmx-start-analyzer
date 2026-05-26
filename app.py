@@ -24,7 +24,7 @@ from jinja2 import Environment, FileSystemLoader
 
 import numpy as np
 import pandas as pd
-from scipy.signal import savgol_filter
+from scipy.signal import savgol_filter, find_peaks
 
 from analyze import main as analyze_main, calculate_angle, \
     segment_phases as analyze_segment_phases, PHASE_COLORS
@@ -1905,16 +1905,22 @@ def _compute_sequence(csv_path: Path, gate_t: float, side: str,
 #     dérivée temporelle annule les biais constants liés à l'angle de caméra,
 #     aux proportions corporelles et au cadrage, contrairement aux angles
 #     absolus du module /compare_angles.
-#   - Fenêtre 0.8s post-gate : phase d'extension principale (les pics
-#     attendus se situent typiquement entre +50ms et +400ms pour les élites,
-#     mais peuvent monter à +500-700ms pour des riders amateurs).
+#   - Fenêtre [gate−0.3s, gate+1.0s] : large pour capter l'anticipation
+#     élite (pic d'extension qui démarre AVANT gate drop) ET les pics
+#     tardifs amateurs (>500ms). Permet aussi de détecter via find_peaks
+#     les vrais maxima locaux plutôt que des artefacts de bord.
 #   - Lissage Savitzky-Golay avant dérivation pour réduire l'amplification
 #     du bruit YOLO-Pose par la différentiation.
+#   - Détection de pic par scipy.signal.find_peaks (maxima locaux) ; si
+#     aucun maximum local trouvé → fallback argmax + flag edge_peak qui
+#     remonte à l'UI comme "Mesure incomplète, refaire avec vidéo plus
+#     longue".
 #   - Pas de cheville dans le Coordinating Index si fps < 60 : le proxy
 #     pointe-de-pied (+30 px) combiné à la faible amplitude rend le pic
 #     d'ankle peu fiable à basse cadence vidéo.
 def _compute_kinematic_burst(csv_path: Path, gate_t: float, side: str,
-                             window_s: float = 0.8) -> dict | None:
+                             window_pre: float = 0.3,
+                             window_post: float = 1.0) -> dict | None:
     """Retourne ω_max (°/s) et t_peak (s, relatif au gate drop) pour hanche,
     genou, cheville côté pied avant + index de coordination proximale-distale.
 
@@ -1924,12 +1930,17 @@ def _compute_kinematic_burst(csv_path: Path, gate_t: float, side: str,
 
     Retour : dict avec
       - fps_est       : float       (cadence vidéo estimée sur la fenêtre)
-      - window_s      : float       (rappel de la fenêtre utilisée)
+      - window_pre    : float       (durée pré-gate analysée, en s)
+      - window_post   : float       (durée post-gate analysée, en s)
       - n_samples     : int         (nombre de frames analysées)
-      - hip/knee/ankle: {omega_max, t_peak, series:[{T,omega}]} ou None
+      - hip/knee/ankle: {omega_max, t_peak, series, edge_peak} ou None
+        · edge_peak=True signifie qu'aucun maximum local n'a été trouvé →
+          le pic remonté est en bord de fenêtre, donc potentiellement
+          incomplet (mesure à refaire avec une vidéo plus longue).
       - ci_score      : int  -1/0/1/2  (voir _coordinating_index)
       - ci_verdict    : str  "proximal_distal" | "simultaneous" | "inverted" | "partial"
       - ci_reason     : str  texte humain décrivant la séquence
+      - has_edge_warning: bool  True si au moins une articulation a edge_peak
     Retourne None si lecture CSV impossible ou fenêtre vide.
     """
     if not csv_path.exists():
@@ -1937,8 +1948,8 @@ def _compute_kinematic_burst(csv_path: Path, gate_t: float, side: str,
     df = pd.read_csv(csv_path)
     if "time" not in df.columns or len(df) == 0:
         return None
-    t_lo = gate_t
-    t_hi = gate_t + window_s
+    t_lo = gate_t - window_pre
+    t_hi = gate_t + window_post
     sub  = df[(df["time"] >= t_lo) & (df["time"] <= t_hi)].reset_index(drop=True)
     if len(sub) < 5:
         return None
@@ -2028,12 +2039,33 @@ def _compute_kinematic_burst(csv_path: Path, gate_t: float, side: str,
         if np.all(np.isnan(omega_pos)):
             # Articulation reste en flexion ou statique → pas d'extension
             return None
-        idx_peak = int(np.nanargmax(omega_pos))
+
+        # Détection de pic robuste : on cherche un maximum local interne
+        # (find_peaks). Un maximum local ne peut PAS être en bord, donc
+        # s'il existe c'est forcément un vrai pic biomécanique. Si aucun
+        # maximum local n'est trouvé → fallback sur argmax + flag edge_peak.
+        edge_peak = False
+        omega_filled = np.where(np.isnan(omega_pos), -np.inf, omega_pos)
+        # prominence proportionnelle au signal pour éviter les micro-pics
+        # dus au bruit résiduel post-savgol
+        peak_thr = max(30.0, float(np.nanmax(omega_pos)) * 0.4)
+        peaks, _ = find_peaks(omega_filled, prominence=peak_thr,
+                              distance=max(2, int(0.05 * fps_est)))
+        if len(peaks) > 0:
+            # Plus haut maximum local
+            idx_peak = int(peaks[np.argmax(omega_filled[peaks])])
+        else:
+            # Fallback : argmax. Si le pic tombe en bord, on flag.
+            idx_peak = int(np.nanargmax(omega_pos))
+            n_edge   = max(2, int(0.04 * fps_est))   # ~40ms de zone de bord
+            if idx_peak < n_edge or idx_peak >= n - n_edge:
+                edge_peak = True
+
         omega_max = float(omega[idx_peak])
         t_peak    = float(t_arr[idx_peak] - gate_t)
 
-        # Downsample la série pour le graphe (max ~30 points)
-        step = max(1, n // 30)
+        # Downsample la série pour le graphe (max ~40 points)
+        step = max(1, n // 40)
         series = [
             {"T": round(float(t_arr[i] - gate_t), 3),
              "omega": round(float(omega[i]), 1) if not np.isnan(omega[i]) else None}
@@ -2043,6 +2075,7 @@ def _compute_kinematic_burst(csv_path: Path, gate_t: float, side: str,
             "omega_max": round(omega_max, 1),
             "t_peak":    round(t_peak, 3),
             "series":    series,
+            "edge_peak": edge_peak,
         }
 
     hip_r   = _omega_peak(hip,   "hip")
@@ -2056,17 +2089,21 @@ def _compute_kinematic_burst(csv_path: Path, gate_t: float, side: str,
     ci_score, ci_verdict, ci_reason = _coordinating_index(
         hip_r, knee_r, ankle_r if include_ankle else None, tol)
 
+    has_edge = any(j is not None and j.get("edge_peak") for j in (hip_r, knee_r, ankle_r))
+
     return {
-        "fps_est":       round(fps_est, 1),
-        "window_s":      window_s,
-        "n_samples":     int(len(sub)),
-        "hip":           hip_r,
-        "knee":          knee_r,
-        "ankle":         ankle_r,
-        "ci_score":      ci_score,
-        "ci_verdict":    ci_verdict,
-        "ci_reason":     ci_reason,
-        "ankle_in_ci":   include_ankle,
+        "fps_est":          round(fps_est, 1),
+        "window_pre":       window_pre,
+        "window_post":      window_post,
+        "n_samples":        int(len(sub)),
+        "hip":              hip_r,
+        "knee":             knee_r,
+        "ankle":            ankle_r,
+        "ci_score":         ci_score,
+        "ci_verdict":       ci_verdict,
+        "ci_reason":        ci_reason,
+        "ankle_in_ci":      include_ankle,
+        "has_edge_warning": has_edge,
     }
 
 
@@ -2122,7 +2159,7 @@ async def explosivity(job_id: str):
     csv_path = OUTPUT_DIR / results["files"]["landmarks_csv"]
     side     = results.get("front_foot") or "L"
     gate_t   = float(results.get("gate_drop_t", 0.0))
-    burst    = _compute_kinematic_burst(csv_path, gate_t, side, window_s=0.8)
+    burst    = _compute_kinematic_burst(csv_path, gate_t, side)
     if burst is None:
         return JSONResponse({"error": "Données insuffisantes sur la fenêtre post-gate."},
                             status_code=422)
