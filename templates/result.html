@@ -55,7 +55,7 @@
     </div>
     {% endif %}
 
-    <!-- Tag + notes (auto-save) -->
+    <!-- Tag + piste + notes (auto-save) -->
     <div class="session-meta">
       <div class="session-tags">
         <span class="session-tags-label">Type :</span>
@@ -67,6 +67,20 @@
         {% endfor %}
         <span class="session-tag-status" id="tag-status"></span>
       </div>
+
+      <div class="session-track">
+        <label for="track-select" class="session-track-label">Piste :</label>
+        <select id="track-select" class="pro-select session-track-select">
+          <option value="">— Aucune —</option>
+          {% for t in tracks_options %}
+          <option value="{{ t.id }}" {% if current_track_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" class="btn btn-sm" id="btn-new-track">+ Nouvelle</button>
+        <a href="/settings" class="session-track-manage" title="Gérer les pistes dans Paramètres">⚙</a>
+        <span class="session-track-status" id="track-status"></span>
+      </div>
+
       <div class="session-notes-wrap">
         <label for="session-notes" class="session-notes-label">Notes</label>
         <textarea id="session-notes" class="session-notes" rows="2"
@@ -360,6 +374,54 @@
             flash(data.tag_label ? `✓ ${data.tag_label}` : '✓ Tag retiré');
           } catch (e) { flash('Erreur réseau', false); }
         });
+      });
+    })();
+
+    // ── Piste de session ───────────────────────────────────────────
+    (function() {
+      const sel    = document.getElementById('track-select');
+      const btnNew = document.getElementById('btn-new-track');
+      const status = document.getElementById('track-status');
+      if (!sel) return;
+      let statusTimer = null;
+      function flash(msg, ok=true) {
+        status.textContent = msg;
+        status.className   = 'session-track-status ' + (ok ? 'st-ok' : 'st-err');
+        if (statusTimer) clearTimeout(statusTimer);
+        statusTimer = setTimeout(() => { status.textContent = ''; }, 1800);
+      }
+      async function setTrack(trackId) {
+        const fd = new FormData();
+        fd.append('track_id', trackId || '');
+        try {
+          const res  = await fetch('/jobs/{{ job_id }}/track', { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok || !data.ok) { flash('Erreur', false); return false; }
+          flash(data.track_name ? `✓ ${data.track_name}` : '✓ Piste retirée');
+          return true;
+        } catch (e) { flash('Erreur réseau', false); return false; }
+      }
+      sel.addEventListener('change', () => setTrack(sel.value));
+      btnNew.addEventListener('click', async () => {
+        const name = prompt('Nom de la nouvelle piste :');
+        if (!name || !name.trim()) return;
+        try {
+          const fd = new FormData();
+          fd.append('name', name.trim());
+          const res  = await fetch('/tracks', { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok || !data.id) { alert('Erreur : ' + (data.error || res.status)); return; }
+          // Ajoute à la liste si nouveau, sinon utilise l'existante
+          let opt = sel.querySelector(`option[value="${data.id}"]`);
+          if (!opt) {
+            opt = document.createElement('option');
+            opt.value = data.id;
+            opt.textContent = data.name;
+            sel.appendChild(opt);
+          }
+          sel.value = data.id;
+          await setTrack(data.id);
+        } catch (e) { alert('Erreur réseau : ' + e.message); }
       });
     })();
 

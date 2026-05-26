@@ -66,15 +66,20 @@
   <section class="section">
     <h2>Vidéos <span class="section-tag">{{ athlete_jobs|length }}{% if active_tag %} / {{ tag_counts.total }}{% endif %}</span></h2>
 
+    {# Helpers pour construire les URLs préservant l'autre filtre #}
+    {% set tag_qs   = ('?tag=' + active_tag)     if active_tag   else '' %}
+    {% set track_qs = ('?track=' + active_track) if active_track else '' %}
+
     <!-- Pills filtre par tag -->
     {% if tag_counts.total > 0 %}
     <div class="tag-filter-pills">
-      <a href="/athletes/{{ athlete.id }}" class="tag-pill {% if not active_tag %}tag-pill-active{% endif %}">
+      <span class="tag-filter-label">Type :</span>
+      <a href="/athletes/{{ athlete.id }}{{ track_qs }}" class="tag-pill {% if not active_tag %}tag-pill-active{% endif %}">
         Tous <span class="tag-pill-count">{{ tag_counts.total }}</span>
       </a>
       {% for tid, tlabel in tag_labels.items() %}
         {% if tag_counts[tid] > 0 %}
-        <a href="/athletes/{{ athlete.id }}?tag={{ tid }}"
+        <a href="/athletes/{{ athlete.id }}?tag={{ tid }}{% if active_track %}&track={{ active_track }}{% endif %}"
            class="tag-pill tag-pill-{{ tid }} {% if active_tag == tid %}tag-pill-active{% endif %}">
           {{ tlabel }} <span class="tag-pill-count">{{ tag_counts[tid] }}</span>
         </a>
@@ -82,6 +87,25 @@
       {% endfor %}
       {% if tag_counts.untagged > 0 %}
       <span class="tag-pill-untagged-hint">· {{ tag_counts.untagged }} sans tag</span>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Pills filtre par piste -->
+    {% if used_tracks %}
+    <div class="tag-filter-pills">
+      <span class="tag-filter-label">Piste :</span>
+      <a href="/athletes/{{ athlete.id }}{{ tag_qs }}" class="tag-pill {% if not active_track %}tag-pill-active{% endif %}">
+        Toutes
+      </a>
+      {% for t in used_tracks %}
+      <a href="/athletes/{{ athlete.id }}?track={{ t.id }}{% if active_tag %}&tag={{ active_tag }}{% endif %}"
+         class="tag-pill {% if active_track == t.id %}tag-pill-active{% endif %}">
+        {{ t.name }} <span class="tag-pill-count">{{ t.count }}</span>
+      </a>
+      {% endfor %}
+      {% if untracked_count > 0 %}
+      <span class="tag-pill-untagged-hint">· {{ untracked_count }} sans piste</span>
       {% endif %}
     </div>
     {% endif %}
@@ -114,6 +138,9 @@
               <span class="pro-name-text">{{ j.display_name }}</span>
               {% if j.tag %}
               <span class="session-tag-badge session-tag-{{ j.tag }}">{{ j.tag_label }}</span>
+              {% endif %}
+              {% if j.track_name %}
+              <span class="session-track-badge">📍 {{ j.track_name }}</span>
               {% endif %}
             </span>
             <span class="pro-meta">

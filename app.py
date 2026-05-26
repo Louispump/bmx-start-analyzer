@@ -45,6 +45,7 @@ OUTPUT_DIR    = Path("output")
 PROS_DB       = OUTPUT_DIR / "pros_db.json"
 JOBS_DB       = OUTPUT_DIR / "jobs_db.json"
 ATHLETES_DB   = OUTPUT_DIR / "athletes_db.json"
+TRACKS_DB     = OUTPUT_DIR / "tracks_db.json"
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -174,9 +175,21 @@ def load_athletes() -> dict:
 def save_athletes(athletes: dict):
     _save_db_with_backup(ATHLETES_DB, json.dumps(athletes, indent=2, ensure_ascii=False))
 
+def load_tracks() -> dict:
+    if TRACKS_DB.exists():
+        try:
+            return json.loads(TRACKS_DB.read_text())
+        except Exception:
+            pass
+    return {}
+
+def save_tracks(tracks: dict):
+    _save_db_with_backup(TRACKS_DB, json.dumps(tracks, indent=2, ensure_ascii=False))
+
 pros:     dict = load_pros()
 jobs:     dict = load_jobs()
 athletes: dict = load_athletes()
+tracks:   dict = load_tracks()
 
 
 # ── Nettoyage des jobs orphelins (sans athlète) ──────────────────────────────
@@ -346,9 +359,11 @@ def _job_compare_entry(jid: str, j: dict, athlete_name: str | None = None) -> di
     }
 
 
-def _athlete_jobs(athlete_id: str, filter_tag: str | None = None) -> list[dict]:
+def _athlete_jobs(athlete_id: str,
+                  filter_tag: str | None = None,
+                  filter_track: str | None = None) -> list[dict]:
     """Retourne tous les jobs (terminés) liés à cet athlète, triés du plus récent
-    au plus ancien. Si `filter_tag` est défini, ne garde que les jobs avec ce tag."""
+    au plus ancien. Filtres optionnels par tag et / ou par track_id."""
     out = []
     for jid, j in jobs.items():
         if j.get("status") != "done":
@@ -357,6 +372,10 @@ def _athlete_jobs(athlete_id: str, filter_tag: str | None = None) -> list[dict]:
             continue
         if filter_tag is not None and j.get("tag") != filter_tag:
             continue
+        if filter_track is not None and j.get("track_id") != filter_track:
+            continue
+        track_id = j.get("track_id")
+        track_name = tracks.get(track_id, {}).get("name") if track_id else None
         out.append({
             "job_id":       jid,
             "video_name":   j.get("results", {}).get("video_name", "—"),
@@ -370,6 +389,8 @@ def _athlete_jobs(athlete_id: str, filter_tag: str | None = None) -> list[dict]:
             "tag":          j.get("tag"),
             "tag_label":    TAG_LABELS.get(j.get("tag") or "", ""),
             "notes":        j.get("notes", ""),
+            "track_id":     track_id,
+            "track_name":   track_name,
         })
     out.sort(key=lambda x: x.get("added_at", ""), reverse=True)
     return out
@@ -390,6 +411,32 @@ def _athlete_tag_counts(athlete_id: str) -> dict:
         else:
             counts["untagged"] += 1
     return counts
+
+
+def _athlete_track_counts(athlete_id: str) -> dict:
+    """Compteur de jobs par track pour cet athlète. Retourne dict track_id → count."""
+    counts: dict = {}
+    untracked = 0
+    for jid, j in jobs.items():
+        if j.get("status") != "done": continue
+        if j.get("athlete_id") != athlete_id: continue
+        tid = j.get("track_id")
+        if tid and tid in tracks:
+            counts[tid] = counts.get(tid, 0) + 1
+        else:
+            untracked += 1
+    return {"by_track": counts, "untracked": untracked}
+
+
+def _track_usage_counts() -> dict:
+    """Combien de jobs utilisent chaque track (pour /settings)."""
+    out: dict = {tid: 0 for tid in tracks.keys()}
+    for j in jobs.values():
+        if j.get("status") != "done": continue
+        tid = j.get("track_id")
+        if tid and tid in out:
+            out[tid] += 1
+    return out
 
 
 def _athlete_stats(athlete_jobs: list[dict]) -> dict:
@@ -698,17 +745,26 @@ async def result(request: Request, job_id: str):
         [{"id": a["id"], "name": a["name"]} for a in athletes.values()],
         key=lambda x: x["name"].lower(),
     )
+    current_track_id   = job.get("track_id")
+    current_track_name = tracks.get(current_track_id, {}).get("name") if current_track_id else ""
+    tracks_options = sorted(
+        [{"id": t["id"], "name": t["name"]} for t in tracks.values()],
+        key=lambda x: x["name"].lower(),
+    )
     return templates.TemplateResponse(request, "result.html", {
-        "job_id":           job_id,
-        "results":          job["results"],
-        "athlete":          athlete,
-        "athletes_options": athletes_options,
-        "display_name":     _display_name(job_id, job),
-        "custom_name":      job.get("custom_name", ""),
-        "auto_name":        _display_name(job_id, {**job, "custom_name": ""}),
-        "current_tag":      job.get("tag", ""),
-        "current_notes":    job.get("notes", ""),
-        "tag_options":      [{"id": k, "label": v} for k, v in TAG_LABELS.items()],
+        "job_id":              job_id,
+        "results":             job["results"],
+        "athlete":             athlete,
+        "athletes_options":    athletes_options,
+        "display_name":        _display_name(job_id, job),
+        "custom_name":         job.get("custom_name", ""),
+        "auto_name":           _display_name(job_id, {**job, "custom_name": ""}),
+        "current_tag":         job.get("tag", ""),
+        "current_notes":       job.get("notes", ""),
+        "tag_options":         [{"id": k, "label": v} for k, v in TAG_LABELS.items()],
+        "current_track_id":    current_track_id or "",
+        "current_track_name":  current_track_name,
+        "tracks_options":      tracks_options,
     })
 
 
@@ -796,24 +852,34 @@ async def athletes_create(name: str = Form(...), notes: str = Form("")):
 
 
 @app.get("/athletes/{athlete_id}")
-async def athlete_detail(request: Request, athlete_id: str, tag: str = ""):
+async def athlete_detail(request: Request, athlete_id: str,
+                          tag: str = "", track: str = ""):
     a = athletes.get(athlete_id)
     if not a:
         return templates.TemplateResponse(request, "athletes.html",
                                           {"athletes_list": [],
                                            "error": "Athlète introuvable."})
-    # Validation du filtre tag
-    active_tag = tag.lower() if tag.lower() in VALID_TAGS else None
-    a_jobs = _athlete_jobs(athlete_id, filter_tag=active_tag)
-    stats  = _athlete_stats(a_jobs)
-    counts = _athlete_tag_counts(athlete_id)
+    active_tag   = tag.lower() if tag.lower() in VALID_TAGS else None
+    active_track = track if track in tracks else None
+    a_jobs       = _athlete_jobs(athlete_id, filter_tag=active_tag, filter_track=active_track)
+    stats        = _athlete_stats(a_jobs)
+    counts       = _athlete_tag_counts(athlete_id)
+    track_cnt    = _athlete_track_counts(athlete_id)
+    # Tracks utilisés par cet athlète, triés par usage décroissant
+    used_tracks = []
+    for tid, n in sorted(track_cnt["by_track"].items(), key=lambda x: -x[1]):
+        if tid in tracks:
+            used_tracks.append({"id": tid, "name": tracks[tid]["name"], "count": n})
     return templates.TemplateResponse(request, "athlete_detail.html", {
-        "athlete":      a,
-        "athlete_jobs": a_jobs,
-        "stats":        stats,
-        "active_tag":   active_tag,
-        "tag_counts":   counts,
-        "tag_labels":   TAG_LABELS,
+        "athlete":         a,
+        "athlete_jobs":    a_jobs,
+        "stats":           stats,
+        "active_tag":      active_tag,
+        "active_track":    active_track,
+        "tag_counts":      counts,
+        "tag_labels":      TAG_LABELS,
+        "used_tracks":     used_tracks,
+        "untracked_count": track_cnt["untracked"],
     })
 
 
@@ -851,6 +917,95 @@ async def jobs_set_notes(job_id: str, notes: str = Form("")):
         j.pop("notes", None)
     save_jobs(jobs)
     return {"ok": True, "notes": j.get("notes", "")}
+
+
+# ── Pistes (tracks) — CRUD ─────────────────────────────────────────
+@app.get("/tracks")
+async def tracks_list():
+    """Liste JSON des pistes triées alphabétiquement (pour les pickers)."""
+    items = sorted(
+        [{"id": t["id"], "name": t["name"]} for t in tracks.values()],
+        key=lambda x: x["name"].lower(),
+    )
+    return {"tracks": items}
+
+
+@app.post("/tracks")
+async def tracks_create(name: str = Form(...)):
+    """Crée une piste. Si une piste existe déjà avec ce nom (case-insensitive),
+    retourne celle-là plutôt que de dupliquer."""
+    name = (name or "").strip()
+    if not name:
+        return JSONResponse({"error": "Nom requis."}, status_code=400)
+    if len(name) > 60:
+        return JSONResponse({"error": "Trop long (max 60 caractères)."}, status_code=400)
+    # Anti-doublon insensible à la casse
+    for t in tracks.values():
+        if t["name"].lower() == name.lower():
+            return {"id": t["id"], "name": t["name"], "already_existed": True}
+    tid = str(uuid.uuid4())[:8]
+    tracks[tid] = {
+        "id":         tid,
+        "name":       name,
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    save_tracks(tracks)
+    return {"id": tid, "name": name, "already_existed": False}
+
+
+@app.patch("/tracks/{track_id}")
+async def tracks_rename(track_id: str, name: str = Form(...)):
+    t = tracks.get(track_id)
+    if not t:
+        return JSONResponse({"error": "Piste introuvable."}, status_code=404)
+    new_name = (name or "").strip()
+    if not new_name:
+        return JSONResponse({"error": "Nom requis."}, status_code=400)
+    if len(new_name) > 60:
+        return JSONResponse({"error": "Trop long (max 60 caractères)."}, status_code=400)
+    # Anti-doublon (en ignorant soi-même)
+    for other_id, other in tracks.items():
+        if other_id != track_id and other["name"].lower() == new_name.lower():
+            return JSONResponse({"error": "Une autre piste a déjà ce nom."}, status_code=400)
+    t["name"] = new_name
+    save_tracks(tracks)
+    return {"ok": True, "id": track_id, "name": new_name}
+
+
+@app.delete("/tracks/{track_id}")
+async def tracks_delete(track_id: str):
+    """Supprime une piste. Les jobs qui l'utilisaient perdent leur référence
+    (track_id mis à None) — la suppression est non-destructive côté analyses."""
+    if track_id not in tracks:
+        return JSONResponse({"error": "Piste introuvable."}, status_code=404)
+    del tracks[track_id]
+    save_tracks(tracks)
+    dirty = False
+    for j in jobs.values():
+        if j.get("track_id") == track_id:
+            j.pop("track_id", None)
+            dirty = True
+    if dirty:
+        save_jobs(jobs)
+    return {"ok": True}
+
+
+@app.post("/jobs/{job_id}/track")
+async def jobs_set_track(job_id: str, track_id: str = Form("")):
+    """Assigne (ou retire si vide) une piste sur un job."""
+    j = jobs.get(job_id)
+    if not j:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    tid = (track_id or "").strip()
+    if tid and tid not in tracks:
+        return JSONResponse({"error": "Piste inconnue."}, status_code=400)
+    if tid:
+        j["track_id"] = tid
+    else:
+        j.pop("track_id", None)
+    save_jobs(jobs)
+    track_name = tracks.get(tid, {}).get("name") if tid else None
+    return {"ok": True, "track_id": j.get("track_id"), "track_name": track_name}
 
 
 @app.delete("/athletes/{athlete_id}")
@@ -932,10 +1087,19 @@ async def settings_page(request: Request):
     # Compteurs pour la carte "Nettoyage" (orphelins = sans athlète)
     n_orphan_jobs  = len(_orphan_job_ids())
     n_orphan_files = len(_orphan_files_on_disk())
+    # Liste des pistes triée alpha + usage count
+    usage = _track_usage_counts()
+    tracks_list = sorted(
+        [{"id": t["id"], "name": t["name"],
+          "created_at": t.get("created_at", ""), "n_jobs": usage.get(t["id"], 0)}
+         for t in tracks.values()],
+        key=lambda x: x["name"].lower(),
+    )
     return templates.TemplateResponse(request, "settings.html", {
         "n_orphan_jobs":  n_orphan_jobs,
         "n_orphan_files": n_orphan_files,
         "backup":         _backup_status(),
+        "tracks_list":    tracks_list,
     })
 
 
@@ -1095,7 +1259,7 @@ async def settings_backup_zip():
     import io, zipfile
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in (PROS_DB, JOBS_DB, ATHLETES_DB):
+        for p in (PROS_DB, JOBS_DB, ATHLETES_DB, TRACKS_DB):
             if p.exists():
                 zf.write(p, arcname=f"current/{p.name}")
         if BACKUP_DIR.exists():
@@ -1112,9 +1276,9 @@ async def settings_backup_zip():
 
 @app.post("/settings/backup_snapshot")
 async def settings_backup_snapshot():
-    """Force un snapshot immédiat des 3 DBs (utile avant une opération risquée)."""
+    """Force un snapshot immédiat des DBs (utile avant une opération risquée)."""
     try:
-        for p in (PROS_DB, JOBS_DB, ATHLETES_DB):
+        for p in (PROS_DB, JOBS_DB, ATHLETES_DB, TRACKS_DB):
             _snapshot_db(p)
         _prune_old_backups()
         return {"ok": True, "status": _backup_status()}

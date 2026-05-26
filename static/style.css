@@ -1098,7 +1098,92 @@ header h1 {
 .session-tag-badge.session-tag-warmup      { background: rgba(245,156,24,.12); color: var(--orange); border: 1px solid rgba(245,156,24,.25); }
 .session-tag-badge.session-tag-pb          { background: var(--green-soft);  color: var(--green);  border: 1px solid rgba(45,205,110,.25); }
 
-.pro-name-row { display: inline-flex; align-items: center; flex-wrap: wrap; }
+.pro-name-row { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.session-track-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 500;
+  background: var(--surface-elevated);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  vertical-align: middle;
+  margin-left: 4px;
+}
+.tag-filter-label {
+  font-size: .82rem;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+/* ── Picker piste sur /result ─────────────────────────────────────── */
+.session-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.session-track-label {
+  font-size: .82rem;
+  color: var(--muted);
+}
+.session-track-select {
+  min-width: 220px;
+  min-height: 36px;
+  padding: 6px 12px;
+}
+.session-track-manage {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 1rem;
+  padding: 4px 6px;
+}
+.session-track-manage:hover { color: var(--accent); }
+.session-track-status {
+  font-size: .78rem;
+  margin-left: 4px;
+}
+.session-track-status.st-ok  { color: var(--green); }
+.session-track-status.st-err { color: var(--red); }
+
+/* ── Gestion pistes dans /settings ────────────────────────────────── */
+.track-create-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.track-create-row input { flex: 1 1 240px; min-width: 0; }
+.tracks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.track-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.track-row-name {
+  font-weight: 500;
+  color: var(--text-strong);
+  flex: 0 0 auto;
+}
+.track-row-meta {
+  color: var(--muted);
+  font-size: .82rem;
+  flex: 1 1 auto;
+}
+.track-row-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
 .pro-notes {
   display: block;
   margin-top: 4px;

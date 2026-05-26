@@ -46,6 +46,38 @@
   </div>
 
   <div class="section">
+    <h2>Pistes</h2>
+    <p class="section-note">
+      Pistes utilisées comme étiquette sur tes sessions. Tu peux en créer directement
+      depuis une analyse, ou en ajouter ici. Renommer une piste met à jour toutes les
+      sessions qui l'utilisent. Supprimer = les sessions perdent juste leur étiquette.
+    </p>
+
+    <div class="track-create-row">
+      <input type="text" id="new-track-name" class="rider-name-input"
+             placeholder="Nom de la piste (ex: Tilly Park, Joliette indoor…)" maxlength="60">
+      <button type="button" class="btn btn-primary" id="btn-create-track">+ Créer la piste</button>
+    </div>
+
+    {% if tracks_list %}
+    <div class="tracks-list" id="tracks-list">
+      {% for t in tracks_list %}
+      <div class="track-row" data-track-id="{{ t.id }}">
+        <span class="track-row-name">📍 {{ t.name }}</span>
+        <span class="track-row-meta">{{ t.n_jobs }} session{{ 's' if t.n_jobs != 1 else '' }} · créée le {{ t.created_at.split(' ')[0] if t.created_at else '—' }}</span>
+        <div class="track-row-actions">
+          <button type="button" class="btn btn-sm track-rename-btn" data-id="{{ t.id }}" data-name="{{ t.name }}">✎ Renommer</button>
+          <button type="button" class="btn-delete track-delete-btn" data-id="{{ t.id }}" data-name="{{ t.name }}" data-count="{{ t.n_jobs }}">✕</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Aucune piste enregistrée. Ajoute-en une ci-dessus ou directement depuis une page d'analyse.</div>
+    {% endif %}
+  </div>
+
+  <div class="section">
     <h2>Calibration gate</h2>
     <p class="section-note">
       Compare la détection audio à ce que tu vois sur la vidéo. Si un offset
@@ -115,6 +147,56 @@
       }
     });
   }
+
+  // Gestion des pistes
+  (function() {
+    const inp     = document.getElementById('new-track-name');
+    const btnNew  = document.getElementById('btn-create-track');
+    if (btnNew) {
+      btnNew.addEventListener('click', async () => {
+        const name = inp.value.trim();
+        if (!name) { inp.focus(); return; }
+        btnNew.disabled = true;
+        try {
+          const fd = new FormData();
+          fd.append('name', name);
+          const res = await fetch('/tracks', { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok || !data.id) { alert('Erreur : ' + (data.error || res.status)); return; }
+          if (data.already_existed) {
+            alert('Cette piste existe déjà.');
+          }
+          location.reload();
+        } catch (e) { alert('Erreur réseau : ' + e.message); }
+        finally { btnNew.disabled = false; }
+      });
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') btnNew.click(); });
+    }
+    document.querySelectorAll('.track-rename-btn').forEach(b => {
+      b.addEventListener('click', async () => {
+        const newName = prompt('Nouveau nom :', b.dataset.name);
+        if (!newName || !newName.trim() || newName.trim() === b.dataset.name) return;
+        const fd = new FormData();
+        fd.append('name', newName.trim());
+        const res = await fetch(`/tracks/${b.dataset.id}`, { method: 'PATCH', body: fd });
+        const data = await res.json();
+        if (!res.ok || !data.ok) { alert('Erreur : ' + (data.error || res.status)); return; }
+        location.reload();
+      });
+    });
+    document.querySelectorAll('.track-delete-btn').forEach(b => {
+      b.addEventListener('click', async () => {
+        const n = parseInt(b.dataset.count, 10) || 0;
+        const msg = n > 0
+          ? `Supprimer la piste "${b.dataset.name}" ? ${n} session(s) perdront leur étiquette (les analyses restent).`
+          : `Supprimer la piste "${b.dataset.name}" ?`;
+        if (!confirm(msg)) return;
+        const res = await fetch(`/tracks/${b.dataset.id}`, { method: 'DELETE' });
+        if (!res.ok) { alert('Erreur lors de la suppression'); return; }
+        location.reload();
+      });
+    });
+  })();
 
   // Purge des analyses orphelines
   const btnPurge = document.getElementById('btn-purge-orphans');
