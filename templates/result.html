@@ -1238,6 +1238,52 @@
         return `<span class="burst-cmp-eq">≈ moyenne</span>`;
       }
 
+      // Icône + classe d'observation selon son type
+      const OBS_META = {
+        good:    { icon: '✅', cls: 'burst-obs-good'    },
+        warn:    { icon: '⚠️', cls: 'burst-obs-warn'    },
+        bad:     { icon: '🔴', cls: 'burst-obs-bad'     },
+        info:    { icon: 'ℹ️', cls: 'burst-obs-info'    },
+        record:  { icon: '🏆', cls: 'burst-obs-record'  },
+        boost:   { icon: '⬆️', cls: 'burst-obs-good'    },
+        dip:     { icon: '⬇️', cls: 'burst-obs-dip'     },
+      };
+      // Mapping verdict global → classe CSS
+      const VERDICT_CLS = {
+        good:            'burst-verdict-good',
+        ok:              'burst-verdict-ok',
+        warn:            'burst-verdict-warn',
+        bad:             'burst-verdict-bad',
+        non_significant: 'burst-verdict-mute',
+        incomplete:      'burst-verdict-mute',
+      };
+
+      function renderDiagnosis(diag) {
+        if (!diag) return '';
+        const cls = VERDICT_CLS[diag.verdict] || 'burst-verdict-mute';
+        const obsHtml = (diag.observations || []).map(o => {
+          const m = OBS_META[o.type] || OBS_META.info;
+          return `<li class="${m.cls}"><span class="burst-obs-icon">${m.icon}</span>${o.text}</li>`;
+        }).join('');
+        const cueHtml = diag.cue ? `
+          <div class="burst-cue">
+            <div class="burst-cue-title">💡 Pour progresser</div>
+            <div class="burst-cue-text">${diag.cue.text}</div>
+            <div class="burst-cue-why"><em>Pourquoi :</em> ${diag.cue.why}</div>
+          </div>
+        ` : '';
+        return `
+          <div class="burst-diag ${cls}">
+            <div class="burst-diag-head">
+              <div class="burst-diag-label">${diag.verdict_label}</div>
+              <div class="burst-diag-headline">${diag.headline}</div>
+            </div>
+            ${obsHtml ? `<ul class="burst-obs-list">${obsHtml}</ul>` : ''}
+            ${cueHtml}
+          </div>
+        `;
+      }
+
       function render(burst, perso) {
         loading.hidden = true;
         errBox.hidden  = true;
@@ -1293,7 +1339,12 @@
           ? `<span class="burst-fps-warn">⚠ ${burst.fps_est} fps — cheville exclue de la séquence (résolution insuffisante)</span>`
           : `<span class="burst-fps-ok">${burst.fps_est} fps · ${burst.n_samples} frames</span>`;
 
+        const persoFooter = perso
+          ? `<span class="burst-perso-info">${nSig} essai${nSig>1?'s':''} signif. dans l'historique perso</span>`
+          : `<span class="burst-perso-info">Aucun athlète assigné — pas de référentiel personnel</span>`;
+
         grid.innerHTML = `
+          ${renderDiagnosis(burst.diagnosis)}
           <div class="burst-tiles">${tiles}</div>
           <div class="burst-chart-wrap">
             ${buildSparkline(burst)}
@@ -1309,10 +1360,9 @@
               </span>
             </div>
           </div>
-          <div class="burst-verdict">
-            <span class="burst-badge ${badge.cls}">${badge.txt}</span>
-            <span class="burst-verdict-reason">${burst.ci_reason}</span>
+          <div class="burst-meta">
             <span class="burst-fps">${fpsNote}</span>
+            ${persoFooter}
           </div>
         `;
       }

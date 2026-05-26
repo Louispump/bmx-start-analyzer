@@ -3585,39 +3585,112 @@ canvas[id^="anno"] {
   font-size: .72rem;
 }
 
-.burst-verdict {
+/* Diagnostic coaching (étape C) ─────────────────────────────────── */
+.burst-diag {
+  padding: 16px 18px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  position: relative;
+  overflow: hidden;
+}
+.burst-diag::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 4px;
+  background: var(--burst-diag-color, var(--accent));
+}
+.burst-verdict-good { --burst-diag-color: var(--green);  }
+.burst-verdict-ok   { --burst-diag-color: var(--accent); }
+.burst-verdict-warn { --burst-diag-color: var(--orange); }
+.burst-verdict-bad  { --burst-diag-color: var(--red);    }
+.burst-verdict-mute { --burst-diag-color: var(--muted);  }
+
+.burst-diag-head { margin-bottom: 10px; }
+.burst-diag-label {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--burst-diag-color, var(--text-strong));
+}
+.burst-diag-headline {
+  font-size: .88rem;
+  color: var(--text);
+  margin-top: 3px;
+}
+
+.burst-obs-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.burst-obs-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: .85rem;
+  line-height: 1.45;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border-left: 3px solid transparent;
+}
+.burst-obs-icon { flex-shrink: 0; font-size: .9rem; line-height: 1.45; }
+.burst-obs-good   { border-left-color: var(--green);  color: var(--text); }
+.burst-obs-warn   { border-left-color: var(--orange); color: var(--text); }
+.burst-obs-bad    { border-left-color: var(--red);    color: var(--text); }
+.burst-obs-info   { border-left-color: var(--muted);  color: var(--text); }
+.burst-obs-record { border-left-color: var(--green);  color: var(--text); background: var(--green-soft); }
+.burst-obs-dip    { border-left-color: var(--muted);  color: var(--text); opacity: 0.9; }
+
+.burst-cue {
+  margin-top: 8px;
+  padding: 12px 14px;
+  background: var(--accent-soft);
+  border: 1px dashed var(--accent-mid);
+  border-radius: 10px;
+}
+.burst-cue-title {
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.burst-cue-text {
+  font-size: .92rem;
+  color: var(--text-strong);
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+.burst-cue-why {
+  font-size: .78rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.burst-cue-why em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text);
+  margin-right: 3px;
+}
+
+.burst-meta {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 14px;
-  padding: 10px 14px;
-  background: var(--surface-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-}
-.burst-badge {
-  font-size: .82rem;
-  font-weight: 700;
-  padding: 5px 11px;
-  border-radius: 999px;
-  letter-spacing: 0.02em;
-}
-.burst-badge-ok   { background: var(--green-soft);  color: var(--green);  border: 1px solid var(--green); }
-.burst-badge-mid  { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
-.burst-badge-warn { background: var(--orange-soft); color: var(--orange); border: 1px solid var(--orange); }
-.burst-badge-mute { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
-.burst-verdict-reason {
-  color: var(--text);
-  font-size: .88rem;
-  flex: 1 1 auto;
-}
-.burst-fps {
-  margin-left: auto;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
   font-size: .76rem;
   font-variant-numeric: tabular-nums;
 }
-.burst-fps-ok   { color: var(--muted); }
-.burst-fps-warn { color: var(--orange); }
+.burst-fps-ok       { color: var(--muted); }
+.burst-fps-warn     { color: var(--orange); font-weight: 600; }
+.burst-perso-info   { color: var(--muted); font-style: italic; }
 
 @media (max-width: 640px) {
   .burst-tiles { grid-template-columns: 1fr !important; }

@@ -2151,6 +2151,247 @@ def _coordinating_index(hip, knee, ankle, tol_s: float) -> tuple[int, str, str]:
 BURST_CACHE_VERSION = "1.1"
 
 
+def _burst_diagnose(burst: dict, perso: dict | None = None) -> dict:
+    """Moteur de règles → verdict + observations + cue coaching.
+
+    Logique (toute documentée, pas de ML) :
+      1. Détecte d'abord les cas non-significatifs / mesure incomplète.
+      2. Note la séquence (CI) comme observation principale.
+      3. Compare ω hanche / genou à la moyenne perso si disponible.
+      4. Détecte des patterns techniques (délai hanche→genou anormal, etc.).
+      5. Choisit UN cue d'entraînement basé sur le défaut dominant.
+
+    Sources :
+      - Gross 2017 — coordination proximale-distale, ω élites 400-700°/s
+      - Cowell 2020 — séquencement hanche→genou→cheville
+      - Grigg 2020 — back position, role du pull-back
+      - Mahieu — alignement épaules-bassin pour transmission
+
+    Retour : {verdict, verdict_label, headline, observations:[{type, text}], cue:{text, why}}.
+    """
+    obs: list[dict] = []
+    hip   = burst.get("hip")
+    knee  = burst.get("knee")
+    ankle = burst.get("ankle")
+
+    # ── Cas dégénérés ────────────────────────────────────────────────
+    if not hip or not knee:
+        return {
+            "verdict": "incomplete",
+            "verdict_label": "Données insuffisantes",
+            "headline": "Le pipeline n'a pas extrait assez de keypoints sur cet essai.",
+            "observations": [{"type": "warn",
+                "text": "Au moins l'une des articulations principales (hanche, genou) "
+                        "n'a pas de pic d'extension détecté."}],
+            "cue": None,
+        }
+
+    hip_omega   = hip.get("omega_max") or 0
+    knee_omega  = knee.get("omega_max") or 0
+    hip_tpeak   = hip.get("t_peak")
+    knee_tpeak  = knee.get("t_peak")
+
+    # Essai non-significatif (warmup, drill statique, gate raté…)
+    if hip_omega < 50 and knee_omega < 50:
+        return {
+            "verdict": "non_significant",
+            "verdict_label": "Essai non-significatif",
+            "headline": "Pas d'extension franche détectée — probablement un warmup, "
+                        "un drill statique ou un départ avorté.",
+            "observations": [
+                {"type": "warn", "text": f"ω hanche {hip_omega:.0f}°/s, "
+                                          f"ω genou {knee_omega:.0f}°/s — trop faible pour analyser."},
+                {"type": "info", "text": "Cet essai est exclu du calcul du référentiel personnel."},
+            ],
+            "cue": None,
+        }
+
+    # Mesure en bord de fenêtre → fiabilité douteuse
+    if burst.get("has_edge_warning"):
+        edges = [name for name, j in (("hanche", hip), ("genou", knee), ("cheville", ankle))
+                 if j and j.get("edge_peak")]
+        obs.append({
+            "type": "warn",
+            "text": f"Pic en bord de fenêtre ({', '.join(edges)}) — la vidéo coupe "
+                    "trop près du gate drop ou de la phase d'extension. Refilme avec "
+                    "0.5s avant le bip 1 et 1.5s après le gate pour une mesure complète.",
+        })
+
+    # ── Séquence (CI) ────────────────────────────────────────────────
+    ci = burst.get("ci_verdict")
+    if ci == "proximal_distal":
+        obs.append({"type": "good",
+            "text": f"Séquence proximale-distale respectée — {burst.get('ci_reason', '')}"})
+    elif ci == "simultaneous":
+        obs.append({"type": "info",
+            "text": f"Pics quasi-simultanés — coordination correcte mais peu "
+                    f"discriminante à {burst.get('fps_est', 30)} fps."})
+    elif ci == "inverted":
+        obs.append({"type": "bad",
+            "text": f"Séquence inversée — {burst.get('ci_reason', '')} "
+                    "Pattern non-optimal : tu déclenches le genou avant la hanche."})
+
+    # ── Comparaison perso ───────────────────────────────────────────
+    has_perso_hip   = perso and perso.get("omega", {}).get("hip")  \
+                      and perso["omega"]["hip"].get("n", 0) >= 3
+    has_perso_knee  = perso and perso.get("omega", {}).get("knee") \
+                      and perso["omega"]["knee"].get("n", 0) >= 3
+
+    # Comparaison vs perso = chute de PERFORMANCE, pas défaut TECHNIQUE.
+    # On utilise le type "dip" / "boost" / "record" pour ne pas inflater
+    # le verdict global. Le frontend les style comme info, pas comme bad.
+    def _cmp_obs(joint_name, current, ref, unit="°/s"):
+        if not ref or ref.get("n", 0) < 3: return None
+        mean = ref["mean"]; best = ref["best"]
+        delta_pct = (current - mean) / mean * 100 if mean > 0 else 0
+        if current > best * 1.02:
+            return {"type": "record",
+                "text": f"ω {joint_name} {current:.0f}{unit} = nouveau record perso "
+                        f"(best précédent : {best:.0f}{unit}, n={ref['n']})."}
+        if current >= best * 0.97:
+            return {"type": "boost",
+                "text": f"ω {joint_name} {current:.0f}{unit} = au niveau de ton meilleur "
+                        f"({best:.0f}{unit}, n={ref['n']})."}
+        if delta_pct >= 10:
+            return {"type": "boost",
+                "text": f"ω {joint_name} {current:.0f}{unit} → +{delta_pct:.0f}% "
+                        f"vs ta moyenne ({mean:.0f}{unit}, n={ref['n']})."}
+        if delta_pct <= -20:
+            return {"type": "dip",
+                "text": f"ω {joint_name} {current:.0f}{unit} → {delta_pct:.0f}% "
+                        f"vs ta moyenne ({mean:.0f}{unit}, n={ref['n']}). "
+                        "Essai sous ton niveau habituel — fatigue ? échauffement ?"}
+        if delta_pct <= -10:
+            return {"type": "dip",
+                "text": f"ω {joint_name} {current:.0f}{unit} → {delta_pct:.0f}% "
+                        f"vs ta moyenne ({mean:.0f}{unit}, n={ref['n']})."}
+        return None  # dans la zone normale, on ne dit rien
+
+    if has_perso_hip:
+        o = _cmp_obs("hanche", hip_omega, perso["omega"]["hip"])
+        if o: obs.append(o)
+    if has_perso_knee:
+        o = _cmp_obs("genou",  knee_omega, perso["omega"]["knee"])
+        if o: obs.append(o)
+
+    # ── Pattern : délai hanche→genou ────────────────────────────────
+    delay_hip_knee_ms = None
+    if hip_tpeak is not None and knee_tpeak is not None:
+        delay_hip_knee_ms = (knee_tpeak - hip_tpeak) * 1000
+        if delay_hip_knee_ms > 450:
+            obs.append({"type": "warn",
+                "text": f"Délai hanche→genou très long ({delay_hip_knee_ms:.0f}ms) — "
+                        "ta poussée de quad arrive tard, tu perds le bénéfice du "
+                        "transfert proximal-distal."})
+
+    # ── Patterns d'amplitude (seulement si pas de perso pour ne pas
+    #    répéter le même message) ────────────────────────────────────
+    if not has_perso_hip and hip_omega < 100:
+        obs.append({"type": "warn",
+            "text": f"ω hanche faible ({hip_omega:.0f}°/s) — engagement hanche "
+                    "limité. Les extensions hanche/genou au départ BMX devraient "
+                    "être proches d'un saut balistique."})
+
+    # ── Choix du verdict global ─────────────────────────────────────
+    # Le verdict reflète la TECHNIQUE (CI, séquence, amplitude absolue).
+    # Les chutes/boost vs perso (types dip/boost/record) sont des indicateurs
+    # de FORME, pas de technique → ils colorient la headline mais ne font
+    # pas basculer le verdict en bad.
+    n_bad     = sum(1 for o in obs if o["type"] == "bad")
+    n_warn    = sum(1 for o in obs if o["type"] == "warn")
+    n_good    = sum(1 for o in obs if o["type"] == "good")
+    n_record  = sum(1 for o in obs if o["type"] == "record")
+    n_dip     = sum(1 for o in obs if o["type"] == "dip")
+
+    if n_bad >= 1:
+        verdict, label = "bad", "Départ à retravailler"
+        headline = "Au moins un défaut technique majeur détecté."
+    elif n_warn >= 2:
+        verdict, label = "warn", "Départ correct, points à corriger"
+        headline = "Bonne base mais plusieurs points à travailler."
+    elif n_good >= 1 and n_warn == 0:
+        if n_record >= 1:
+            verdict, label = "good", "Excellent départ"
+            headline = "Mécanique propre ET niveau supérieur à ton habitude."
+        elif n_dip >= 1:
+            verdict, label = "good", "Bon départ (forme en baisse)"
+            headline = "Technique propre mais tu es sous ton niveau habituel."
+        else:
+            verdict, label = "good", "Bon départ"
+            headline = "Exécution propre — focus sur la stabilité et l'explosivité."
+    elif n_warn == 1 and n_good >= 1:
+        verdict, label = "ok", "Départ correct"
+        headline = "Mécanique acceptable, un point à surveiller."
+    else:
+        verdict, label = "ok", "Départ correct"
+        headline = "Rien d'alarmant, mais peu de marqueurs forts non plus."
+
+    # ── Choix du cue d'entraînement ─────────────────────────────────
+    # On choisit UN cue basé sur le défaut dominant. Ordre de priorité :
+    # 1) séquence inversée → travail postural & timing
+    # 2) délai hanche↔genou trop long → explosivité quad
+    # 3) ω hanche faible → engagement hanche / pull-back
+    # 4) tout va bien → consigne de consolidation
+    cue = None
+    if ci == "inverted":
+        cue = {
+            "text": "Pull-back plus marqué : reste BAS dans la phase de set, "
+                    "garde le tronc penché jusqu'au bip 3, puis hanche AVANT genou.",
+            "why": "Une séquence inversée vient typiquement d'un buste trop "
+                   "redressé en set — le genou prend le relai parce que la hanche "
+                   "n'a plus de course à extension. (Grigg 2020 — back position)"
+        }
+    elif delay_hip_knee_ms is not None and delay_hip_knee_ms > 450:
+        cue = {
+            "text": "Drill explosivité quad : squat jumps avec charge légère, "
+                    "5×5 à intensité max, en visant l'extension la plus rapide.",
+            "why": "Ton délai hanche→genou est long : ta hanche tire mais ton "
+                   "quad ne suit pas avec la même vitesse d'extension. (Gross 2017 — "
+                   "ω genou élites 400-700°/s, comparable saut balistique chargé)"
+        }
+    elif hip_omega < 100 and not has_perso_hip:
+        cue = {
+            "text": "Travail engagement hanche : box jumps et hip thrusts explosifs. "
+                    "Sur le vélo : exagère le pull-back en set (épaules devant l'axe "
+                    "guidon, bassin reculé).",
+            "why": "ω hanche en-dessous des standards de saut balistique. "
+                   "La hanche est le moteur du transfert proximal-distal."
+        }
+    elif n_dip >= 2:
+        cue = {
+            "text": "Forme du jour : enchaîne 2-3 essais d'échauffement complet "
+                    "(activation hanche/quad) avant de retester. Si l'écart persiste, "
+                    "regarde la récup' (sommeil, charge récente).",
+            "why": f"Tu es {abs(int(perso['omega']['knee']['mean'] - knee_omega) / perso['omega']['knee']['mean'] * 100) if has_perso_knee else 0:.0f}% "
+                   "sous ta moyenne sur ≥2 articulations — ta technique est bonne, "
+                   "mais l'explosivité du jour n'y est pas. Pas un problème de technique."
+        }
+    elif verdict == "good":
+        cue = {
+            "text": "Consolide : enchaîne 5-8 essais aujourd'hui et vise la "
+                    "consistance des chiffres plutôt que le pic isolé.",
+            "why": "Tu as une bonne mécanique. À ce stade, c'est la reproductibilité "
+                   "qui fait gagner en course."
+        }
+    else:
+        # Fallback générique : pas de défaut spécifique détecté
+        cue = {
+            "text": "Continue ton volume habituel. Pour progresser sur l'explosivité, "
+                    "alterne séances power (squat jumps, sprints départ arrêté) et "
+                    "séances vélo spécifique départ rampe (5-8 sets, récup complète).",
+            "why": "Pas de défaut technique dominant à corriger. La progression vient "
+                   "maintenant du volume de travail explosif et de la consistance."
+        }
+
+    return {
+        "verdict": verdict,
+        "verdict_label": label,
+        "headline": headline,
+        "observations": obs,
+        "cue": cue,
+    }
+
+
 def _get_or_compute_burst(job_id: str, job: dict, force: bool = False) -> dict | None:
     """Renvoie le burst d'un job, en utilisant un cache persisté dans
     `job['results']['kinematic_burst']` si la version correspond. Calcule et
@@ -2176,9 +2417,10 @@ def _get_or_compute_burst(job_id: str, job: dict, force: bool = False) -> dict |
 
 @app.get("/explosivity/{job_id}")
 async def explosivity(job_id: str):
-    """Renvoie ω_max (°/s) et la séquence proximale-distale pour un job
-    analysé. Mis en cache dans le job après le 1er calcul (invalidé si la
-    version d'algo change). Voir _compute_kinematic_burst pour la méthode."""
+    """Renvoie ω_max (°/s) + séquence proximale-distale + verdict coaching
+    pour un job analysé. Le burst est mis en cache dans le job ; le verdict
+    est calculé à la volée (rapide) car il dépend du référentiel perso en
+    temps réel."""
     job = get_job_or_recover(job_id)
     if not job or job.get("status") != "done":
         return JSONResponse({"error": "Job introuvable ou non terminé."},
@@ -2187,7 +2429,31 @@ async def explosivity(job_id: str):
     if burst is None:
         return JSONResponse({"error": "Données insuffisantes sur la fenêtre post-gate."},
                             status_code=422)
-    return burst
+
+    # Diagnostic coaching avec référentiel perso si athlète assigné
+    perso = None
+    aid = job.get("athlete_id")
+    if aid and aid in athletes:
+        # Recalcule les stats en excluant l'essai courant (cohérent avec l'UI)
+        aj = [(jid, j) for jid, j in jobs.items()
+              if j.get("status") == "done"
+              and j.get("athlete_id") == aid
+              and not j.get("excluded")
+              and jid != job_id]
+        sig_bursts = [b for b in (_get_or_compute_burst(jid, j) for jid, j in aj)
+                      if _is_burst_significant(b)]
+        def _agg(joint):
+            vals = [b[joint]["omega_max"] for b in sig_bursts
+                    if b.get(joint) and b[joint].get("omega_max") is not None
+                    and not b[joint].get("edge_peak")]
+            if not vals: return None
+            return {"mean": round(float(np.mean(vals)), 1),
+                    "best": round(float(np.max(vals)), 1),
+                    "n":    len(vals)}
+        perso = {"omega": {j: _agg(j) for j in ("hip", "knee", "ankle")}}
+
+    diag = _burst_diagnose(burst, perso)
+    return {**burst, "diagnosis": diag}
 
 
 def _is_burst_significant(burst: dict, min_omega: float = 50.0) -> bool:
