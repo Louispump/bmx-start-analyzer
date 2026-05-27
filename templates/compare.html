@@ -184,6 +184,7 @@
       <span class="speed-control">
         <label for="speed-select">Vit.</label>
         <select id="speed-select" class="pro-select speed-select">
+          <option value="0.1">0.1×</option>
           <option value="0.25">0.25×</option>
           <option value="0.5">0.5×</option>
           <option value="0.75">0.75×</option>
@@ -574,6 +575,26 @@
     scrubSync.addEventListener('input', () => { applySyncOffset(getSyncOffset()); });
     scrubSync.addEventListener('mouseup',  () => { scrubbing.sync = false; });
     scrubSync.addEventListener('touchend', () => { scrubbing.sync = false; });
+
+    // Le scrubber SYNC doit avancer en temps réel pendant la lecture pour
+    // qu'on voie la progression et qu'on puisse revenir en arrière en le
+    // saisissant. On le pilote depuis le timeupdate de la vidéo rider
+    // (référence de calage). Si l'utilisateur est en train de scrubber
+    // (scrubbing.sync=true), on n'override pas sa position.
+    function syncScrubFromRider() {
+      if (scrubbing.sync) return;
+      if (vRider.readyState < 1 || !isFinite(riderRefT)) return;
+      const offset = vRider.currentTime - riderRefT;
+      // On clamp dans la plage visible du scrubber pour qu'il n'aille
+      // pas au-delà de 0 ou 500 si la lecture continue hors fenêtre
+      const clamped = Math.max(SYNC_OFFSET_START,
+                       Math.min(SYNC_OFFSET_START + SYNC_TOTAL, offset));
+      scrubSync.value = Math.round((clamped - SYNC_OFFSET_START) / SYNC_TOTAL * 500);
+      currentSyncOffset = clamped;
+      const t = clamped >= 0 ? `T +${clamped.toFixed(2)}s` : `T ${clamped.toFixed(2)}s`;
+      syncCounter.textContent = t;
+    }
+    vRider.addEventListener('timeupdate', syncScrubFromRider);
 
     function resetSyncRefs() {
       riderRefT = riderGateT;
