@@ -427,11 +427,49 @@
     });
 
     // ── Play/Pause synchronisé des 2 vidéos depuis la sync-bar ─────
-    // Le bouton joue les 2 simultanément (s'il y a un pro chargé) en
-    // respectant le calage manuel. L'icône reflète l'état (▶ ou ⏸).
+    // Architecture driver-follower : le rider est le DRIVER (il joue
+    // normalement), le pro est le FOLLOWER (son currentTime est piloté
+    // à 60Hz via requestAnimationFrame depuis le currentTime du rider).
+    //
+    // Pourquoi ? iOS Safari ne sait pas jouer 2 balises <video> en
+    // parallèle de manière fiable — quand on appelait vPro.play() après
+    // vRider.play(), iOS pause silencieusement l'un ou l'autre. Avec le
+    // mode follower, vPro reste en pause natif mais son currentTime est
+    // mis à jour en continu, ce qui donne visuellement une lecture
+    // synchronisée parfaite sans avoir besoin que les 2 vidéos jouent
+    // réellement en même temps.
+    let proFollowRAF = null;
+
+    function startProFollow() {
+      if (proFollowRAF) return;
+      function tick() {
+        // Stop conditions : plus de pro chargé OU rider en pause
+        if (!vPro.src || vPro.readyState < 1 || vRider.paused) {
+          proFollowRAF = null;
+          return;
+        }
+        if (proRefT !== null && isFinite(riderRefT) && vRider.readyState >= 1) {
+          const target = proRefT + (vRider.currentTime - riderRefT);
+          if (isFinite(target) && target >= 0 && target <= vPro.duration) {
+            // Tolérance 20ms pour éviter le tremblement des seeks répétés
+            if (Math.abs(vPro.currentTime - target) > 0.02) {
+              vPro.currentTime = target;
+            }
+          }
+        }
+        proFollowRAF = requestAnimationFrame(tick);
+      }
+      proFollowRAF = requestAnimationFrame(tick);
+    }
+    function stopProFollow() {
+      if (proFollowRAF) cancelAnimationFrame(proFollowRAF);
+      proFollowRAF = null;
+    }
+
     function isAnyVideoPlaying() {
-      const proLoaded = !!vPro.src && vPro.readyState >= 1;
-      return !vRider.paused || (proLoaded && !vPro.paused);
+      // En mode follower, seul vRider joue réellement. vPro est piloté
+      // par le rAF — donc l'état "en lecture" se résume à vRider.
+      return !vRider.paused;
     }
     function updateSyncPlayIcon() {
       const btn = document.getElementById('btn-sync-play');
@@ -445,16 +483,29 @@
       const proLoaded = !!vPro.src && vPro.readyState >= 1;
       if (isAnyVideoPlaying()) {
         vRider.pause();
-        if (proLoaded) vPro.pause();
+        stopProFollow();
+        if (proLoaded) vPro.pause();   // s'assure que le pro est paused aussi
       } else {
-        if (vRider.readyState >= 1) vRider.play().catch(() => {});
-        if (proLoaded)              vPro.play().catch(() => {});
+        if (vRider.readyState >= 1) {
+          vRider.play().catch(() => {});
+        }
+        if (proLoaded) {
+          // On NE play() PAS vPro — on le pilote en follower via rAF pour
+          // éviter le conflit multi-vidéo iOS Safari.
+          if (!vPro.paused) vPro.pause();
+          startProFollow();
+        }
       }
     }
     ['play','pause','ended','loadedmetadata'].forEach(ev => {
       vRider.addEventListener(ev, updateSyncPlayIcon);
       vPro.addEventListener(ev,   updateSyncPlayIcon);
     });
+    // Si le rider est paused (par n'importe quel moyen — clic vidéo,
+    // touche Espace, fin de buffer…), on stoppe le rAF pour ne pas
+    // continuer à seeker vPro inutilement.
+    vRider.addEventListener('pause', stopProFollow);
+    vRider.addEventListener('ended', stopProFollow);
     document.getElementById('btn-sync-play').addEventListener('click', toggleSyncPlay);
 
     // ── Toggle 3 modes de cadrage des vidéos ─────────────────────
@@ -616,9 +667,11 @@
       if (e.key === 'ArrowRight') { e.preventDefault(); step(active, +1); }
       if (e.key === 'ArrowLeft')  { e.preventDefault(); step(active, -1); }
       if (e.key === ' ') {
+        // Espace = Play/Pause SYNCHRONISÉ (driver-follower). Avant on
+        // jouait la vidéo "active" seule, ce qui créait de la désynchro
+        // entre rider et pro. Maintenant on passe par le toggle sync.
         e.preventDefault();
-        const v = videos[active];
-        if (v.readyState >= 1) v.paused ? v.play() : v.pause();
+        toggleSyncPlay();
       }
       if (e.key === 'Tab') { e.preventDefault(); setActive(active === 'rider' ? 'pro' : 'rider'); }
     });
