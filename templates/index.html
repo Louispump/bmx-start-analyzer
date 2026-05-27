@@ -38,6 +38,29 @@
     </div>
   </div>
 
+  <!-- ÉTAPE 1bis : Téléversement avec progression -->
+  <div id="step-uploading" style="display:none">
+    <div class="uploading-card">
+      <div class="uploading-head">
+        <div class="uploading-icon" id="uploading-icon">📤</div>
+        <div class="uploading-meta">
+          <div class="uploading-filename" id="uploading-filename">—</div>
+          <div class="uploading-size" id="uploading-size">—</div>
+        </div>
+        <button type="button" class="btn btn-cancel" id="btn-cancel-upload">Annuler</button>
+      </div>
+      <div class="uploading-progress-wrap">
+        <div class="uploading-progress-bar" id="uploading-progress-bar"></div>
+      </div>
+      <div class="uploading-stats">
+        <span id="uploading-percent">0 %</span>
+        <span id="uploading-speed">— MB/s</span>
+        <span id="uploading-eta">— restant</span>
+      </div>
+      <div class="uploading-phase" id="uploading-phase">Téléversement…</div>
+    </div>
+  </div>
+
   <!-- ÉTAPE 2 : Sélection du gate drop -->
   <div id="step-gate" style="display:none">
     <div class="gate-select-box">
@@ -131,21 +154,115 @@
       athleteSelect.appendChild(opt);
     });
 
-    async function startUpload(file) {
+    // ── Upload avec barre de progression ──────────────────────────
+    // On utilise XMLHttpRequest (et non fetch) pour avoir accès à
+    // xhr.upload.onprogress — fetch n'expose pas la progression d'upload
+    // de manière fiable cross-navigateur (en particulier iOS Safari).
+    let currentXHR = null;
+
+    function fmtMB(bytes) {
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+      return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+    }
+    function fmtETA(seconds) {
+      if (!isFinite(seconds) || seconds <= 0) return '—';
+      if (seconds < 60) return Math.ceil(seconds) + 's restant';
+      const m = Math.floor(seconds / 60), s = Math.ceil(seconds % 60);
+      return `${m}m ${s}s restant`;
+    }
+
+    function startUpload(file) {
+      // Bascule sur l'étape upload
+      document.getElementById('step-upload').style.display = 'none';
+      document.getElementById('step-uploading').style.display = 'block';
+      document.getElementById('uploading-filename').textContent = file.name;
+      document.getElementById('uploading-size').textContent     = fmtMB(file.size);
+      const bar     = document.getElementById('uploading-progress-bar');
+      const pctEl   = document.getElementById('uploading-percent');
+      const speedEl = document.getElementById('uploading-speed');
+      const etaEl   = document.getElementById('uploading-eta');
+      const phaseEl = document.getElementById('uploading-phase');
+      bar.style.width = '0%';
+
       const form = new FormData();
       form.append('file', file);
       form.append('athlete_id', athleteSelect.value || '');
-      const res  = await fetch('/upload', { method: 'POST', body: form });
-      const data = await res.json();
-      jobId    = data.job_id;
-      videoFps = data.fps;
-      gateVideo.src = data.video_url;
-      gateVideo.load();
-      gateScrub.max = Math.max(1, data.n_frames - 1);
-      document.getElementById('step-upload').style.display = 'none';
-      document.getElementById('step-gate').style.display   = 'block';
-      autoDetectGate();
+
+      const xhr = new XMLHttpRequest();
+      currentXHR = xhr;
+      const t0 = performance.now();
+
+      xhr.upload.addEventListener('progress', evt => {
+        if (!evt.lengthComputable) return;
+        const pct = (evt.loaded / evt.total) * 100;
+        bar.style.width = pct.toFixed(1) + '%';
+        pctEl.textContent = pct.toFixed(0) + ' %';
+        const elapsed = (performance.now() - t0) / 1000; // s
+        if (elapsed > 0.3) {
+          const speed = evt.loaded / elapsed; // bytes/s
+          speedEl.textContent = fmtMB(speed) + '/s';
+          const remaining = (evt.total - evt.loaded) / Math.max(speed, 1);
+          etaEl.textContent = fmtETA(remaining);
+        }
+      });
+
+      // Quand l'upload du body est terminé mais que le serveur traite encore
+      // (écriture disque + get_video_info via OpenCV), on bascule sur "Préparation".
+      xhr.upload.addEventListener('load', () => {
+        bar.style.width = '100%';
+        pctEl.textContent = '100 %';
+        speedEl.textContent = '✓ téléversé';
+        etaEl.textContent = '';
+        phaseEl.textContent = '⏳ Préparation de la vidéo… (lecture des métadonnées)';
+        phaseEl.classList.add('uploading-phase-processing');
+      });
+
+      xhr.addEventListener('load', () => {
+        currentXHR = null;
+        if (xhr.status < 200 || xhr.status >= 300) {
+          phaseEl.classList.remove('uploading-phase-processing');
+          phaseEl.classList.add('uploading-phase-error');
+          phaseEl.textContent = `❌ Erreur serveur (HTTP ${xhr.status})`;
+          return;
+        }
+        let data;
+        try { data = JSON.parse(xhr.responseText); }
+        catch (e) {
+          phaseEl.classList.add('uploading-phase-error');
+          phaseEl.textContent = '❌ Réponse serveur invalide.';
+          return;
+        }
+        // Succès → bascule sur l'étape gate
+        jobId    = data.job_id;
+        videoFps = data.fps;
+        gateVideo.src = data.video_url;
+        gateVideo.load();
+        gateScrub.max = Math.max(1, data.n_frames - 1);
+        document.getElementById('step-uploading').style.display = 'none';
+        document.getElementById('step-gate').style.display      = 'block';
+        autoDetectGate();
+      });
+
+      xhr.addEventListener('error', () => {
+        currentXHR = null;
+        phaseEl.classList.remove('uploading-phase-processing');
+        phaseEl.classList.add('uploading-phase-error');
+        phaseEl.textContent = '❌ Erreur réseau pendant le téléversement.';
+      });
+      xhr.addEventListener('abort', () => {
+        currentXHR = null;
+        document.getElementById('step-uploading').style.display = 'none';
+        document.getElementById('step-upload').style.display    = 'block';
+      });
+
+      xhr.open('POST', '/upload');
+      xhr.send(form);
     }
+
+    document.getElementById('btn-cancel-upload').addEventListener('click', () => {
+      if (currentXHR) currentXHR.abort();
+    });
 
     async function autoDetectGate() {
       const banner = document.getElementById('detect-banner');

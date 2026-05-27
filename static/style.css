@@ -3352,6 +3352,108 @@ canvas[id^="anno"] {
   [class*="grid"] { grid-template-columns: 1fr !important; }
 }
 
+/* ── Upload avec progression (iPad : vidéos lourdes) ───────────────── */
+.uploading-card {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px 22px;
+  box-shadow: var(--shadow-sm);
+  max-width: 560px;
+  margin: 24px auto;
+}
+.uploading-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.uploading-icon {
+  font-size: 1.8rem;
+  flex-shrink: 0;
+}
+.uploading-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.uploading-filename {
+  font-size: .95rem;
+  font-weight: 600;
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.uploading-size {
+  font-size: .8rem;
+  color: var(--muted);
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.btn-cancel {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border-strong);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: .82rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+.btn-cancel:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+.uploading-progress-wrap {
+  width: 100%;
+  height: 12px;
+  background: var(--surface);
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.uploading-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  border-radius: 999px;
+  transition: width 0.15s linear;
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+.uploading-stats {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.uploading-stats span:first-child {
+  color: var(--accent);
+  font-weight: 700;
+}
+.uploading-phase {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-radius: 8px;
+  font-size: .85rem;
+  color: var(--text);
+  text-align: center;
+  border-left: 3px solid var(--accent);
+}
+.uploading-phase-processing {
+  border-left-color: var(--orange);
+  background: var(--orange-soft);
+}
+.uploading-phase-error {
+  border-left-color: var(--red);
+  background: var(--red-soft);
+  color: var(--red);
+  font-weight: 600;
+}
+
 /* ── Carte Explosivité & séquence (P1+P3 ROADMAP) ──────────────────── */
 .burst-section h2 { display: flex; align-items: center; gap: 8px; }
 .burst-help {
