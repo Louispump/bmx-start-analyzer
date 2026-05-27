@@ -69,7 +69,16 @@
 
   <!-- Liste des pros -->
   <section class="section">
-    <h2>Pros enregistrés <span class="section-tag">{{ pros|length }}</span></h2>
+    <h2>Pros enregistrés
+      <span class="section-tag">{{ pros|length }}</span>
+      <button type="button" class="btn btn-sm btn-regen-all" id="btn-regen-all-previews"
+              title="Génère des previews H.264 720p compacts pour les vidéos des pros — accélère le chargement de /compare sur iPad">
+        🎬 Régénérer previews
+      </button>
+    </h2>
+    <p class="section-note" id="regen-all-status">
+      Les previews H.264 720p sont compacts (~3 MB vs 100+ MB pour la vidéo annotée brute) et se chargent quasi-instantanément sur iPad.
+    </p>
     {% if not pros %}
     <div class="empty-state">
       Aucun pro enregistré. Ajoute ta première vidéo de référence ci-dessus.
@@ -77,7 +86,7 @@
     {% else %}
     <div class="pros-list">
       {% for pro in pros %}
-      <div class="pro-row">
+      <div class="pro-row" data-pro-id="{{ pro.id }}">
         <div class="pro-info">
           <span class="pro-name-text">{{ pro.name }}</span>
           <span class="pro-meta">{{ pro.added_at }}</span>
@@ -91,6 +100,24 @@
             <span class="status-badge status-processing">⏳ Gate non défini</span>
           {% else %}
             <span class="status-badge status-processing">⟳ {{ pro.progress or 'En cours…' }}</span>
+          {% endif %}
+        </div>
+        <div class="pro-preview" data-pro-id="{{ pro.id }}">
+          {% if pro.preview_status == 'ready' %}
+            <span class="preview-badge preview-ready"
+                  title="Preview {{ pro.preview_size_kb }} KB · H.264 720p">
+              🎬 Preview {% if pro.preview_size_kb %}<em>{{ (pro.preview_size_kb / 1024) | round(1) }} MB</em>{% endif %}
+            </span>
+          {% elif pro.preview_status == 'generating' %}
+            <span class="preview-badge preview-generating">⏳ Génération…</span>
+          {% elif pro.preview_status == 'error' %}
+            <span class="preview-badge preview-error" title="{{ pro.preview_error }}">⚠️ Preview KO</span>
+          {% else %}
+            <span class="preview-badge preview-missing">— Pas de preview</span>
+          {% endif %}
+          {% if pro.status == 'done' %}
+          <button type="button" class="btn-regen-one" data-pro-id="{{ pro.id }}"
+                  title="Régénérer le preview de ce pro">↻</button>
           {% endif %}
         </div>
         {% if pro.status == 'done' %}
@@ -257,5 +284,111 @@
       await fetch(`/pros/${id}`, { method: 'DELETE' });
       location.reload();
     }
+
+    // ── Régénération de previews H.264 720p ───────────────────────
+    // Bouton global "Régénérer tous" + bouton individuel par pro + polling
+    // léger du status pendant la génération ffmpeg (qui tourne en thread
+    // daemon côté serveur, sans bloquer l'event loop).
+    const btnRegenAll  = document.getElementById('btn-regen-all-previews');
+    const regenStatus  = document.getElementById('regen-all-status');
+    let   pollInterval = null;
+
+    function previewBadgeHtml(s) {
+      if (s.preview_status === 'ready') {
+        const mb = s.preview_size_kb ? (s.preview_size_kb / 1024).toFixed(1) + ' MB' : '';
+        return `<span class="preview-badge preview-ready" title="H.264 720p baseline · scrub fluide">
+                  🎬 Preview ${mb ? '<em>' + mb + '</em>' : ''}
+                </span>`;
+      }
+      if (s.preview_status === 'generating') {
+        return `<span class="preview-badge preview-generating">⏳ Génération…</span>`;
+      }
+      if (s.preview_status === 'error') {
+        const msg = (s.preview_error || '').replace(/"/g, '&quot;');
+        return `<span class="preview-badge preview-error" title="${msg}">⚠️ Preview KO</span>`;
+      }
+      return `<span class="preview-badge preview-missing">— Pas de preview</span>`;
+    }
+
+    function updatePreviewBadges(states) {
+      let anyGenerating = false;
+      states.forEach(s => {
+        const cell = document.querySelector(`.pro-preview[data-pro-id="${s.id}"]`);
+        if (!cell) return;
+        const btn  = cell.querySelector('.btn-regen-one');
+        const txt  = previewBadgeHtml(s);
+        // Reconstruit la cellule en gardant le bouton (s'il existe)
+        cell.innerHTML = txt + (btn ? btn.outerHTML : '');
+        if (s.preview_status === 'generating') anyGenerating = true;
+      });
+      attachIndividualButtons();   // rebind après innerHTML
+      return anyGenerating;
+    }
+
+    async function pollPreviewStatus() {
+      try {
+        const r = await fetch('/pros/preview_status');
+        if (!r.ok) return;
+        const d = await r.json();
+        const stillRunning = updatePreviewBadges(d.pros || []);
+        if (!stillRunning && pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+          regenStatus.textContent = '✅ Toutes les générations terminées.';
+          setTimeout(() => {
+            regenStatus.textContent = 'Les previews H.264 720p sont compacts (~3 MB vs 100+ MB pour la vidéo annotée brute) et se chargent quasi-instantanément sur iPad.';
+          }, 4000);
+        }
+      } catch (e) { /* silencieux */ }
+    }
+
+    function startPolling() {
+      if (pollInterval) return;
+      pollInterval = setInterval(pollPreviewStatus, 1500);
+    }
+
+    if (btnRegenAll) {
+      btnRegenAll.addEventListener('click', async () => {
+        btnRegenAll.disabled = true;
+        regenStatus.textContent = '⏳ Lancement…';
+        try {
+          const r = await fetch('/pros/regenerate_all_previews', { method: 'POST' });
+          const d = await r.json();
+          regenStatus.textContent =
+            `🎬 ${d.n_launched} génération${d.n_launched > 1 ? 's' : ''} lancée${d.n_launched > 1 ? 's' : ''}` +
+            (d.n_skipped ? ` · ${d.n_skipped} déjà à jour` : '');
+          await pollPreviewStatus();
+          if (d.n_launched > 0) startPolling();
+        } catch (e) {
+          regenStatus.textContent = '❌ Erreur : ' + e.message;
+        } finally {
+          btnRegenAll.disabled = false;
+        }
+      });
+    }
+
+    function attachIndividualButtons() {
+      document.querySelectorAll('.btn-regen-one').forEach(btn => {
+        if (btn.dataset.bound) return;
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', async () => {
+          const pid = btn.dataset.proId;
+          btn.disabled = true;
+          try {
+            await fetch(`/pros/${pid}/generate_preview`, { method: 'POST' });
+            await pollPreviewStatus();
+            startPolling();
+          } catch (e) { /* ignored */ }
+          finally { btn.disabled = false; }
+        });
+      });
+    }
+
+    attachIndividualButtons();
+    // Si une génération est déjà en cours au chargement (ex: démarrage
+    // d'analyse pro qui termine en background), on commence à poller.
+    pollPreviewStatus().then(() => {
+      if (document.querySelector('.preview-generating')) startPolling();
+    });
   </script>
 {% endblock %}

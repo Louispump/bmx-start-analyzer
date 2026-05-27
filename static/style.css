@@ -3352,6 +3352,84 @@ canvas[id^="anno"] {
   [class*="grid"] { grid-template-columns: 1fr !important; }
 }
 
+/* ── Previews H.264 720p pour les vidéos pros ──────────────────────── */
+.btn-regen-all {
+  margin-left: 12px;
+  vertical-align: middle;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-mid);
+  color: var(--accent);
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: .8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.btn-regen-all:hover:not(:disabled) {
+  background: var(--accent-mid);
+  color: var(--text-strong);
+}
+.btn-regen-all:disabled { opacity: 0.5; cursor: wait; }
+
+.pro-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.preview-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: .74rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.preview-badge em {
+  font-style: normal;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.preview-ready      { background: var(--green-soft);  color: var(--green);  border: 1px solid var(--green); }
+.preview-generating { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-mid); }
+.preview-error      { background: var(--red-soft);    color: var(--red);    border: 1px solid var(--red); cursor: help; }
+.preview-missing    { background: var(--surface);     color: var(--muted);  border: 1px solid var(--border); }
+.preview-generating::before {
+  content: '';
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: preview-pulse 1.2s ease-in-out infinite;
+}
+@keyframes preview-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50%      { opacity: 1;   transform: scale(1.1); }
+}
+
+.btn-regen-one {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: .85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+}
+.btn-regen-one:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.btn-regen-one:disabled { opacity: 0.5; cursor: wait; }
+
 /* ── Upload avec progression (iPad : vidéos lourdes) ───────────────── */
 .uploading-card {
   background: var(--surface-elevated);

@@ -24,7 +24,7 @@
         {% if pros_list %}
         <optgroup label="Pros" data-group="pros">
           {% for pro in pros_list %}
-          <option value="{{ pro.video_file }}"
+          <option value="{{ pro.preview_file or pro.video_file }}"
                   data-ref-type="pro"
                   data-ref-id="{{ pro.id }}"
                   data-fps="{{ pro.fps }}"

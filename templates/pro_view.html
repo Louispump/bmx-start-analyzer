@@ -43,7 +43,7 @@
 
     <div class="video-wrap">
       <video id="pro-video" playsinline preload="metadata"
-             src="/output/{{ pro.video_file }}"></video>
+             src="/output/{{ pro.preview_file or pro.video_file }}"></video>
       <canvas class="annotation-canvas" id="anno-canvas-main"></canvas>
     </div>
 

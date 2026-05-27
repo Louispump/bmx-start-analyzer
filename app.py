@@ -11,6 +11,8 @@ os.environ["MPLBACKEND"] = "agg"
 import uuid
 import json
 import shutil
+import shlex
+import subprocess
 import traceback
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -539,9 +541,131 @@ def run_pro_analysis(pro_id: str, video_path: Path, gate_drop: float,
             "fps":           results["fps"],
         })
         save_pros(pros)
+        # Génération automatique du preview rapide en post-analyse
+        _start_pro_preview_generation(pro_id)
     except Exception as e:
         pros[pro_id].update({"status": "error", "error": str(e)})
         save_pros(pros)
+
+
+# ── Génération de previews H.264 720p pour les vidéos pro ────────────────────
+# Le pipeline d'analyse génère la vidéo annotée avec OpenCV en MPEG-4 part 2
+# brut (codec lent à décoder, débits aberrants). Sur du 4K 60fps comme Eddy
+# Clerté, ça donne un fichier de 100+ MB qui rame sur iPad (chargement +
+# scrubbing). On encode donc un preview compact en H.264 baseline 720p 30fps
+# avec faststart, qu'on sert à la place pour l'affichage. Le fichier original
+# annoté reste sur disque (intact) pour conserver la qualité d'analyse.
+
+# Version du format de preview — change quand on touche aux options ffmpeg pour
+# invalider les anciens previews.
+PREVIEW_FORMAT_VERSION = "1.0"
+
+
+def _preview_path_for(video_file: str) -> Path:
+    """Retourne le chemin du preview attendu pour une vidéo annotée donnée.
+    Ex: pro_70bdaf36_EDDIE_annotated.mp4 → pro_70bdaf36_EDDIE_annotated_preview.mp4
+    """
+    stem = Path(video_file).stem
+    return OUTPUT_DIR / f"{stem}_preview.mp4"
+
+
+def _make_pro_preview_sync(input_path: Path, output_path: Path) -> tuple[bool, str]:
+    """Encode `input_path` en H.264 720p baseline avec faststart. Synchrone.
+    Retourne (success, message_d_erreur_ou_log_court)."""
+    if not input_path.exists():
+        return False, f"Source absente : {input_path}"
+    # Box 1280×1280 avec aspect ratio préservé : la plus grande dimension passe
+    # à 1280, l'autre est mise à l'échelle proportionnellement. Force la
+    # dimension finale paire (-2) car H.264 exige des dimensions paires.
+    vf = ("scale='if(gt(iw,ih),min(1280,iw),-2)':"
+          "'if(gt(iw,ih),-2,min(1280,ih))':"
+          "force_original_aspect_ratio=decrease,"
+          "scale=trunc(iw/2)*2:trunc(ih/2)*2")
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(input_path),
+        "-vf", vf,
+        "-r", "30",                                  # cap 30 fps
+        "-c:v", "libx264",
+        "-profile:v", "baseline", "-level", "3.1",   # compat iPad max
+        "-preset", "veryfast",
+        "-crf", "24",
+        "-g", "30", "-keyint_min", "30",             # keyframe chaque 1s → scrub fluide
+        "-pix_fmt", "yuv420p",                       # compat Safari mobile
+        "-an",                                       # pas d'audio dans le preview
+        "-movflags", "+faststart",                   # démarrage lecture immédiat
+        str(output_path),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            return False, (result.stderr or result.stdout or "ffmpeg failed")[-500:]
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            return False, "Le fichier preview n'a pas été créé."
+        return True, f"OK · {output_path.stat().st_size // 1024} KB"
+    except FileNotFoundError:
+        return False, "ffmpeg introuvable dans le PATH"
+    except subprocess.TimeoutExpired:
+        return False, "ffmpeg timeout (>5 min)"
+    except Exception as e:
+        return False, f"Exception : {e}"
+
+
+def _start_pro_preview_generation(pro_id: str):
+    """Spawn la génération du preview en thread daemon — non-bloquant pour
+    l'event loop FastAPI. Met à jour pros_db.json au fur et à mesure."""
+    import threading
+    p = pros.get(pro_id)
+    if not p or p.get("status") != "done" or not p.get("video_file"):
+        return
+    # Évite les générations concurrentes
+    if p.get("preview_status") == "generating":
+        return
+    pros[pro_id]["preview_status"]  = "generating"
+    pros[pro_id]["preview_error"]   = None
+    pros[pro_id].pop("preview_file",    None)
+    save_pros(pros)
+
+    def _worker():
+        try:
+            video_file  = p["video_file"]
+            input_path  = OUTPUT_DIR / video_file
+            output_path = _preview_path_for(video_file)
+            ok, msg = _make_pro_preview_sync(input_path, output_path)
+            if ok:
+                pros[pro_id]["preview_status"]   = "ready"
+                pros[pro_id]["preview_file"]     = output_path.name
+                pros[pro_id]["preview_version"]  = PREVIEW_FORMAT_VERSION
+                pros[pro_id]["preview_size_kb"]  = output_path.stat().st_size // 1024
+                pros[pro_id]["preview_error"]    = None
+            else:
+                pros[pro_id]["preview_status"] = "error"
+                pros[pro_id]["preview_error"]  = msg
+            save_pros(pros)
+        except Exception as e:
+            pros[pro_id]["preview_status"] = "error"
+            pros[pro_id]["preview_error"]  = f"Worker exception : {e}"
+            save_pros(pros)
+
+    threading.Thread(target=_worker, daemon=True,
+                     name=f"preview-{pro_id}").start()
+
+
+def _needs_preview(pro: dict) -> bool:
+    """True si ce pro n'a pas de preview à jour."""
+    if pro.get("status") != "done" or not pro.get("video_file"):
+        return False
+    if pro.get("preview_status") == "generating":
+        return False
+    if pro.get("preview_status") != "ready":
+        return True
+    if pro.get("preview_version") != PREVIEW_FORMAT_VERSION:
+        return True
+    # Vérifie que le fichier existe encore sur disque
+    preview_file = pro.get("preview_file")
+    if not preview_file or not (OUTPUT_DIR / preview_file).exists():
+        return True
+    return False
 
 
 # ── Routes principales ────────────────────────────────────────────────────────
@@ -1057,9 +1181,11 @@ async def manual_reaction_page(request: Request):
         vf = p.get("video_file")
         if not vf:
             continue
+        # Preview H.264 720p si dispo, sinon vidéo annotée originale
+        display_file = p.get("preview_file") or vf
         videos.append({
             "label": (p.get("name") or pid) + " (pro)",
-            "url":   f"/output/{vf}",
+            "url":   f"/output/{display_file}",
             "fps":   p.get("fps", 30),
         })
     videos.sort(key=lambda v: v["label"].lower())
@@ -1314,6 +1440,56 @@ async def pro_view(request: Request, pro_id: str):
                                           {"pros": list(pros.values()),
                                            "error": "Pro introuvable ou non analysé."})
     return templates.TemplateResponse(request, "pro_view.html", {"pro": p})
+
+
+@app.post("/pros/{pro_id}/generate_preview")
+async def pros_generate_preview(pro_id: str):
+    """Lance la génération du preview H.264 720p en background. Retourne
+    immédiatement avec le status courant."""
+    p = pros.get(pro_id)
+    if not p:
+        return JSONResponse({"error": "Pro introuvable."}, status_code=404)
+    if p.get("status") != "done" or not p.get("video_file"):
+        return JSONResponse({"error": "Pro non analysé."}, status_code=400)
+    _start_pro_preview_generation(pro_id)
+    return {"ok": True, "pro_id": pro_id,
+            "preview_status": pros[pro_id].get("preview_status")}
+
+
+@app.post("/pros/regenerate_all_previews")
+async def pros_regenerate_all_previews():
+    """Lance la génération de tous les previews manquants ou obsolètes."""
+    launched = []
+    skipped  = []
+    for pid, p in pros.items():
+        if _needs_preview(p):
+            _start_pro_preview_generation(pid)
+            launched.append({"id": pid, "name": p.get("name", "")})
+        else:
+            skipped.append({"id": pid, "name": p.get("name", ""),
+                            "preview_status": p.get("preview_status")})
+    return {"launched": launched, "skipped": skipped,
+            "n_launched": len(launched), "n_skipped": len(skipped)}
+
+
+@app.get("/pros/preview_status")
+async def pros_preview_status():
+    """État de génération des previews pour TOUS les pros — sert au polling
+    léger côté UI (bouton "Régénérer" + badges par pro)."""
+    return {
+        "pros": [
+            {
+                "id":             p.get("id", pid),
+                "name":           p.get("name", ""),
+                "preview_status": p.get("preview_status") or "missing",
+                "preview_file":   p.get("preview_file"),
+                "preview_error":  p.get("preview_error"),
+                "preview_size_kb": p.get("preview_size_kb"),
+                "needs_preview":  _needs_preview(p),
+            }
+            for pid, p in pros.items()
+        ]
+    }
 
 
 @app.post("/pros/upload")
