@@ -2943,16 +2943,29 @@ input[type="text"].rider-name-input {
   gap: 12px;
   flex-wrap: wrap;
 }
-/* Le panel d'outils est désormais autonome (les boutons Annoter/Exporter
-   ont migré dans la sync-bar). On lui donne donc un fond/cadre propres. */
-.anno-tools-panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 10px 14px;
-  margin-bottom: 12px;
+/* Le panel d'outils est désormais une row INTÉGRÉE dans la sync-bar
+   (toggle Annoter dans la sync-bar fait apparaître cette row entre la
+   row du haut et celle du scrubber). Pas de fond/cadre indépendants —
+   il hérite du fond glassmorphic de la sync-bar. */
+.anno-tools-panel.sync-bar-anno {
+  background: transparent;
+  border: 0;
+  border-top: 1px dashed var(--border);
+  border-radius: 0;
+  padding: 8px 4px 2px;
+  margin: 0;
+  justify-content: center;
 }
-.compare-shell .anno-tools-panel { margin-left: 16px; margin-right: 16px; }
+.anno-tools-panel.sync-bar-anno .anno-info {
+  font-size: .72rem;
+  color: var(--muted);
+}
+/* Sur petit écran, on enlève le texte d'aide pour gagner de la place et
+   on serre les groupes — la barre reste tactile et lisible. */
+@media (max-width: 640px) {
+  .anno-tools-panel.sync-bar-anno .anno-info { display: none; }
+  .anno-tools-panel.sync-bar-anno { gap: 8px; padding: 6px 2px 0; }
+}
 .anno-tools-group {
   display: inline-flex;
   align-items: center;

@@ -150,36 +150,12 @@
     </div>
   </div>
 
-  <!-- Outils d'annotation détaillés (visibles seulement en mode anno actif).
-       Les boutons "Annoter" et "Exporter" eux-mêmes sont dans la sync-bar
-       sticky plus bas, pour rester accessibles peu importe le scroll. -->
-  <div class="anno-tools-panel" id="anno-tools" style="display:none">
-    <span class="anno-tools-group">
-      <button type="button" class="anno-tool tool-active" data-tool="arrow"  title="Flèche">→</button>
-      <button type="button" class="anno-tool"           data-tool="pencil" title="Crayon (dessin libre)">✎</button>
-      <button type="button" class="anno-tool"           data-tool="circle" title="Cercle">○</button>
-      <button type="button" class="anno-tool"           data-tool="text"   title="Texte">T</button>
-      <button type="button" class="anno-tool"           data-tool="erase"  title="Effacer">⌫</button>
-    </span>
-    <span class="anno-tools-group">
-      <button type="button" class="anno-color color-active" data-color="#00d4ff" style="background:#00d4ff" title="Cyan"></button>
-      <button type="button" class="anno-color"              data-color="#ff3b9b" style="background:#ff3b9b" title="Magenta"></button>
-      <button type="button" class="anno-color"              data-color="#f7cc00" style="background:#f7cc00" title="Jaune"></button>
-      <button type="button" class="anno-color"              data-color="#ff4d4a" style="background:#ff4d4a" title="Rouge"></button>
-    </span>
-    <button type="button" class="btn btn-anno-clear" id="btn-anno-clear" title="Effacer toutes les annotations de la frame courante">
-      🗑 Vider la frame
-    </button>
-    <span class="anno-info" id="anno-info">
-      Clic-glisse = créer · clic sur l'outil ⌫ puis sur une annotation = supprimer
-    </span>
-  </div>
-
   <!-- Barre SYNC — sticky:bottom : suit le bas du viewport quand on scroll,
        puis se "pose" à sa position naturelle dans le DOM (juste avant les
        options du bas) pour ne pas masquer le footer / panneau d'angles.
        Layout : row du haut (Play, T-counter, Annoter, Exporter, Reset,
-       vitesse) ; row du bas (◀ — scrubber — ▶) avec boutons ≥48px. -->
+       vitesse) ; row outils anno (visible seulement en mode anno actif) ;
+       row du bas (◀ — scrubber — ▶) avec boutons ≥48px. -->
   <div class="sync-bar-wrap sync-bar-sticky" id="sync-bar-wrap">
     <div class="sync-bar-top">
       <button type="button" class="btn btn-sync-play" id="btn-sync-play"
@@ -217,6 +193,31 @@
         </select>
       </span>
     </div>
+    <!-- Outils d'annotation : visible seulement quand le mode anno est
+         actif (toggle via le bouton Annoter ci-dessus). Garde les mêmes
+         IDs que l'ancien anno-tools-panel pour préserver le JS existant. -->
+    <div class="anno-tools-panel sync-bar-anno" id="anno-tools" style="display:none">
+      <span class="anno-tools-group">
+        <button type="button" class="anno-tool tool-active" data-tool="arrow"  title="Flèche">→</button>
+        <button type="button" class="anno-tool"           data-tool="pencil" title="Crayon (dessin libre)">✎</button>
+        <button type="button" class="anno-tool"           data-tool="circle" title="Cercle">○</button>
+        <button type="button" class="anno-tool"           data-tool="text"   title="Texte">T</button>
+        <button type="button" class="anno-tool"           data-tool="erase"  title="Effacer">⌫</button>
+      </span>
+      <span class="anno-tools-group">
+        <button type="button" class="anno-color color-active" data-color="#00d4ff" style="background:#00d4ff" title="Cyan"></button>
+        <button type="button" class="anno-color"              data-color="#ff3b9b" style="background:#ff3b9b" title="Magenta"></button>
+        <button type="button" class="anno-color"              data-color="#f7cc00" style="background:#f7cc00" title="Jaune"></button>
+        <button type="button" class="anno-color"              data-color="#ff4d4a" style="background:#ff4d4a" title="Rouge"></button>
+      </span>
+      <button type="button" class="btn btn-anno-clear" id="btn-anno-clear" title="Effacer toutes les annotations de la frame courante">
+        🗑 Vider la frame
+      </button>
+      <span class="anno-info" id="anno-info">
+        Clic-glisse = créer · ⌫ + clic sur une annotation = supprimer
+      </span>
+    </div>
+
     <div class="sync-bar-bottom">
       <button class="btn-frame btn-frame-sync sync-arrow-big"
               onclick="syncStep(-1)" aria-label="Reculer d'une frame">&#9664;</button>
@@ -486,6 +487,14 @@
       btn.firstChild.nodeValue = FRAME_MODE_ICONS[mode] + ' ';
       if (label) label.textContent = FRAME_MODE_LABELS[mode];
       localStorage.setItem('compareFrameMode', mode);
+      // Quand on retourne en natural depuis un autre mode, les styles inline
+      // aspect-ratio appliqués au loadedmetadata peuvent rester "coincés"
+      // (le browser garde un layout cache après les !important du mode
+      // rider-crop). On force un recalcul en réappliquant les ratios natifs.
+      if (mode === 'natural' && typeof applyNativeRatio === 'function') {
+        if (vRider.videoWidth) applyNativeRatio('rider');
+        if (vPro.videoWidth)   applyNativeRatio('pro');
+      }
     }
     function cycleFrameMode() {
       const btn = document.getElementById('btn-frame-mode');
@@ -493,8 +502,9 @@
       const next = FRAME_MODES[(FRAME_MODES.indexOf(cur) + 1) % FRAME_MODES.length];
       applyFrameMode(next);
     }
-    // Init depuis localStorage pour persister le choix entre sessions
-    applyFrameMode(localStorage.getItem('compareFrameMode') || 'natural');
+    // Init : on prend le choix stocké en localStorage ; sinon "rider-crop"
+    // par défaut (résout d'emblée le déséquilibre paysage/portrait).
+    applyFrameMode(localStorage.getItem('compareFrameMode') || 'rider-crop');
     document.getElementById('btn-frame-mode').addEventListener('click', cycleFrameMode);
 
     // Applique le ratio source réel de la vidéo au wrap → plus aucune
