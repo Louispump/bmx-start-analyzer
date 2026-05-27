@@ -140,48 +140,56 @@
     </div>
   </div>
 
-  <!-- Barre d'annotation -->
-  <div class="anno-bar" id="anno-bar">
-    <button type="button" class="btn btn-anno-toggle" id="btn-anno-mode" title="Activer le mode annotation">
-      ✏️ Annoter
+  <!-- Outils d'annotation détaillés (visibles seulement en mode anno actif).
+       Les boutons "Annoter" et "Exporter" eux-mêmes sont dans la sync-bar
+       sticky plus bas, pour rester accessibles peu importe le scroll. -->
+  <div class="anno-tools-panel" id="anno-tools" style="display:none">
+    <span class="anno-tools-group">
+      <button type="button" class="anno-tool tool-active" data-tool="arrow"  title="Flèche">→</button>
+      <button type="button" class="anno-tool"           data-tool="pencil" title="Crayon (dessin libre)">✎</button>
+      <button type="button" class="anno-tool"           data-tool="circle" title="Cercle">○</button>
+      <button type="button" class="anno-tool"           data-tool="text"   title="Texte">T</button>
+      <button type="button" class="anno-tool"           data-tool="erase"  title="Effacer">⌫</button>
+    </span>
+    <span class="anno-tools-group">
+      <button type="button" class="anno-color color-active" data-color="#00d4ff" style="background:#00d4ff" title="Cyan"></button>
+      <button type="button" class="anno-color"              data-color="#ff3b9b" style="background:#ff3b9b" title="Magenta"></button>
+      <button type="button" class="anno-color"              data-color="#f7cc00" style="background:#f7cc00" title="Jaune"></button>
+      <button type="button" class="anno-color"              data-color="#ff4d4a" style="background:#ff4d4a" title="Rouge"></button>
+    </span>
+    <button type="button" class="btn btn-anno-clear" id="btn-anno-clear" title="Effacer toutes les annotations de la frame courante">
+      🗑 Vider la frame
     </button>
-    <button type="button" class="btn btn-export-frame" id="btn-export-frame"
-            title="Exporter la frame courante des 2 vidéos + annotations en PNG">
-      📷 Exporter
-    </button>
-    <div class="anno-tools" id="anno-tools" style="display:none">
-      <span class="anno-tools-group">
-        <button type="button" class="anno-tool tool-active" data-tool="arrow"  title="Flèche">→</button>
-        <button type="button" class="anno-tool"           data-tool="pencil" title="Crayon (dessin libre)">✎</button>
-        <button type="button" class="anno-tool"           data-tool="circle" title="Cercle">○</button>
-        <button type="button" class="anno-tool"           data-tool="text"   title="Texte">T</button>
-        <button type="button" class="anno-tool"           data-tool="erase"  title="Effacer">⌫</button>
-      </span>
-      <span class="anno-tools-group">
-        <button type="button" class="anno-color color-active" data-color="#00d4ff" style="background:#00d4ff" title="Cyan"></button>
-        <button type="button" class="anno-color"              data-color="#ff3b9b" style="background:#ff3b9b" title="Magenta"></button>
-        <button type="button" class="anno-color"              data-color="#f7cc00" style="background:#f7cc00" title="Jaune"></button>
-        <button type="button" class="anno-color"              data-color="#ff4d4a" style="background:#ff4d4a" title="Rouge"></button>
-      </span>
-      <button type="button" class="btn btn-anno-clear" id="btn-anno-clear" title="Effacer toutes les annotations de la frame courante">
-        🗑 Vider la frame
-      </button>
-      <span class="anno-info" id="anno-info">
-        Clic-glisse = créer · clic sur l'outil ⌫ puis sur une annotation = supprimer
-      </span>
-    </div>
+    <span class="anno-info" id="anno-info">
+      Clic-glisse = créer · clic sur l'outil ⌫ puis sur une annotation = supprimer
+    </span>
   </div>
 
-  <!-- Barre SYNC — sticky en bas pour rester accessible pendant le scroll.
-       Layout : row du haut (T-counter + Reset + vitesse) ; row du bas
-       (◀ — scrubber centré — ▶) avec boutons tactiles ≥48px pour iPad. -->
-  <div class="sync-bar-wrap sync-bar-fixed" id="sync-bar-wrap">
+  <!-- Barre SYNC — sticky:bottom : suit le bas du viewport quand on scroll,
+       puis se "pose" à sa position naturelle dans le DOM (juste avant les
+       options du bas) pour ne pas masquer le footer / panneau d'angles.
+       Layout : row du haut (Play, T-counter, Annoter, Exporter, Reset,
+       vitesse) ; row du bas (◀ — scrubber — ▶) avec boutons ≥48px. -->
+  <div class="sync-bar-wrap sync-bar-sticky" id="sync-bar-wrap">
     <div class="sync-bar-top">
+      <button type="button" class="btn btn-sync-play" id="btn-sync-play"
+              title="Lire / mettre en pause les 2 vidéos en sync (touche Espace)"
+              aria-label="Lecture">&#9654;</button>
       <span class="sync-label-mini"
             title="Les 2 vidéos alignées sur le gate drop (T=0). Si tu décales une vidéo seule, le calage est conservé.">SYNC</span>
       <span class="frame-counter sync-counter" id="sync-counter">T — —</span>
+      <button type="button" class="btn btn-anno-toggle" id="btn-anno-mode"
+              title="Activer le mode annotation">
+        ✏️ <span class="btn-label-text">Annoter</span>
+      </button>
+      <button type="button" class="btn btn-export-frame" id="btn-export-frame"
+              title="Exporter la frame courante des 2 vidéos + annotations en PNG">
+        📷 <span class="btn-label-text">Exporter</span>
+      </button>
       <button class="btn btn-sync-reset" onclick="resetSyncRefs()"
-              title="Réinitialise le calage manuel sur le gate drop">↻ Reset</button>
+              title="Réinitialise le calage manuel sur le gate drop">
+        ↻ <span class="btn-label-text">Reset</span>
+      </button>
       <span class="speed-control">
         <label for="speed-select">Vit.</label>
         <select id="speed-select" class="pro-select speed-select">
@@ -400,6 +408,37 @@
       vRider.addEventListener(ev, () => syncUI('rider'));
       vPro.addEventListener(ev,   () => syncUI('pro'));
     });
+
+    // ── Play/Pause synchronisé des 2 vidéos depuis la sync-bar ─────
+    // Le bouton joue les 2 simultanément (s'il y a un pro chargé) en
+    // respectant le calage manuel. L'icône reflète l'état (▶ ou ⏸).
+    function isAnyVideoPlaying() {
+      const proLoaded = !!vPro.src && vPro.readyState >= 1;
+      return !vRider.paused || (proLoaded && !vPro.paused);
+    }
+    function updateSyncPlayIcon() {
+      const btn = document.getElementById('btn-sync-play');
+      if (!btn) return;
+      const playing = isAnyVideoPlaying();
+      btn.innerHTML  = playing ? '⏸' : '▶';
+      btn.setAttribute('aria-label', playing ? 'Pause' : 'Lecture');
+      btn.classList.toggle('btn-sync-playing', playing);
+    }
+    function toggleSyncPlay() {
+      const proLoaded = !!vPro.src && vPro.readyState >= 1;
+      if (isAnyVideoPlaying()) {
+        vRider.pause();
+        if (proLoaded) vPro.pause();
+      } else {
+        if (vRider.readyState >= 1) vRider.play().catch(() => {});
+        if (proLoaded)              vPro.play().catch(() => {});
+      }
+    }
+    ['play','pause','ended','loadedmetadata'].forEach(ev => {
+      vRider.addEventListener(ev, updateSyncPlayIcon);
+      vPro.addEventListener(ev,   updateSyncPlayIcon);
+    });
+    document.getElementById('btn-sync-play').addEventListener('click', toggleSyncPlay);
 
     // Applique le ratio source réel de la vidéo au wrap → plus aucune
     // bande noire quel que soit le format (16/9, 9/16, 4/3, …).
