@@ -172,18 +172,18 @@
     </div>
   </div>
 
-  <!-- Barre SYNC -->
-  <div class="sync-bar-wrap" id="sync-bar-wrap">
-    <div class="sync-label">
-      SYNC <span class="sync-hint">Les 2 vidéos alignées sur le gate drop (T=0). Si tu décales une vidéo seule, le calage est conservé.</span>
-    </div>
-    <div class="sync-controls">
-      <button class="btn-frame btn-frame-sync" onclick="syncStep(-1)">&#9664;</button>
+  <!-- Barre SYNC — sticky en bas pour rester accessible pendant le scroll.
+       Layout : row du haut (T-counter + Reset + vitesse) ; row du bas
+       (◀ — scrubber centré — ▶) avec boutons tactiles ≥48px pour iPad. -->
+  <div class="sync-bar-wrap sync-bar-fixed" id="sync-bar-wrap">
+    <div class="sync-bar-top">
+      <span class="sync-label-mini"
+            title="Les 2 vidéos alignées sur le gate drop (T=0). Si tu décales une vidéo seule, le calage est conservé.">SYNC</span>
       <span class="frame-counter sync-counter" id="sync-counter">T — —</span>
-      <button class="btn-frame btn-frame-sync" onclick="syncStep(+1)">&#9654;</button>
-      <button class="btn btn-sync-reset" onclick="resetSyncRefs()" title="Réinitialise le calage manuel sur le gate drop">↻ Reset calage</button>
+      <button class="btn btn-sync-reset" onclick="resetSyncRefs()"
+              title="Réinitialise le calage manuel sur le gate drop">↻ Reset</button>
       <span class="speed-control">
-        <label for="speed-select">Vitesse</label>
+        <label for="speed-select">Vit.</label>
         <select id="speed-select" class="pro-select speed-select">
           <option value="0.25">0.25×</option>
           <option value="0.5">0.5×</option>
@@ -194,11 +194,17 @@
         </select>
       </span>
     </div>
-    <div class="sync-scrubber-wrap">
-      <span class="sync-tick">-0.5s</span>
-      <input type="range" class="scrubber scrubber-sync" id="scrub-sync"
-             min="0" max="500" value="0" step="1" disabled>
-      <span class="sync-tick">+4.5s</span>
+    <div class="sync-bar-bottom">
+      <button class="btn-frame btn-frame-sync sync-arrow-big"
+              onclick="syncStep(-1)" aria-label="Reculer d'une frame">&#9664;</button>
+      <div class="sync-scrubber-wrap">
+        <span class="sync-tick">-0.5s</span>
+        <input type="range" class="scrubber scrubber-sync" id="scrub-sync"
+               min="0" max="500" value="0" step="1" disabled>
+        <span class="sync-tick">+4.5s</span>
+      </div>
+      <button class="btn-frame btn-frame-sync sync-arrow-big"
+              onclick="syncStep(+1)" aria-label="Avancer d'une frame">&#9654;</button>
     </div>
   </div>
 
