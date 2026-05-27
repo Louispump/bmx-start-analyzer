@@ -2327,6 +2327,115 @@ def _coordinating_index(hip, knee, ankle, tol_s: float) -> tuple[int, str, str]:
 BURST_CACHE_VERSION = "1.1"
 
 
+# ── Centre du rider pour le mode de cadrage "Recadré sur le rider" ──────────
+# On calcule la position médiane du bassin (moyenne L_hip + R_hip) sur une
+# fenêtre courte autour du gate drop, exprimée en % des dimensions de la
+# vidéo. Sert d'object-position côté CSS pour zoomer/croper intelligemment
+# sur le rider dans un cadre uniforme, indépendamment du ratio source.
+def _get_video_dims(video_path: Path) -> tuple[int, int] | None:
+    """Lit (width, height) d'une vidéo via OpenCV — rapide, juste les
+    métadonnées du conteneur."""
+    if not video_path.exists():
+        return None
+    try:
+        cap = cv2.VideoCapture(str(video_path))
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
+        if w > 0 and h > 0:
+            return (w, h)
+    except Exception:
+        pass
+    return None
+
+
+def _compute_rider_center_pct(csv_path: Path, gate_t: float,
+                              video_path: Path | None = None,
+                              window_s: float = 0.4) -> dict:
+    """Position médiane du bassin sur [gate-0.2s, gate+0.2s], exprimée en %
+    des dimensions vidéo. Utilisée comme object-position CSS pour le mode
+    de cadrage "Recadré sur le rider".
+
+    Robuste aux trous : prend la médiane (pas la moyenne) → ignore les
+    outliers. Si la fenêtre autour du gate est vide, fallback sur toute la
+    vidéo. Si les dimensions vidéo sont introuvables, fallback sur le max
+    observé des keypoints comme proxy. Clamp final à [5%, 95%] pour éviter
+    qu'un keypoint aberrant en bord d'image fasse sortir le rider du cadre.
+    """
+    default = {"x_pct": 50.0, "y_pct": 50.0}
+    if not csv_path.exists():
+        return default
+    try:
+        df = pd.read_csv(csv_path)
+    except Exception:
+        return default
+    if "time" not in df.columns or len(df) == 0:
+        return default
+    sub = df[(df["time"] >= gate_t - window_s/2) &
+             (df["time"] <= gate_t + window_s/2)]
+    if len(sub) < 3:
+        sub = df  # fallback toute la vidéo si pas assez près du gate
+    for c in ("L_hip_x", "R_hip_x", "L_hip_y", "R_hip_y"):
+        if c not in sub.columns:
+            return default
+    center_x = ((sub["L_hip_x"] + sub["R_hip_x"]) / 2.0).dropna()
+    center_y = ((sub["L_hip_y"] + sub["R_hip_y"]) / 2.0).dropna()
+    if len(center_x) == 0 or len(center_y) == 0:
+        return default
+    px_x = float(center_x.median())
+    px_y = float(center_y.median())
+    # Dimensions de la vidéo
+    dims = _get_video_dims(video_path) if video_path else None
+    if not dims:
+        # Fallback : proxy via les max observés des keypoints (sous-estime
+        # un peu mais OK pour un centrage approximatif)
+        all_x = pd.concat([sub[c] for c in sub.columns if c.endswith('_x')]).dropna()
+        all_y = pd.concat([sub[c] for c in sub.columns if c.endswith('_y')]).dropna()
+        if len(all_x) == 0 or len(all_y) == 0:
+            return default
+        dims = (max(int(all_x.max() * 1.05), 1), max(int(all_y.max() * 1.05), 1))
+    w, h = dims
+    if w <= 0 or h <= 0:
+        return default
+    return {
+        "x_pct": round(min(95.0, max(5.0, px_x / w * 100.0)), 1),
+        "y_pct": round(min(95.0, max(5.0, px_y / h * 100.0)), 1),
+    }
+
+
+def _get_or_compute_rider_center(entity_kind: str, entity_id: str,
+                                  entity: dict) -> dict:
+    """Lit le centre du rider mis en cache dans le job/pro ; calcule et
+    persiste si absent. `entity_kind` ∈ {"job", "pro"}."""
+    if entity_kind == "job":
+        results = entity.get("results") or {}
+        cached  = results.get("rider_center_pct")
+        if cached and "x_pct" in cached and "y_pct" in cached:
+            return cached
+        csv_path  = OUTPUT_DIR / (results.get("files", {}).get("landmarks_csv") or "")
+        annotated = results.get("files", {}).get("annotated_video")
+        video_path = (OUTPUT_DIR / annotated) if annotated else None
+        gate_t    = float(results.get("gate_drop_t", 0.0))
+        center = _compute_rider_center_pct(csv_path, gate_t, video_path)
+        results["rider_center_pct"] = center
+        entity["results"] = results
+        if entity.get("athlete_id"):
+            save_jobs(jobs)
+        return center
+    elif entity_kind == "pro":
+        cached = entity.get("rider_center_pct")
+        if cached and "x_pct" in cached and "y_pct" in cached:
+            return cached
+        csv_path  = OUTPUT_DIR / (entity.get("landmarks_csv") or "")
+        video_path = OUTPUT_DIR / (entity.get("video_file") or "")
+        gate_t    = float(entity.get("gate_drop_t", 0.0))
+        center = _compute_rider_center_pct(csv_path, gate_t, video_path)
+        entity["rider_center_pct"] = center
+        save_pros(pros)
+        return center
+    return {"x_pct": 50.0, "y_pct": 50.0}
+
+
 def _burst_diagnose(burst: dict, perso: dict | None = None) -> dict:
     """Moteur de règles → verdict + observations + cue coaching.
 
@@ -2836,7 +2945,20 @@ async def compare(request: Request, job_id: str):
     if not job or job["status"] != "done":
         return templates.TemplateResponse(request, "index.html",
                                           {"error": "Job introuvable."})
-    pros_done = [p for p in pros.values() if p.get("status") == "done"]
+
+    # Centre du rider courant pour le mode de cadrage "Recadré sur le rider"
+    rider_center = _get_or_compute_rider_center("job", job_id, job)
+
+    # Pros : on enrichit chaque pro avec son rider_center_pct calculé (et caché)
+    pros_done = []
+    for p in pros.values():
+        if p.get("status") != "done":
+            continue
+        pc = _get_or_compute_rider_center("pro", p.get("id", ""), p)
+        # Copie superficielle + injection du centre pour le template
+        pp = dict(p)
+        pp["rider_center_pct"] = pc
+        pros_done.append(pp)
 
     # Sélecteur élargi : jobs du même athlète + jobs d'autres athlètes (ou sans athlète),
     # tous filtrés sur status=done et ayant un landmarks_csv exploitable.
@@ -2854,6 +2976,8 @@ async def compare(request: Request, job_id: str):
         aid = j.get("athlete_id")
         athlete_name = athletes.get(aid, {}).get("name") if aid else None
         entry = _job_compare_entry(jid, j, athlete_name)
+        # Centre rider pour les jobs aussi (utilisé si on les choisit comme réf)
+        entry["rider_center_pct"] = _get_or_compute_rider_center("job", jid, j)
         if cur_athlete_id and aid == cur_athlete_id:
             same_athlete_jobs.append(entry)
         else:
@@ -2864,6 +2988,7 @@ async def compare(request: Request, job_id: str):
     return templates.TemplateResponse(request, "compare.html", {
         "job_id":             job_id,
         "rider":              job["results"],
+        "rider_center":       rider_center,
         "rider_display_name": _display_name(job_id, job),
         "pros_list":          pros_done,
         "same_athlete_jobs":  same_athlete_jobs,

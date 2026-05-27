@@ -29,6 +29,8 @@
                   data-ref-id="{{ pro.id }}"
                   data-fps="{{ pro.fps }}"
                   data-gate="{{ pro.gate_drop_t }}"
+                  data-cx="{{ pro.rider_center_pct.x_pct if pro.rider_center_pct else 50 }}"
+                  data-cy="{{ pro.rider_center_pct.y_pct if pro.rider_center_pct else 50 }}"
                   data-name="{{ pro.name }}"
                   data-added-at="">
             {{ pro.name }}
@@ -44,6 +46,8 @@
                   data-ref-id="{{ j.id }}"
                   data-fps="{{ j.fps }}"
                   data-gate="{{ j.gate_drop_t }}"
+                  data-cx="{{ j.rider_center_pct.x_pct if j.rider_center_pct else 50 }}"
+                  data-cy="{{ j.rider_center_pct.y_pct if j.rider_center_pct else 50 }}"
                   data-name="{{ j.display_name }}"
                   data-added-at="{{ j.added_at or '' }}">
             {{ j.display_name }}
@@ -59,6 +63,8 @@
                   data-ref-id="{{ j.id }}"
                   data-fps="{{ j.fps }}"
                   data-gate="{{ j.gate_drop_t }}"
+                  data-cx="{{ j.rider_center_pct.x_pct if j.rider_center_pct else 50 }}"
+                  data-cy="{{ j.rider_center_pct.y_pct if j.rider_center_pct else 50 }}"
                   data-name="{{ j.display_name }}"
                   data-added-at="{{ j.added_at or '' }}">
             {{ j.display_name }}
@@ -92,8 +98,11 @@
     </div>
   </div>
 
-  <!-- Panneaux côte à côte -->
-  <div class="side-by-side">
+  <!-- Panneaux côte à côte. Le mode de cadrage (frame-mode-*) est appliqué
+       sur ce container par le toggle "Cadrage" dans la sync-bar. Voir CSS
+       pour les 3 modes : natural / uniform-height / rider-crop. -->
+  <div class="side-by-side frame-mode-natural" id="side-by-side"
+       data-rider-cx="{{ rider_center.x_pct }}" data-rider-cy="{{ rider_center.y_pct }}">
     <!-- RIDER -->
     <div class="video-panel active-panel" id="panel-rider">
       <div class="panel-label" onclick="setActive('rider')">
@@ -101,7 +110,8 @@
         <span class="panel-name">{{ rider_display_name }}</span>
         <span class="shift-badge" id="badge-rider-shift"></span>
       </div>
-      <div class="panel-video-wrap">
+      <div class="panel-video-wrap"
+           style="--obj-x: {{ rider_center.x_pct }}%; --obj-y: {{ rider_center.y_pct }}%;">
         <video id="video-rider" playsinline preload="auto"
                src="/output/{{ rider.files.annotated_video }}"></video>
         <canvas class="annotation-canvas" id="anno-canvas-rider"></canvas>
@@ -189,6 +199,11 @@
       <button class="btn btn-sync-reset" onclick="resetSyncRefs()"
               title="Réinitialise le calage manuel sur le gate drop">
         ↻ <span class="btn-label-text">Reset</span>
+      </button>
+      <button type="button" class="btn btn-frame-mode" id="btn-frame-mode"
+              title="Cycler entre les modes de cadrage : Naturel / Même hauteur / Recadré sur le rider"
+              data-mode="natural">
+        🔲 <span class="btn-label-text" id="frame-mode-label">Naturel</span>
       </button>
       <span class="speed-control">
         <label for="speed-select">Vit.</label>
@@ -440,6 +455,48 @@
     });
     document.getElementById('btn-sync-play').addEventListener('click', toggleSyncPlay);
 
+    // ── Toggle 3 modes de cadrage des vidéos ─────────────────────
+    // Naturel = ratio préservé (peut donner des panneaux de tailles très
+    //   différentes quand on compare paysage + portrait)
+    // Même hauteur = même hauteur des 2 panneaux, largeur libre selon ratio
+    //   (asymétrie horizontale mais ridens à même échelle verticale)
+    // Sur le rider = cadre uniforme 4:5, crop centré sur le bassin du rider
+    //   via object-position calculé côté serveur (--obj-x / --obj-y)
+    const FRAME_MODES = ['natural', 'uniform-height', 'rider-crop'];
+    const FRAME_MODE_LABELS = {
+      'natural':        'Naturel',
+      'uniform-height': 'Même hauteur',
+      'rider-crop':     'Sur le rider',
+    };
+    const FRAME_MODE_ICONS = {
+      'natural':        '🔲',
+      'uniform-height': '↕️',
+      'rider-crop':     '🎯',
+    };
+    function applyFrameMode(mode) {
+      if (!FRAME_MODES.includes(mode)) mode = 'natural';
+      const container = document.getElementById('side-by-side');
+      const btn       = document.getElementById('btn-frame-mode');
+      const label     = document.getElementById('frame-mode-label');
+      if (!container || !btn) return;
+      FRAME_MODES.forEach(m => container.classList.remove(`frame-mode-${m}`));
+      container.classList.add(`frame-mode-${mode}`);
+      btn.dataset.mode = mode;
+      // Met à jour l'icône inline du bouton (avant le span label)
+      btn.firstChild.nodeValue = FRAME_MODE_ICONS[mode] + ' ';
+      if (label) label.textContent = FRAME_MODE_LABELS[mode];
+      localStorage.setItem('compareFrameMode', mode);
+    }
+    function cycleFrameMode() {
+      const btn = document.getElementById('btn-frame-mode');
+      const cur = (btn && btn.dataset.mode) || 'natural';
+      const next = FRAME_MODES[(FRAME_MODES.indexOf(cur) + 1) % FRAME_MODES.length];
+      applyFrameMode(next);
+    }
+    // Init depuis localStorage pour persister le choix entre sessions
+    applyFrameMode(localStorage.getItem('compareFrameMode') || 'natural');
+    document.getElementById('btn-frame-mode').addEventListener('click', cycleFrameMode);
+
     // Applique le ratio source réel de la vidéo au wrap → plus aucune
     // bande noire quel que soit le format (16/9, 9/16, 4/3, …).
     function applyNativeRatio(which) {
@@ -583,6 +640,12 @@
       const ok = !!(currentRefType && currentRefId);
       btnAngles.disabled = !ok;
       if (btnAnim) btnAnim.disabled = !ok;
+      // Position du rider de la référence pour le mode de cadrage "rider-crop"
+      const cx = parseFloat(opt.dataset.cx);
+      const cy = parseFloat(opt.dataset.cy);
+      const proWrap = vPro.parentElement;
+      proWrap.style.setProperty('--obj-x', (isFinite(cx) ? cx : 50) + '%');
+      proWrap.style.setProperty('--obj-y', (isFinite(cy) ? cy : 50) + '%');
       vPro.src = '/output/' + videoFile;
       vPro.load();
       vPro.addEventListener('loadedmetadata', () => {

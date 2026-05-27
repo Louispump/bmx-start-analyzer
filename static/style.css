@@ -1951,10 +1951,60 @@ input[type="text"].rider-name-input {
 .compare-shell .video-panel:first-child { border-right: 1px solid var(--border); }
 .compare-shell .panel-video-wrap {
   --ratio: 1.778;
+  /* Position par défaut du crop quand mode rider-crop est actif. Override
+     en CSS variable injectée par le template / le JS quand on connaît la
+     position du bassin du rider. */
+  --obj-x: 50%;
+  --obj-y: 50%;
   height: min(86vh, calc((50vw - 4px) / var(--ratio)));
   width: auto;
   max-height: none;
   flex-shrink: 0;
+}
+
+/* ── 3 modes de cadrage (toggle dans la sync-bar) ──────────────────── */
+
+/* Mode "Même hauteur" : on force la même hauteur des 2 panneaux ; chacun
+   garde son ratio donc largeur libre. Les ridens apparaissent à la même
+   échelle verticale même si paysage + portrait. */
+.frame-mode-uniform-height .panel-video-wrap {
+  height: min(62vh, 580px) !important;
+  aspect-ratio: unset !important;
+  width: auto;
+  max-width: 50vw;
+}
+.frame-mode-uniform-height .panel-video-wrap video {
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+/* Mode "Sur le rider" : cadre uniforme 4:5 des 2 côtés, crop centré sur
+   le bassin du rider via object-position calculé côté serveur. Les bords
+   sont rognés mais les corps des 2 ridens occupent la même surface
+   visuelle — idéal pour comparer leurs postures même quand les vidéos
+   ont des angles caméra très différents. */
+.frame-mode-rider-crop .panel-video-wrap {
+  aspect-ratio: 4 / 5 !important;
+  height: min(72vh, 660px) !important;
+  width: auto !important;
+  max-width: 45vw;
+}
+.frame-mode-rider-crop .panel-video-wrap video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: var(--obj-x) var(--obj-y);
+}
+/* Bouton de toggle dans la sync-bar : style discret cohérent avec les
+   autres boutons (Reset, etc.) */
+.btn-frame-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* Badge de calage manuel (rider/pro shifté du gate) */
