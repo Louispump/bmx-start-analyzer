@@ -1267,10 +1267,24 @@
         }).join('');
         const cueHtml = diag.cue ? `
           <div class="burst-cue">
-            <div class="burst-cue-title">💡 Pour progresser</div>
+            <div class="burst-cue-title">💡 À travailler</div>
             <div class="burst-cue-text">${diag.cue.text}</div>
             <div class="burst-cue-why"><em>Pourquoi :</em> ${diag.cue.why}</div>
           </div>
+        ` : '';
+        // Bloc "Détails techniques" repliable : chiffres bruts + sources
+        const tech = diag.tech || {};
+        const techLines = (tech.lines || []).map(l => `<li>${l}</li>`).join('');
+        const techSources = (tech.sources || []).map(s => `<li>${s}</li>`).join('');
+        const techHtml = (techLines || techSources) ? `
+          <details class="burst-tech">
+            <summary>Voir les chiffres techniques</summary>
+            ${techLines ? `<ul class="burst-tech-list">${techLines}</ul>` : ''}
+            ${techSources ? `
+              <div class="burst-tech-sources-title">Références scientifiques</div>
+              <ul class="burst-tech-sources">${techSources}</ul>
+            ` : ''}
+          </details>
         ` : '';
         return `
           <div class="burst-diag ${cls}">
@@ -1280,6 +1294,7 @@
             </div>
             ${obsHtml ? `<ul class="burst-obs-list">${obsHtml}</ul>` : ''}
             ${cueHtml}
+            ${techHtml}
           </div>
         `;
       }

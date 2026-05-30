@@ -4020,6 +4020,64 @@ canvas[id^="anno"] {
   margin-right: 3px;
 }
 
+/* Bloc repliable "Voir les chiffres techniques" */
+.burst-tech {
+  margin-top: 10px;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+.burst-tech summary {
+  cursor: pointer;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--muted);
+  list-style: none;
+  user-select: none;
+  padding: 4px 0;
+  transition: color var(--transition);
+}
+.burst-tech summary:hover { color: var(--accent); }
+.burst-tech summary::before {
+  content: '▸ ';
+  display: inline-block;
+  transition: transform var(--transition);
+}
+.burst-tech[open] summary::before { content: '▾ '; }
+.burst-tech-list {
+  list-style: none;
+  padding: 6px 0 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.burst-tech-list li {
+  font-size: .8rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+.burst-tech-sources-title {
+  margin-top: 10px;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.burst-tech-sources {
+  list-style: none;
+  padding: 4px 0 0;
+  margin: 0;
+}
+.burst-tech-sources li {
+  font-size: .74rem;
+  color: var(--muted);
+  font-style: italic;
+  padding: 2px 0;
+}
+
 .burst-meta {
   display: flex;
   flex-wrap: wrap;
