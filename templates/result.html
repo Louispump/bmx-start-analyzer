@@ -204,6 +204,21 @@
     </div>
   </section>
 
+  <!-- Consignes posturales par phase (set, push 1) -->
+  <section class="section posture-section" id="posture-section">
+    <h2>Consignes de position
+      <span class="section-tag">Grigg · Mahieu</span>
+    </h2>
+    <p class="posture-intro">
+      Ce que tu peux corriger sur la piste, phase par phase. Mesuré sur la
+      position du corps (filme de profil pour des consignes fiables).
+    </p>
+    <div class="posture-body" id="posture-body">
+      <div class="posture-loading" id="posture-loading">Analyse de la position…</div>
+    </div>
+    <div class="posture-error" id="posture-error" hidden></div>
+  </section>
+
   <!-- Explosivité & séquence d'extension (P1+P3 ROADMAP) -->
   <section class="section burst-section" id="burst-section">
     <h2>Explosivité & séquence
@@ -1410,6 +1425,92 @@
           render(burst, perso);
         } catch (e) {
           showError(typeof e === 'string' ? e : ('Erreur réseau : ' + (e.message || e)));
+        }
+      })();
+    })();
+
+    // ── Carte Consignes de position (set / push 1) ───────────────────
+    (function() {
+      const body    = document.getElementById('posture-body');
+      const loading = document.getElementById('posture-loading');
+      const errBox  = document.getElementById('posture-error');
+      if (!body) return;
+
+      const CUE_META = {
+        fix:  { icon: '🔧', cls: 'posture-cue-fix'  },
+        ok:   { icon: '✅', cls: 'posture-cue-ok'   },
+        info: { icon: 'ℹ️', cls: 'posture-cue-info' },
+      };
+
+      function renderPhase(title, phaseKey, cues) {
+        if (!cues || cues.length === 0) return '';
+        const items = cues.map(c => {
+          const m = CUE_META[c.type] || CUE_META.info;
+          return `
+            <li class="posture-cue ${m.cls}">
+              <span class="posture-cue-icon">${m.icon}</span>
+              <div class="posture-cue-body">
+                <div class="posture-cue-text">${c.text}</div>
+                ${c.why ? `<div class="posture-cue-why">${c.why}</div>` : ''}
+              </div>
+            </li>`;
+        }).join('');
+        const nFix = cues.filter(c => c.type === 'fix').length;
+        const badge = nFix > 0
+          ? `<span class="posture-phase-badge posture-badge-fix">${nFix} à corriger</span>`
+          : `<span class="posture-phase-badge posture-badge-ok">✓ OK</span>`;
+        return `
+          <div class="posture-phase posture-phase-${phaseKey}">
+            <div class="posture-phase-head">
+              <span class="posture-phase-title">${title}</span>
+              ${badge}
+            </div>
+            <ul class="posture-cue-list">${items}</ul>
+          </div>`;
+      }
+
+      function render(data) {
+        loading.hidden = true;
+        errBox.hidden  = true;
+        const cues = data.cues || {};
+        const setHtml  = renderPhase('Position de set', 'set',  cues.set);
+        const pushHtml = renderPhase('Push 1 (1ʳᵉ poussée)', 'push1', cues.push1);
+        if (!setHtml && !pushHtml) {
+          body.innerHTML = `<div class="posture-empty">Pas assez de points
+            détectés pour analyser la position. Filme bien le rider de profil.</div>`;
+          return;
+        }
+        body.innerHTML = setHtml + pushHtml + `
+          <details class="posture-tech">
+            <summary>Comment c'est mesuré &amp; calibrage</summary>
+            <p>Les consignes viennent de la position du corps à chaque phase
+            (angle des membres, position du bassin, alignement). Mesuré dans
+            l'image, donc fiable surtout si tu filmes <strong>de profil</strong>.</p>
+            <p>Les seuils (« trop tendu », « trop en avant »…) sont des
+            premières estimations basées sur Grigg 2020 (position de set) et
+            le principe d'alignement de Mahieu. On les ajustera ensemble sur
+            tes vraies vidéos pour coller à ta réalité.</p>
+          </details>`;
+      }
+
+      function showError(msg) {
+        loading.hidden = true;
+        body.innerHTML = '';
+        errBox.hidden  = false;
+        errBox.textContent = msg;
+      }
+
+      (async () => {
+        try {
+          const res = await fetch('/posture/{{ job_id }}');
+          if (!res.ok) {
+            const d = await res.json().catch(() => ({}));
+            showError(d.error || `Erreur ${res.status}`);
+            return;
+          }
+          render(await res.json());
+        } catch (e) {
+          showError('Erreur réseau : ' + e.message);
         }
       })();
     })();

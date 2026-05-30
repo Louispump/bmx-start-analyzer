@@ -2717,6 +2717,225 @@ def _burst_diagnose(burst: dict, perso: dict | None = None) -> dict:
     }
 
 
+# ── Module "Consignes posturales par phase" ─────────────────────────────────
+# Génère des consignes PRÉCISES de position (« recule tes hanches », « déplie
+# la jambe », « avance ton bassin ») en mesurant la géométrie du corps à des
+# moments clés (position de set, push 1) et en la comparant à des repères
+# biomécaniques.
+#
+# CHOIX DE FIABILITÉ : on privilégie les mesures CAMÉRA-INVARIANTES, c.-à-d.
+# qui comparent des positions du corps ENTRE ELLES dans la même image (angle
+# d'un membre, alignement de segments, position du bassin vs pied avant), et
+# PAS des valeurs absolues qui dépendraient de l'angle de caméra. Hypothèse :
+# filmé À PEU PRÈS DE PROFIL (ce que fait l'utilisateur).
+#
+# SEUILS : valeurs de PREMIÈRE PASSE, documentées et à calibrer ensemble sur
+# de vraies vidéos. Sources : Grigg 2020 (back position, set), Mahieu
+# (alignement épaules-bassin-chevilles pour la transmission de puissance).
+POSTURE_VERSION = "1.0"
+
+# Position du bassin vs pied avant en set, normalisée par la longueur du
+# tronc (épaule→hanche). >0 = bassin en AVANT du pied ; <0 = en arrière.
+# Back position (Grigg) = bassin au-dessus / légèrement en arrière du pied.
+SET_HIP_FOOT_TOO_FORWARD =  0.25   # au-delà → « recule tes hanches »
+SET_HIP_FOOT_VERY_BACK   = -0.95   # en-deçà → bassin très reculé (info)
+
+# Angle du genou de la jambe avant en set (180° = jambe tendue, 90° = pliée).
+# Trop tendue = pas de course pour pousser ; trop pliée = accroupi.
+SET_KNEE_TOO_STRAIGHT = 152.0      # au-delà → « plie ta jambe pour la charger »
+SET_KNEE_TOO_BENT     =  88.0      # en-deçà → « déplie un peu ta jambe avant »
+
+# Inclinaison du buste vs verticale en set (0° = droit, + = penché en avant).
+SET_TRUNK_TOO_UPRIGHT = 22.0       # en-deçà → « penche ton buste vers l'avant »
+SET_TRUNK_TOO_LOW     = 72.0       # au-delà → « tu es trop penché »
+
+# Alignement épaules-bassin-chevilles (angle au bassin, 180° = aligné).
+ALIGN_MIN = 150.0                  # en-deçà → « aligne épaules-bassin-chevilles »
+
+# Au push 1 : extension de la jambe au pic de poussée (180° = tendue).
+PUSH_KNEE_INCOMPLETE = 150.0       # en-deçà → « pousse jusqu'au bout »
+
+
+def _posture_at_frame(row, side: str, direction: int) -> dict | None:
+    """Mesure la géométrie posturale sur UNE frame (une ligne du CSV).
+    `side` = pied avant (L/R), `direction` = +1 si le rider regarde vers la
+    droite de l'image, -1 sinon. Retourne None si keypoints manquants."""
+    def _pt(part):
+        x = row.get(f"{side}_{part}_x", np.nan)
+        y = row.get(f"{side}_{part}_y", np.nan)
+        return (float(x), float(y))
+    sh = _pt("shoulder"); hi = _pt("hip"); kn = _pt("knee"); an = _pt("ankle")
+    pts = [sh, hi, kn, an]
+    if any(np.isnan(p[0]) or np.isnan(p[1]) for p in pts):
+        return None
+
+    # Longueur de référence (tronc) pour normaliser les distances
+    L = float(np.hypot(sh[0] - hi[0], sh[1] - hi[1]))
+    if L < 1e-3:
+        return None
+
+    # Angle du genou (hanche-genou-cheville) : 180 = tendu
+    knee_angle = float(calculate_angle(hi, kn, an))
+    # Alignement épaules-bassin-chevilles (angle au bassin) : 180 = aligné
+    align_angle = float(calculate_angle(sh, hi, an))
+    # Inclinaison du buste vs verticale, signée selon la direction du rider
+    dx = sh[0] - hi[0]; dy = sh[1] - hi[1]
+    trunk_lean = float(np.degrees(np.arctan2(direction * dx, -dy)))
+    # Position horizontale du bassin vs pied avant, normalisée (+ = en avant)
+    hip_foot_offset = (hi[0] - an[0]) * direction / L
+
+    return {
+        "knee_angle":       round(knee_angle, 1),
+        "align_angle":      round(align_angle, 1),
+        "trunk_lean":       round(trunk_lean, 1),
+        "hip_foot_offset":  round(hip_foot_offset, 3),
+    }
+
+
+def _frame_direction(row) -> int:
+    """+1 si le rider regarde vers la droite de l'image, -1 sinon."""
+    nose_x = row.get("nose_x", np.nan)
+    L_hi_x = row.get("L_hip_x", np.nan)
+    R_hi_x = row.get("R_hip_x", np.nan)
+    if not (np.isnan(nose_x) or np.isnan(L_hi_x) or np.isnan(R_hi_x)):
+        return 1 if nose_x > (L_hi_x + R_hi_x) / 2 else -1
+    return 1
+
+
+def _compute_posture(csv_path: Path, gate_t: float, side: str,
+                     phases: list | None = None) -> dict | None:
+    """Mesure la posture en SET (gate−0.05s) et au PUSH 1 (pic d'extension),
+    génère les consignes. Retourne None si CSV illisible."""
+    if not csv_path.exists():
+        return None
+    try:
+        df = pd.read_csv(csv_path)
+    except Exception:
+        return None
+    if "time" not in df.columns or len(df) == 0:
+        return None
+
+    # ── SET : frame la plus proche de gate − 0.05s ──────────────────
+    t_set = gate_t - 0.05
+    set_idx = int((df["time"] - t_set).abs().idxmin())
+    set_row = df.loc[set_idx]
+    direction = _frame_direction(set_row)
+    set_geo = _posture_at_frame(set_row, side, direction)
+
+    # ── PUSH 1 : frame la plus tendue dans la phase Push 1 ──────────
+    push_geo = None
+    if phases:
+        push_phase = next((p for p in phases if p.get("name") == "Push 1"), None)
+        if push_phase:
+            t0 = push_phase.get("start_t", gate_t)
+            t1 = push_phase.get("end_t", gate_t + 0.5)
+            sub = df[(df["time"] >= t0) & (df["time"] <= t1)]
+            best_knee = -1.0
+            for _, r in sub.iterrows():
+                g = _posture_at_frame(r, side, _frame_direction(r))
+                if g and g["knee_angle"] > best_knee:
+                    best_knee = g["knee_angle"]
+                    push_geo = g
+
+    cues = _posture_cues(set_geo, push_geo)
+    return {
+        "_version":   POSTURE_VERSION,
+        "set":        set_geo,
+        "push1":      push_geo,
+        "cues":       cues,
+    }
+
+
+def _posture_cues(set_geo: dict | None, push_geo: dict | None) -> dict:
+    """Transforme les mesures géométriques en consignes posturales par phase.
+    Chaque consigne : {type ✓/⚠, text (langage coach), why}."""
+    set_cues: list[dict] = []
+    push_cues: list[dict] = []
+
+    if set_geo:
+        off = set_geo["hip_foot_offset"]
+        if off > SET_HIP_FOOT_TOO_FORWARD:
+            set_cues.append({"type": "fix",
+                "text": "Recule tes hanches. Ton bassin est trop en avant : ramène-le "
+                        "vers l'arrière du vélo pour charger ton appui.",
+                "why": "Bassin en avant = poids déjà engagé, tu perds le ressort. "
+                       "Les meilleurs partent avec le bassin reculé (back position)."})
+        elif off < SET_HIP_FOOT_VERY_BACK:
+            set_cues.append({"type": "info",
+                "text": "Tes hanches sont très reculées — OK si tu es stable, mais "
+                        "vérifie que tu ne tires pas trop sur les bras.",
+                "why": "Un bassin très en arrière peut surcharger les bras et "
+                       "retarder le transfert vers l'avant."})
+        else:
+            set_cues.append({"type": "ok",
+                "text": "Bonne position de bassin : reculé comme il faut pour charger "
+                        "l'appui.",
+                "why": "Bassin au-dessus / légèrement en arrière du pied avant = "
+                       "back position, la plus efficace."})
+
+        kn = set_geo["knee_angle"]
+        if kn > SET_KNEE_TOO_STRAIGHT:
+            set_cues.append({"type": "fix",
+                "text": "Plie plus ta jambe avant. Elle est trop tendue en set : tu "
+                        "n'as pas de course pour pousser.",
+                "why": "Une jambe déjà tendue ne peut plus se détendre — c'est la "
+                       "détente qui crée la puissance au départ."})
+        elif kn < SET_KNEE_TOO_BENT:
+            set_cues.append({"type": "fix",
+                "text": "Déplie un peu ta jambe avant. Tu es trop accroupi, ça bloque "
+                        "ta poussée.",
+                "why": "Trop plié = position basse difficile à relancer vite. Cherche "
+                       "un angle de charge intermédiaire."})
+        else:
+            set_cues.append({"type": "ok",
+                "text": "Bon angle de jambe avant : chargée juste comme il faut.",
+                "why": "Jambe ni trop tendue ni trop pliée → prête à se détendre vite."})
+
+        tr = set_geo["trunk_lean"]
+        if tr < SET_TRUNK_TOO_UPRIGHT:
+            set_cues.append({"type": "fix",
+                "text": "Penche ton buste plus vers l'avant. Tu es trop droit en set.",
+                "why": "Un buste trop droit remonte ton centre de gravité et réduit "
+                       "le transfert de poids vers l'avant."})
+        elif tr > SET_TRUNK_TOO_LOW:
+            set_cues.append({"type": "info",
+                "text": "Tu es très penché vers l'avant — assure-toi de garder le "
+                        "contrôle du guidon.",
+                "why": "Très penché peut aider l'explosivité mais demande un bon "
+                       "gainage pour ne pas s'écrouler."})
+        else:
+            set_cues.append({"type": "ok",
+                "text": "Bonne inclinaison du buste : penché vers l'avant comme il faut.",
+                "why": "Buste penché = centre de gravité bas, prêt à transférer vers "
+                       "l'avant."})
+        # NB : on NE juge PAS l'alignement épaules-bassin-chevilles en set —
+        # en set le corps est volontairement plié/ramassé pour charger. Cet
+        # alignement (principe Mahieu) se juge au PIC DE POUSSÉE, pas ici.
+
+    if push_geo:
+        kn = push_geo["knee_angle"]
+        if kn < PUSH_KNEE_INCOMPLETE:
+            push_cues.append({"type": "fix",
+                "text": "Pousse jusqu'au bout sur ton premier coup de pédale. Ta jambe "
+                        "ne se déplie pas complètement.",
+                "why": "Une extension incomplète laisse de la puissance dans la jambe. "
+                       "Va chercher l'extension complète à chaque coup."})
+        else:
+            push_cues.append({"type": "ok",
+                "text": "Tu pousses bien jusqu'au bout sur ton premier coup de pédale.",
+                "why": "Extension complète = tu utilises toute la course de ta jambe."})
+
+        al = push_geo["align_angle"]
+        if al < ALIGN_MIN:
+            push_cues.append({"type": "fix",
+                "text": "Garde ton corps aligné quand tu pousses : avance ton bassin "
+                        "en même temps que tu tires sur le guidon.",
+                "why": "Si le bassin reste en arrière pendant la poussée, tu casses la "
+                       "chaîne de transmission et tu cabres au lieu d'avancer."})
+
+    return {"set": set_cues, "push1": push_cues}
+
+
 def _get_or_compute_burst(job_id: str, job: dict, force: bool = False) -> dict | None:
     """Renvoie le burst d'un job, en utilisant un cache persisté dans
     `job['results']['kinematic_burst']` si la version correspond. Calcule et
@@ -2779,6 +2998,26 @@ async def explosivity(job_id: str):
 
     diag = _burst_diagnose(burst, perso)
     return {**burst, "diagnosis": diag}
+
+
+@app.get("/posture/{job_id}")
+async def posture(job_id: str):
+    """Consignes posturales précises par phase (set, push 1) basées sur des
+    repères biomécaniques. Voir _compute_posture pour la méthode."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return JSONResponse({"error": "Job introuvable ou non terminé."},
+                            status_code=404)
+    results  = job["results"]
+    csv_path = OUTPUT_DIR / results["files"]["landmarks_csv"]
+    side     = results.get("front_foot") or "L"
+    gate_t   = float(results.get("gate_drop_t", 0.0))
+    phases   = results.get("phases")
+    post = _compute_posture(csv_path, gate_t, side, phases)
+    if post is None:
+        return JSONResponse({"error": "Lecture des positions impossible."},
+                            status_code=422)
+    return post
 
 
 def _is_burst_significant(burst: dict, min_omega: float = 50.0) -> bool:
