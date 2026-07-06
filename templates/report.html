@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rapport — {{ display_name }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/design-system.css">
+  <link rel="stylesheet" href="/static/report.css">
+</head>
+<body class="report">
+
+  {% set sc = scorecard %}
+  {% set verdict_class = {'ok':'ok','warn':'warn','bad':'bad','none':'warn'}[sc.verdict] %}
+
+  <!-- Barre d'actions (masquée à l'impression) -->
+  <div class="rp-actions no-print">
+    <a href="/result/{{ job_id }}" class="ds-btn ds-btn-ghost">← Retour à l'analyse</a>
+    <button type="button" class="ds-btn ds-btn-primary" onclick="window.print()">
+      ⤓ Imprimer / Enregistrer en PDF
+    </button>
+  </div>
+
+  <main class="rp-page">
+
+    <!-- En-tête -->
+    <header class="rp-head">
+      <div class="rp-brand">
+        <svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="18" cy="5" r="3" fill="currentColor" opacity="0.9"/>
+          <line x1="18" y1="8" x2="15" y2="18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="17" y1="11" x2="25" y2="15" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="25" y1="15" x2="30" y2="12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="15" y1="18" x2="20" y2="26" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="20" y1="26" x2="26" y2="30" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+        <div>
+          <div class="rp-brand-name">HOLESHOT</div>
+          <div class="rp-brand-sub">Rapport d'analyse — départ BMX</div>
+        </div>
+      </div>
+      <div class="rp-meta">
+        <div class="rp-meta-name">{{ display_name }}</div>
+        <div class="rp-meta-line">
+          {% if athlete %}{{ athlete.name }} · {% endif %}
+          {% if track_name %}{{ track_name }} · {% endif %}
+          {{ results.fps }} fps
+        </div>
+        <div class="rp-meta-gen">Généré le {{ generated_at }}</div>
+      </div>
+    </header>
+
+    <!-- Scorecard -->
+    <section class="rp-scorecard rp-{{ verdict_class }}">
+      <div class="rp-grade">
+        <div class="rp-grade-letter">{{ sc.grade }}</div>
+        <div class="rp-grade-num">{{ sc.overall if sc.overall is not none else '—' }}<span>/100</span></div>
+      </div>
+      <div class="rp-grade-meta">
+        <div class="rp-grade-kicker">Note globale du départ</div>
+        <div class="rp-grade-label">{{ sc.grade_label }}</div>
+        <p class="rp-grade-note">Note pondérée sur les dimensions mesurées.
+           Repères calibrables, étiquetés par source — à lire comme un indicateur, pas un verdict absolu.</p>
+      </div>
+    </section>
+
+    <!-- 5 dimensions -->
+    <section class="rp-dims">
+      {% for key in ['reaction','countermovement','explosivity','sequence','posture'] %}
+      {% set d = sc.dimensions[key] %}
+      <div class="rp-dim {% if d %}rp-dim-{{ d.verdict }}{% else %}rp-dim-na{% endif %}">
+        {% if d %}
+        <div class="rp-dim-top">
+          <span class="rp-dim-label">{{ d.label }}</span>
+          <span class="rp-dim-src">{{ d.source }}</span>
+        </div>
+        <div class="rp-dim-score">{{ d.score }}<span>/100</span></div>
+        <div class="rp-dim-bar"><span style="width: {{ d.score }}%"></span></div>
+        <div class="rp-dim-value">{{ d.value_text }}</div>
+        <div class="rp-dim-detail">{{ d.detail }}</div>
+        {% if d.caveat %}<div class="rp-dim-caveat">⚠ {{ d.caveat }}</div>{% endif %}
+        {% else %}
+        <div class="rp-dim-top"><span class="rp-dim-label">
+          {{ {'reaction':'Réaction','countermovement':'Contre-mouvement','explosivity':'Explosivité','sequence':'Séquence','posture':'Posture'}[key] }}
+        </span></div>
+        <div class="rp-dim-namsg">Non mesuré sur cet essai</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </section>
+
+    <!-- Position de set (variable #1) -->
+    {% if set_position %}
+    {% set sp = set_position %}
+    <section class="rp-section">
+      <h2>Position de set <span class="rp-tag">Grigg 2020 · variable #1</span></h2>
+      <div class="rp-cmv rp-cmv-{{ sp.vclass }}">
+        <div class="rp-cmv-verdict">{{ sp.label }}</div>
+        <p class="rp-cmv-headline">{{ sp.headline }}</p>
+        <div class="rp-cmv-cue"><strong>Conseil :</strong> {{ sp.cue }}</div>
+        <div class="rp-cmv-caveat">{{ sp.caveat }}</div>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- Contre-mouvement (déterminant #1) -->
+    {% if countermovement %}
+    {% set cm = countermovement %}
+    <section class="rp-section">
+      <h2>Contre-mouvement <span class="rp-tag">Gross 2017 · déterminant #1</span></h2>
+      <div class="rp-cmv rp-cmv-{{ cm.vclass }}">
+        <div class="rp-cmv-verdict">
+          {% if cm.verdict == 'early' %}Contre-mouvement précoce
+          {% elif cm.verdict == 'late' %}Contre-mouvement tardif
+          {% else %}Pas de contre-mouvement{% endif %}
+        </div>
+        <p class="rp-cmv-headline">{{ cm.headline }}</p>
+        <div class="rp-cmv-stats">
+          {% set kj = cm.knee %}
+          {% if kj %}
+          <span><strong>{{ (kj.t_load_start * 1000) | round | int }} ms</strong> {{ 'avant' if kj.t_load_start <= 0 else 'après' }} la grille</span>
+          <span><strong>{{ kj.depth_deg }}°</strong> de charge (genou)</span>
+          {% endif %}
+        </div>
+        <div class="rp-cmv-cue"><strong>À travailler :</strong> {{ cm.cue }}</div>
+        <div class="rp-cmv-caveat">{{ cm.caveat }}</div>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- Phases -->
+    <section class="rp-section">
+      <h2>Déroulé du départ <span class="rp-tag">Phases Kalichová</span></h2>
+      <div class="rp-phases">
+        {% set phase_colors = {
+          'Set':'var(--phase-set)','Reaction':'var(--phase-reaction)',
+          'Push 1':'var(--phase-push1)','Pull 1':'var(--phase-pull)',
+          'Push 2':'var(--phase-push2)','Post':'var(--phase-post)'} %}
+        <div class="rp-phasebar">
+          {% for p in results.phases %}
+          {% if p.duration_ms > 0 %}
+          <div class="rp-phaseseg" style="flex: {{ p.duration_ms }};
+               background: {{ phase_colors.get(p.name, 'var(--muted)') }}"
+               title="{{ p.name }} · {{ p.duration_ms }} ms"></div>
+          {% endif %}
+          {% endfor %}
+        </div>
+        <div class="rp-phaselist">
+          {% for p in results.phases %}
+          <div class="rp-phaserow">
+            <span class="rp-phasedot" style="background: {{ phase_colors.get(p.name, 'var(--muted)') }}"></span>
+            <span class="rp-phasename">{{ p.name }}</span>
+            <span class="rp-phasedur">{{ p.duration_ms }} ms</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <!-- Priorités de travail -->
+    {% if top_fixes %}
+    <section class="rp-section">
+      <h2>Les priorités de la semaine</h2>
+      <div class="rp-fixes">
+        {% for f in top_fixes %}
+        <div class="rp-fix">
+          <div class="rp-fix-num">{{ loop.index }}</div>
+          <div class="rp-fix-body">
+            <div class="rp-fix-text">{{ f.text }}</div>
+            {% if f.why %}<div class="rp-fix-why">{{ f.why }}</div>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- Verdict explosivité (langage coach) -->
+    {% if diagnosis and diagnosis.headline %}
+    <section class="rp-section">
+      <h2>Lecture du coach — explosivité</h2>
+      <p class="rp-headline">{{ diagnosis.headline }}</p>
+      {% if diagnosis.observations %}
+      <ul class="rp-obs">
+        {% for o in diagnosis.observations %}
+        <li class="rp-obs-{{ o.type }}">{{ o.text }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <!-- Pied de page -->
+    <footer class="rp-foot">
+      <span>HOLESHOT · BMX Start Analyzer — analyse markerless, repères calibrables et étiquetés par source.</span>
+      <span>Les benchmarks (Grigg 2018, Gross 2017) proviennent d'études à petits échantillons d'élites — à lire comme repères, pas comme normes absolues.</span>
+    </footer>
+  </main>
+</body>
+</html>

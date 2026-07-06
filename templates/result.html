@@ -125,35 +125,46 @@
     {% endif %}
   </div>
 
+  <!-- Scorecard du départ -->
+  <section class="scorecard" id="scorecard" aria-label="Scorecard du départ">
+    <div class="scorecard-loading" id="scorecard-loading">
+      <span class="ds-skeleton" style="width:120px;height:120px;border-radius:50%"></span>
+      <span class="ds-skeleton" style="width:220px;height:18px;margin-top:14px"></span>
+    </div>
+  </section>
+
   <!-- Métriques clés -->
   <section class="metrics-grid">
 
-    {% set has_bip = results.reaction.from_bip1_ms is not none %}
     <div class="metric-card
-      {% if results.reaction.type == 'false_start' %} card-red
-      {% elif results.reaction.type == 'bip' %}       card-orange
-      {% else %}                                       card-green
+      {% if reaction and reaction.regime == 'undetected' %} card-orange
+      {% elif reaction and reaction.verdict == 'ok' %}      card-green
+      {% elif reaction and reaction.verdict == 'bad' %}     card-red
+      {% else %}                                            card-orange
       {% endif %}">
       <div class="metric-label">Temps de réaction</div>
       <div class="metric-value">
-        {% if results.reaction.type == 'false_start' %}
+        {% if results.reaction.type == 'false_start' and not (reaction and reaction.verified) %}
           ⚠ Faux départ
-        {% elif has_bip %}
-          {{ results.reaction.from_bip1_ms }}<span class="metric-unit">ms</span>
+        {% elif reaction and reaction.regime == 'undetected' %}
+          <span style="font-size:.62em">Non mesurable</span>
+        {% elif reaction and reaction.verified and reaction.reaction_ms is not none %}
+          {{ reaction.reaction_ms }}<span class="metric-unit">ms</span>
+        {% elif reaction and reaction.reaction_ms is not none %}
+          <span class="metric-est">~{{ reaction.reaction_ms }}</span><span class="metric-unit">ms</span>
         {% else %}
           {{ results.reaction.from_gate_ms }}<span class="metric-unit">ms</span>
         {% endif %}
       </div>
       <div class="metric-sub">
-        {% if results.reaction.type == 'false_start' %}
-          Mouvement avant le bip 1 ({{ results.reaction.from_bip1_ms }} ms)
-        {% elif has_bip %}
-          Depuis le 1<sup>er</sup> bip ·
-          {% if results.reaction.from_gate_ms < 0 %}
-            {{ results.reaction.from_gate_ms | abs }} ms avant le gate
-          {% else %}
-            {{ results.reaction.from_gate_ms }} ms après le gate
-          {% endif %}
+        {% if results.reaction.type == 'false_start' and not (reaction and reaction.verified) %}
+          Mouvement avant le 1<sup>er</sup> bip — départ annulé
+        {% elif reaction and reaction.regime == 'undetected' %}
+          Mouvement non capté — confirme-le à l'œil plus bas
+        {% elif reaction and reaction.verified %}
+          ✓ Confirmé coach · {{ reaction.gate_context }}
+        {% elif reaction and reaction.reaction_ms is not none %}
+          Estimation — à confirmer par le coach (plus bas)
         {% else %}
           Depuis le gate drop (audio non détecté)
         {% endif %}
@@ -163,7 +174,10 @@
     <div class="metric-card">
       <div class="metric-label">Gate drop</div>
       <div class="metric-value">{{ results.gate_drop_t }}<span class="metric-unit">s</span></div>
-      <div class="metric-sub">{{ results.fps }} fps · frame {{ (results.gate_drop_t * results.fps) | round | int }}</div>
+      <div class="metric-sub">
+        {{ results.fps }} fps · frame {{ (results.gate_drop_t * results.fps) | round | int }}
+        {% if precision %}<br><span class="precision-pill precision-{{ precision.verdict }}" title="{{ precision.note }}">{{ precision.label }} · ±{{ precision.frame_ms }} ms</span>{% endif %}
+      </div>
     </div>
 
     <div class="metric-card">
@@ -177,6 +191,11 @@
   <!-- Timeline des phases -->
   <section class="section">
     <h2>Phases <span class="section-tag">Kalichová</span></h2>
+    {# Rampe DS unifiée — mêmes couleurs de phases que le rapport et la landing. #}
+    {% set phase_colors = {
+      'Set':'var(--phase-set)','Reaction':'var(--phase-reaction)',
+      'Push 1':'var(--phase-push1)','Pull 1':'var(--phase-pull)',
+      'Push 2':'var(--phase-push2)','Post':'var(--phase-post)'} %}
     <div class="timeline-wrap">
       <div class="timeline" id="timeline">
         {% set total = results.duration_s %}
@@ -184,7 +203,7 @@
           {% set pct_start = (phase.start_t / total * 100) | round(2) %}
           {% set pct_width = ((phase.end_t - phase.start_t) / total * 100) | round(2) %}
           <div class="tl-phase"
-               style="left:{{ pct_start }}%; width:{{ pct_width }}%; background:{{ phase.color }};"
+               style="left:{{ pct_start }}%; width:{{ pct_width }}%; background:{{ phase_colors.get(phase.name, 'var(--muted)') }};"
                data-time="{{ phase.start_t }}"
                title="{{ phase.name }} — {{ phase.duration_ms }}ms"
                onclick="seekVideo({{ phase.start_t }})">
@@ -196,12 +215,30 @@
       <div class="timeline-legend">
         {% for phase in results.phases %}
         <span class="legend-item">
-          <span class="legend-dot" style="background:{{ phase.color }}"></span>
+          <span class="legend-dot" style="background:{{ phase_colors.get(phase.name, 'var(--muted)') }}"></span>
           {{ phase.name }} <em>{{ phase.duration_ms }}ms</em>
         </span>
         {% endfor %}
       </div>
     </div>
+  </section>
+
+  <!-- Analyse de la réaction (modèle anticipation, cadence UCI) -->
+  <section class="section" id="reaction-section" hidden>
+    <h2>Réaction & timing <span class="section-tag">cadence UCI</span></h2>
+    <div id="reaction-body"></div>
+  </section>
+
+  <!-- Position de set (variable #1, Grigg 2020) -->
+  <section class="section" id="setpos-section" hidden>
+    <h2>Position de set <span class="section-tag">Grigg 2020 · variable #1</span></h2>
+    <div id="setpos-body"></div>
+  </section>
+
+  <!-- Contre-mouvement (déterminant #1, Gross 2017) -->
+  <section class="section" id="cmv-section" hidden>
+    <h2>Contre-mouvement <span class="section-tag">Gross 2017 · déterminant #1</span></h2>
+    <div id="cmv-body"></div>
   </section>
 
   <!-- Consignes posturales par phase (set, push 1) -->
@@ -339,6 +376,412 @@
 
 {% block scripts %}
   <script>
+    // ── Scorecard du départ ────────────────────────────────────────
+    (function() {
+      const host = document.getElementById('scorecard');
+      if (!host) return;
+
+      const DIM_ORDER = ['reaction', 'countermovement', 'explosivity', 'sequence', 'posture'];
+      const GRADE_VERDICT = { ok: 'ok', warn: 'warn', bad: 'bad', none: 'warn' };
+
+      function ring(score, verdict) {
+        // Anneau de progression SVG (circonférence 2πr, r=52).
+        const r = 52, c = 2 * Math.PI * r;
+        const pct = (score == null ? 0 : score) / 100;
+        const off = c * (1 - pct);
+        const col = verdict === 'ok' ? 'var(--green)'
+                  : verdict === 'bad' ? 'var(--red)' : 'var(--orange)';
+        return `
+          <svg viewBox="0 0 120 120" class="sc-ring">
+            <circle cx="60" cy="60" r="${r}" class="sc-ring-track"/>
+            <circle cx="60" cy="60" r="${r}" class="sc-ring-fill"
+              stroke="${col}" stroke-dasharray="${c.toFixed(1)}"
+              stroke-dashoffset="${c.toFixed(1)}"
+              style="--sc-target:${off.toFixed(1)}"/>
+          </svg>`;
+      }
+
+      function dimCard(key, d) {
+        if (!d) {
+          return `<div class="sc-dim sc-dim-empty">
+            <div class="sc-dim-head"><span class="sc-dim-label">${LABELS[key]}</span></div>
+            <div class="sc-dim-na">Non mesuré</div></div>`;
+        }
+        const col = d.verdict === 'ok' ? 'var(--green)'
+                  : d.verdict === 'bad' ? 'var(--red)' : 'var(--orange)';
+        const caveat = d.caveat ? `<div class="sc-dim-caveat">⚠ ${d.caveat}</div>` : '';
+        return `
+          <div class="sc-dim" style="--sc-col:${col}">
+            <div class="sc-dim-head">
+              <span class="sc-dim-label">${d.label}</span>
+              <span class="ds-source">${d.source}</span>
+            </div>
+            <div class="sc-dim-score ds-num">${d.score}<span class="sc-dim-max">/100</span></div>
+            <div class="sc-dim-bar"><span style="--_w:${d.score}%"></span></div>
+            <div class="sc-dim-value">${d.value_text}</div>
+            <div class="sc-dim-detail">${d.detail}</div>
+            ${caveat}
+          </div>`;
+      }
+
+      const LABELS = { reaction: 'Réaction', countermovement: 'Contre-mouvement',
+                       explosivity: 'Explosivité', sequence: 'Séquence', posture: 'Posture' };
+
+      function render(sc) {
+        const gv = GRADE_VERDICT[sc.verdict] || 'warn';
+        const overall = sc.overall == null ? '—' : sc.overall;
+        const dims = DIM_ORDER.map(k => dimCard(k, sc.dimensions[k])).join('');
+        host.innerHTML = `
+          <div class="sc-overall sc-${gv}">
+            <div class="sc-ring-wrap">
+              ${ring(sc.overall, sc.verdict)}
+              <div class="sc-ring-center">
+                <span class="sc-grade ds-num">${sc.grade}</span>
+                <span class="sc-overall-num ds-num">${overall}<span class="sc-dim-max">/100</span></span>
+              </div>
+            </div>
+            <div class="sc-overall-meta">
+              <div class="sc-overall-kicker">Scorecard du départ</div>
+              <div class="sc-overall-label">${sc.grade_label}</div>
+              <p class="sc-overall-note">Note pondérée sur les dimensions mesurées.
+                 Repères calibrables — pas un verdict absolu.</p>
+              <a href="/report/{{ job_id }}" class="ds-btn ds-btn-ghost sc-report-btn" target="_blank" rel="noopener">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3h7l3 3v11H5z" stroke-linejoin="round"/><path d="M12 3v3h3M7 10h6M7 13h6" stroke-linecap="round"/></svg>
+                Rapport imprimable
+              </a>
+            </div>
+          </div>
+          <div class="sc-dims">${dims}</div>`;
+        // Lance l'animation des anneaux/barres à la frame suivante.
+        requestAnimationFrame(() => host.classList.add('sc-animate'));
+      }
+
+      fetch('/scorecard/{{ job_id }}')
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(render)
+        .catch(() => {
+          host.innerHTML = '<div class="sc-fail">Scorecard indisponible pour cet essai.</div>';
+        });
+    })();
+
+    // ── Carte Réaction & anticipation (cadence UCI) ────────────────
+    (function() {
+      const sec  = document.getElementById('reaction-section');
+      const body = document.getElementById('reaction-body');
+      if (!sec || !body) return;
+
+      // Frise : grille comme repère, position du 1er mouvement marquée.
+      function timeline(g, regime) {
+        // échelle : -550ms (gauche) à +400ms (droite), grille à 0.
+        const W = 460, H = 96, AX = 52, lo = -550, hi = 400;
+        const x = ms => 24 + (Math.max(lo, Math.min(hi, ms)) - lo) / (hi - lo) * (W - 48);
+        const gateX = x(0), moveX = x(g);
+        const col = (regime === 'optimal' || regime === 'early') ? 'var(--green)'
+                  : (regime === 'late' || regime === 'false_start') ? 'var(--red)' : 'var(--orange)';
+        const z0 = x(-60), z1 = x(25);            // zone idéale (réaction 300–385ms)
+        const mono = 'font-family="JetBrains Mono,monospace"';
+        // Valeur du mouvement : au-dessus si proche de la grille (évite collision).
+        const near = Math.abs(moveX - gateX) < 60;
+        const valY = near ? AX - 16 : AX + 20;
+        const valTxt = (g > 0 ? '+' : '') + Math.round(g) + ' ms';
+        return `<svg viewBox="0 0 ${W} ${H}" class="rx-timeline">
+          <text x="24" y="14" font-size="9" fill="var(--green)" ${mono}>← anticipé</text>
+          <text x="${W-24}" y="14" text-anchor="end" font-size="9" fill="var(--orange)" ${mono}>réactif →</text>
+          <rect x="${z0}" y="${AX-9}" width="${z1-z0}" height="18" rx="3" fill="var(--green-soft)" stroke="var(--green)" stroke-opacity="0.45"/>
+          <line x1="24" y1="${AX}" x2="${W-24}" y2="${AX}" stroke="var(--border-strong)" stroke-width="1.5"/>
+          <line x1="${gateX}" y1="${AX-14}" x2="${gateX}" y2="${AX+14}" stroke="var(--text-strong)" stroke-width="2.5"/>
+          <text x="${gateX}" y="${H-6}" text-anchor="middle" font-size="9" font-weight="700" fill="var(--text-strong)" ${mono}>GRILLE</text>
+          <circle cx="${moveX}" cy="${AX}" r="6" fill="${col}" stroke="var(--surface)" stroke-width="2"/>
+          <text x="${moveX}" y="${valY}" text-anchor="middle" font-size="10" font-weight="700" fill="${col}" ${mono}>${valTxt}</text>
+        </svg>`;
+      }
+
+      const REGIME_LABEL = {
+        false_start: 'Faux départ', gamble: 'Coup de poker (parti trop tôt)',
+        early: 'Réaction vive', optimal: 'Timing idéal',
+        reactive: 'Un peu tard', late: 'Réaction lente'
+      };
+
+      const FPS      = {{ results.fps }};
+      const GATE_T   = {{ results.gate_drop_t }};
+      const RAW_VID  = "{{ raw_video_url or '' }}";
+      let lastR = null;   // dernière réponse /reaction (pour ré-ouvrir/annuler)
+
+      // ── Panneau de vérification coach (grille + 1er mouvement) ──
+      function openVerifier(r) {
+        // Marqueurs pré-placés par le logiciel (le coach ajuste puis confirme).
+        let gateF = Math.round(GATE_T * FPS);
+        let moveF = r.from_gate_ms != null
+          ? Math.round((GATE_T + r.from_gate_ms / 1000) * FPS) : gateF;
+        body.innerHTML = `
+          <div class="rxv">
+            <p class="rxv-intro">Vérifie les deux instants <strong>image par image</strong> :
+              place la vidéo sur la frame exacte puis appuie sur
+              <strong>Grille ici</strong> / <strong>Mouvement ici</strong> (ou touches G / M).
+              Les marqueurs sont pré-placés par le logiciel.</p>
+            <div class="rxv-grid">
+              <div class="rxv-video-col">
+                <div class="gate-video-wrap"><video id="rxv-video" playsinline preload="auto" src="${RAW_VID}"></video></div>
+                <div class="gate-controls">
+                  <button type="button" class="btn-frame btn-frame-dark" data-step="-1">&#9664;</button>
+                  <span class="frame-counter-dark" id="rxv-counter">frame 0 · 0.000 s</span>
+                  <button type="button" class="btn-frame btn-frame-dark" data-step="1">&#9654;</button>
+                </div>
+              </div>
+              <div class="rxv-marks">
+                <div class="rxv-mark">
+                  <div class="rxv-mark-head">Grille <span class="rxv-mark-v ds-num" id="rxv-gate-lbl"></span></div>
+                  <div class="rxv-mark-btns">
+                    <button type="button" class="ds-btn ds-btn-ghost" id="rxv-set-gate">Grille ici <kbd>G</kbd></button>
+                    <button type="button" class="btn btn-sm" id="rxv-go-gate">⏵ voir</button>
+                  </div>
+                </div>
+                <div class="rxv-mark">
+                  <div class="rxv-mark-head">1<sup>er</sup> mouvement <span class="rxv-mark-v ds-num" id="rxv-move-lbl"></span></div>
+                  <div class="rxv-mark-btns">
+                    <button type="button" class="ds-btn ds-btn-ghost" id="rxv-set-move">Mouvement ici <kbd>M</kbd></button>
+                    <button type="button" class="btn btn-sm" id="rxv-go-move">⏵ voir</button>
+                  </div>
+                </div>
+                <div class="rxv-live">Réaction : <strong class="ds-num" id="rxv-live">—</strong>
+                  <span class="rxv-live-sub">1<sup>er</sup> bip (grille − 360 ms) → mouvement</span></div>
+                <div class="rxv-actions">
+                  <button type="button" class="ds-btn ds-btn-primary" id="rxv-confirm">✓ Confirmer les 2</button>
+                  <button type="button" class="ds-btn ds-btn-ghost" id="rxv-cancel">Annuler</button>
+                  ${r.verified ? '<button type="button" class="ds-btn ds-btn-ghost" id="rxv-unverify">Retirer la confirmation</button>' : ''}
+                </div>
+                <div class="rx-warn" id="rxv-err" style="display:none"></div>
+              </div>
+            </div>
+          </div>`;
+
+        const v = document.getElementById('rxv-video');
+        const counter = document.getElementById('rxv-counter');
+        function refresh() {
+          const f = Math.round(v.currentTime * FPS);
+          counter.textContent = 'frame ' + f + ' · ' + v.currentTime.toFixed(3) + ' s';
+        }
+        function labels() {
+          document.getElementById('rxv-gate-lbl').textContent =
+            'frame ' + gateF + ' · ' + (gateF / FPS).toFixed(3) + ' s';
+          document.getElementById('rxv-move-lbl').textContent =
+            'frame ' + moveF + ' · ' + (moveF / FPS).toFixed(3) + ' s';
+          const ms = Math.round((moveF - gateF) / FPS * 1000 + 360);
+          document.getElementById('rxv-live').textContent = ms + ' ms';
+        }
+        function goTo(f) { v.pause(); v.currentTime = Math.max(0, f / FPS); refresh(); }
+        v.addEventListener('timeupdate', refresh);
+        v.addEventListener('seeked', refresh);
+        body.querySelectorAll('[data-step]').forEach(b =>
+          b.addEventListener('click', () => goTo(Math.round(v.currentTime * FPS) + parseInt(b.dataset.step))));
+        document.getElementById('rxv-set-gate').addEventListener('click', () => { gateF = Math.round(v.currentTime * FPS); labels(); });
+        document.getElementById('rxv-set-move').addEventListener('click', () => { moveF = Math.round(v.currentTime * FPS); labels(); });
+        document.getElementById('rxv-go-gate').addEventListener('click', () => goTo(gateF));
+        document.getElementById('rxv-go-move').addEventListener('click', () => goTo(moveF));
+        document.getElementById('rxv-cancel').addEventListener('click', () => render(lastR));
+        document.getElementById('rxv-confirm').addEventListener('click', async () => {
+          const fd = new FormData();
+          fd.append('gate_frame', gateF); fd.append('move_frame', moveF);
+          const res = await fetch('/jobs/{{ job_id }}/reaction_verify', { method: 'POST', body: fd });
+          if (res.ok) { window.location.reload(); }
+          else {
+            const d = await res.json().catch(() => ({}));
+            const err = document.getElementById('rxv-err');
+            err.textContent = d.error || 'Erreur.'; err.style.display = 'block';
+          }
+        });
+        const unv = document.getElementById('rxv-unverify');
+        if (unv) unv.addEventListener('click', async () => {
+          await fetch('/jobs/{{ job_id }}/reaction_verify', { method: 'DELETE' });
+          window.location.reload();
+        });
+        const keyH = (e) => {
+          if (!document.getElementById('rxv-video')) { document.removeEventListener('keydown', keyH); return; }
+          if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+          if (e.key === 'ArrowRight') { e.preventDefault(); goTo(Math.round(v.currentTime * FPS) + 1); }
+          if (e.key === 'ArrowLeft')  { e.preventDefault(); goTo(Math.round(v.currentTime * FPS) - 1); }
+          if (e.key === 'g' || e.key === 'G') { gateF = Math.round(v.currentTime * FPS); labels(); }
+          if (e.key === 'm' || e.key === 'M') { moveF = Math.round(v.currentTime * FPS); labels(); }
+        };
+        document.addEventListener('keydown', keyH);
+        goTo(gateF); labels();
+      }
+
+      function verifyCta(r) {
+        // Boutons de vérification (état non confirmé).
+        const skipBtn = r.skipped ? '' :
+          `<button type="button" class="ds-btn ds-btn-ghost" id="rx-skip">Continuer sans</button>`;
+        return `
+          <div class="rxv-cta">
+            <button type="button" class="ds-btn ds-btn-primary" id="rx-verify">✓ Vérifier la grille + le 1<sup>er</sup> mouvement</button>
+            ${skipBtn}
+          </div>`;
+      }
+      function bindCta(r) {
+        const vb = document.getElementById('rx-verify');
+        if (vb) vb.addEventListener('click', () => openVerifier(r));
+        const sb = document.getElementById('rx-skip');
+        if (sb) sb.addEventListener('click', async () => {
+          await fetch('/jobs/{{ job_id }}/reaction_skip', { method: 'POST' });
+          lastR.skipped = true; render(lastR);
+        });
+      }
+
+      function render(r) {
+        lastR = r;
+        sec.hidden = false;
+
+        // ── Non capté par la pose : le coach est LA solution ──
+        if (r.regime === 'undetected') {
+          body.innerHTML = `
+            <div class="cmv-card cmv-warn">
+              <div class="cmv-main">
+                <span class="ds-verdict warn">Réaction non mesurable — à confirmer à l'œil</span>
+                <p class="cmv-headline">${r.detail}</p>
+                ${verifyCta(r)}
+                <div class="cmv-src"><span class="ds-source">${r.source}</span></div>
+              </div>
+            </div>`;
+          bindCta(r);
+          return;
+        }
+
+        const isV = !!r.verified;
+        const vclass = isV ? (r.verdict === 'ok' ? 'ok' : r.verdict === 'bad' ? 'bad' : 'warn') : 'warn';
+        const statusChip = isV
+          ? `<span class="ds-verdict ${vclass}">${REGIME_LABEL[r.regime] || 'Réaction'}</span>
+             <span class="rx-verified-badge">✓ Confirmé coach${r.verified_at ? ' · ' + r.verified_at : ''}</span>`
+          : `<span class="ds-verdict warn">Estimation — à confirmer</span>`;
+        const main = r.reaction_ms != null
+          ? `<span class="rx-ref rx-ref-main ${isV ? '' : 'rx-ref-est'}"><span class="rx-ref-v ds-num">${isV ? '' : '~'}${r.reaction_ms}</span><span class="rx-ref-l">ms — 1<sup>er</sup> bip → 1<sup>er</sup> mouvement</span></span>` : '';
+        const ctx = r.gate_context
+          ? `<span class="rx-ref"><span class="rx-ref-v ds-num">${r.from_gate_ms > 0 ? '+' : ''}${r.from_gate_ms}</span><span class="rx-ref-l">ms vs la grille<br>(${r.gate_context})</span></span>` : '';
+        const note = r.audio_note
+          ? `<div class="rx-warn">ℹ ${r.audio_note}</div>` : '';
+        const detail = isV ? r.detail
+          : `Chiffre <strong>estimé par le logiciel</strong> — il n'est ni noté ni compté dans les
+             stats tant que tu n'as pas confirmé la grille et le 1<sup>er</sup> mouvement à l'œil.`;
+        const actions = isV
+          ? `<div class="rxv-cta"><button type="button" class="ds-btn ds-btn-ghost" id="rx-verify">✎ Modifier la confirmation</button></div>`
+          : verifyCta(r);
+        body.innerHTML = `
+          <div class="cmv-card cmv-${vclass}">
+            <div class="cmv-main">
+              <div class="rx-status">${statusChip}</div>
+              <div class="rx-refs">${main}${ctx}</div>
+              <p class="cmv-headline">${detail}</p>
+              ${isV ? '' : note}
+              ${actions}
+              <div class="cmv-src"><span class="ds-source">${r.source}</span>
+                <span class="cmv-caveat">Le 1<sup>er</sup> bip tombe au hasard (délai aléatoire) : on y RÉAGIT, on ne peut pas le devancer. La grille tombe ensuite 360 ms plus tard, à un instant fixe — un bon départ y est calé (~300–360 ms après le bip).</span></div>
+            </div>
+            <div class="cmv-viz">${r.regime !== 'false_start' && r.from_gate_ms != null ? timeline(r.from_gate_ms, r.regime) : ''}</div>
+          </div>`;
+        bindCta(r);
+      }
+
+      fetch('/reaction/{{ job_id }}')
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(render)
+        .catch(() => { /* masqué si non mesurable */ });
+    })();
+
+    // ── Carte Position de set (variable #1, Grigg 2020) ────────────
+    (function() {
+      const sec  = document.getElementById('setpos-section');
+      const body = document.getElementById('setpos-body');
+      if (!sec || !body) return;
+
+      // Petit schéma : 3 archétypes, celui détecté est mis en avant.
+      function archetypes(active) {
+        const items = [
+          { k: 'back',    t: 'Back',    d: 'bassin reculé' },
+          { k: 'upright', t: 'Upright', d: 'buste vertical' },
+          { k: 'angled',  t: 'Angled',  d: 'buste penché' },
+        ];
+        return `<div class="setpos-types">` + items.map(it =>
+          `<div class="setpos-type ${it.k === active ? 'on' : ''}">
+             <span class="setpos-type-t">${it.t}</span>
+             <span class="setpos-type-d">${it.d}</span>
+           </div>`).join('') + `</div>`;
+      }
+
+      function render(sp) {
+        sec.hidden = false;
+        body.innerHTML = `
+          <div class="cmv-card cmv-${sp.vclass}">
+            <div class="cmv-main">
+              <span class="ds-verdict ${sp.vclass}">${sp.label}</span>
+              <p class="cmv-headline">${sp.headline}</p>
+              <div class="cmv-cue"><strong>Conseil :</strong> ${sp.cue}</div>
+              <div class="cmv-src"><span class="ds-source">${sp.source}</span>
+                <span class="cmv-caveat">${sp.caveat}</span></div>
+            </div>
+            <div class="cmv-viz">${archetypes(sp.type)}</div>
+          </div>`;
+      }
+
+      fetch('/set_position/{{ job_id }}')
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(render)
+        .catch(() => { /* masqué si données insuffisantes */ });
+    })();
+
+    // ── Carte Contre-mouvement (déterminant #1, Gross 2017) ────────
+    (function() {
+      const sec  = document.getElementById('cmv-section');
+      const body = document.getElementById('cmv-body');
+      if (!sec || !body) return;
+
+      // Mini-courbe d'angle du genou autour du gate, avec le load marqué.
+      function loadGraph(j) {
+        if (!j) return '';
+        const W = 320, H = 96, set = j.set_angle, min = j.min_angle;
+        const span = Math.max(set - min, 1);
+        // Schéma stylisé : set (plat) → descente (load) → ré-extension.
+        const y = v => H - 14 - ((v - min) / span) * (H - 28);
+        const xSet = 20, xMin = 150, xEnd = 300;
+        const path = `M${xSet},${y(set)} L${xMin},${y(min)} L${xEnd},${y(min + j.recover_deg)}`;
+        return `<svg viewBox="0 0 ${W} ${H}" class="cmv-graph">
+          <path d="${path} L${xEnd},${H-6} L${xSet},${H-6} Z" fill="var(--accent-soft)"/>
+          <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="${xMin}" cy="${y(min)}" r="4" fill="var(--accent)"/>
+          <text x="${xMin}" y="${y(min)+18}" text-anchor="middle" font-size="9" font-family="JetBrains Mono,monospace" fill="var(--muted)">load ${j.depth_deg}°</text>
+          <text x="${xSet}" y="${y(set)-6}" font-size="9" font-family="JetBrains Mono,monospace" fill="var(--subtle)">set</text>
+        </svg>`;
+      }
+
+      function render(cm) {
+        sec.hidden = false;
+        const ms = (cm.knee || cm.hip || {}).t_load_start;
+        const timing = ms == null ? '' :
+          `<span class="cmv-stat"><span class="cmv-stat-v ds-num">${(ms*1000).toFixed(0)}</span><span class="cmv-stat-l">ms ${ms <= 0 ? 'avant' : 'après'} la grille</span></span>`;
+        const depth = (cm.knee || {}).depth_deg;
+        const depthStat = depth == null ? '' :
+          `<span class="cmv-stat"><span class="cmv-stat-v ds-num">${depth}<span class="ds-unit">°</span></span><span class="cmv-stat-l">profondeur du load (genou)</span></span>`;
+        body.innerHTML = `
+          <div class="cmv-card cmv-${cm.vclass}">
+            <div class="cmv-main">
+              <span class="ds-verdict ${cm.vclass}">${
+                cm.verdict === 'early' ? 'Contre-mouvement précoce' :
+                cm.verdict === 'late'  ? 'Contre-mouvement tardif' : 'Pas de contre-mouvement'
+              }</span>
+              <p class="cmv-headline">${cm.headline}</p>
+              <div class="cmv-stats">${timing}${depthStat}</div>
+              <div class="cmv-cue"><strong>À travailler :</strong> ${cm.cue}</div>
+              <div class="cmv-src"><span class="ds-source">${cm.source}</span>
+                <span class="cmv-caveat">${cm.caveat}</span></div>
+            </div>
+            <div class="cmv-viz">${loadGraph(cm.knee)}</div>
+          </div>`;
+      }
+
+      fetch('/countermovement/{{ job_id }}')
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(render)
+        .catch(() => { /* section reste masquée si données insuffisantes */ });
+    })();
+
     // ── Renommage du titre ─────────────────────────────────────────
     (function() {
       const btn      = document.getElementById('btn-title-edit');

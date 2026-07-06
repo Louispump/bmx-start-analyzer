@@ -1,0 +1,84 @@
+{% extends "_base.html" %}
+
+{% block title %}{{ race.name }} — Préparation — HOLESHOT{% endblock %}
+{% set active = "prepa" %}
+
+{% block content %}
+  <a href="/prepa" class="back-link">← Préparation</a>
+
+  <!-- En-tête course + compte à rebours -->
+  <section class="rd-hero rd-hero-{{ race.countdown.status }}">
+    <div class="rd-count">
+      <span class="rd-jx ds-num">{{ race.countdown.label or "—" }}</span>
+    </div>
+    <div class="rd-info">
+      <h1>{{ race.name }}</h1>
+      <div class="rd-meta">
+        <span>📅 {{ race.date }}</span>
+        {% if race.location %}<span>📍 {{ race.location }}</span>{% endif %}
+        {% if race.level %}<span class="next-race-level">{{ race.level }}</span>{% endif %}
+        {% if race.athlete_name %}<span>👤 {{ race.athlete_name }}</span>{% endif %}
+      </div>
+      <span class="rd-phase">{{ plan.phase_label }}</span>
+    </div>
+  </section>
+
+  <!-- Focus du jour -->
+  <section class="rd-focus">
+    <div class="rd-focus-tag">Focus du moment</div>
+    <h2>{{ plan.focus.head }}</h2>
+    <ul class="rd-focus-list">
+      {% for a in plan.focus.actions %}<li>{{ a }}</li>{% endfor %}
+    </ul>
+  </section>
+
+  <!-- Timeline du Jour J -->
+  <section class="section">
+    <h2>Jour J — heure par heure <span class="section-tag">déroulé type</span></h2>
+    <div class="rd-timeline">
+      {% for step in plan.timeline %}
+      <div class="rd-tl-step">
+        <div class="rd-tl-when ds-num">{{ step.when }}</div>
+        <div class="rd-tl-body">
+          <span class="rd-tl-title">{{ step.title }}</span>
+          <span class="rd-tl-text">{{ step.text }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- Piliers de préparation -->
+  <section class="section">
+    <h2>Le plan, par pilier</h2>
+    <p class="rd-pillars-hint">Ce qui compte <strong>maintenant</strong> est mis en avant ; déplie pour voir tout le compte à rebours.</p>
+    <div class="rd-pillars">
+      {% for p in plan.pillars %}
+      <details class="rd-pillar" {% if loop.first %}open{% endif %}>
+        <summary class="rd-pillar-sum">
+          <span class="rd-pillar-label">{{ p.label }}</span>
+          <span class="rd-pillar-chevron">▾</span>
+        </summary>
+        <div class="rd-pillar-body">
+          {% if p.current %}
+          <div class="rd-now">
+            <span class="rd-now-tag">Maintenant</span>
+            <ul>{% for it in p.current %}<li>{{ it }}</li>{% endfor %}</ul>
+          </div>
+          {% endif %}
+          <div class="rd-allphases">
+            {% for ph in p.phases %}
+            <div class="rd-phase-block {% if ph.is_current %}rd-phase-current{% endif %}">
+              <div class="rd-phase-lbl">{{ ph.label }}</div>
+              <ul>{% for it in ph['items'] %}<li>{{ it }}</li>{% endfor %}</ul>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+  </section>
+
+  <p class="rd-disclaimer">⚠ {{ plan.disclaimer }}</p>
+{% endblock %}

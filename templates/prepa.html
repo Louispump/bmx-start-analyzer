@@ -1,0 +1,262 @@
+{% extends "_base.html" %}
+
+{% block title %}Préparation — HOLESHOT{% endblock %}
+{% set active = "prepa" %}
+
+{% block content %}
+  <header class="prepa-header">
+    <div>
+      <h1>Préparation</h1>
+      <p class="subtitle">Tes courses, ton compte à rebours, et bientôt ton plan de prépa jour par jour.</p>
+    </div>
+    <div class="prepa-header-actions">
+      <select id="athlete-filter" class="pro-select">
+        <option value="">Tous les athlètes</option>
+        {% for a in athletes_list %}
+        <option value="{{ a.id }}" {% if a.id == current_athlete %}selected{% endif %}>{{ a.name }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" class="ds-btn ds-btn-primary" id="btn-add-race">+ Course</button>
+    </div>
+  </header>
+
+  {% if next_race %}
+  <a href="/prepa/race/{{ next_race.id }}" class="next-race next-race-link next-race-{{ next_race.countdown.status }}">
+    <div class="next-race-tag">Prochaine course · voir le plan →</div>
+    <div class="next-race-body">
+      <div class="next-race-count">
+        <span class="next-race-jx ds-num">{{ next_race.countdown.label }}</span>
+      </div>
+      <div class="next-race-info">
+        <h2>{{ next_race.name }}</h2>
+        <div class="next-race-meta">
+          <span>📅 {{ next_race.date }}</span>
+          {% if next_race.location %}<span>📍 {{ next_race.location }}</span>{% endif %}
+          {% if next_race.level %}<span class="next-race-level">{{ next_race.level }}</span>{% endif %}
+          {% if next_race.athlete_name %}<span>👤 {{ next_race.athlete_name }}</span>{% endif %}
+        </div>
+        <p class="next-race-soon"><span class="soon-badge">Plan</span> Clique pour voir ta préparation jour par jour.</p>
+      </div>
+    </div>
+  </a>
+  {% else %}
+  <section class="prepa-empty">
+    <div class="prepa-empty-icon">🏁</div>
+    <h2>Aucune course à venir</h2>
+    <p>Ajoute ta prochaine course pour voir le compte à rebours et préparer ton départ.</p>
+    <button type="button" class="ds-btn ds-btn-primary" id="btn-add-race-2">+ Ajouter une course</button>
+  </section>
+  {% endif %}
+
+  <section class="section">
+    <div class="cal-head">
+      <button type="button" class="cal-nav" id="cal-prev" aria-label="Mois précédent">‹</button>
+      <h2 id="cal-title">—</h2>
+      <button type="button" class="cal-nav" id="cal-next" aria-label="Mois suivant">›</button>
+    </div>
+    <div class="cal-grid" id="cal-grid"></div>
+  </section>
+
+  <section class="section">
+    <h2>À venir <span class="section-tag">{{ upcoming|length }}</span></h2>
+    {% if upcoming %}
+    <div class="race-list" id="upcoming-list">
+      {% for r in upcoming %}
+      <div class="race-row race-{{ r.countdown.status }}" data-race-id="{{ r.id }}">
+        <a href="/prepa/race/{{ r.id }}" class="race-link">
+          <div class="race-date">
+            <span class="race-jx">{{ r.countdown.label }}</span>
+            <span class="race-d">{{ r.date }}</span>
+          </div>
+          <div class="race-main">
+            <span class="race-name">{{ r.name }}</span>
+            <span class="race-sub">
+              {% if r.level %}{{ r.level }}{% endif %}
+              {% if r.location %} · {{ r.location }}{% endif %}
+              {% if r.athlete_name %} · {{ r.athlete_name }}{% endif %}
+            </span>
+          </div>
+        </a>
+        <button type="button" class="race-del" data-id="{{ r.id }}" title="Supprimer">✕</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted-note">Aucune course à venir.</p>
+    {% endif %}
+  </section>
+
+  {% if past %}
+  <section class="section">
+    <h2>Passées <span class="section-tag">{{ past|length }}</span></h2>
+    <div class="race-list race-list-past">
+      {% for r in past %}
+      <div class="race-row race-past" data-race-id="{{ r.id }}">
+        <a href="/prepa/race/{{ r.id }}" class="race-link">
+          <div class="race-date"><span class="race-d">{{ r.date }}</span></div>
+          <div class="race-main">
+            <span class="race-name">{{ r.name }}</span>
+            <span class="race-sub">
+              {% if r.level %}{{ r.level }}{% endif %}
+              {% if r.location %} · {{ r.location }}{% endif %}
+              {% if r.athlete_name %} · {{ r.athlete_name }}{% endif %}
+            </span>
+          </div>
+        </a>
+        <button type="button" class="race-del" data-id="{{ r.id }}" title="Supprimer">✕</button>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Modale d'ajout de course -->
+  <div class="race-modal" id="race-modal" hidden>
+    <div class="race-modal-card">
+      <div class="race-modal-head">
+        <h2>Ajouter une course</h2>
+        <button type="button" class="race-modal-close" id="race-modal-close" aria-label="Fermer">✕</button>
+      </div>
+      <form id="race-form" class="race-form">
+        <label class="race-field">
+          <span>Nom de la course *</span>
+          <input type="text" name="name" maxlength="80" placeholder="ex : Coupe du Québec — Drummondville" required>
+        </label>
+        <div class="race-field-row">
+          <label class="race-field">
+            <span>Date *</span>
+            <input type="date" name="date" value="{{ today }}" required>
+          </label>
+          <label class="race-field">
+            <span>Niveau</span>
+            <select name="level">
+              <option value="">—</option>
+              {% for lv in race_levels %}<option value="{{ lv }}">{{ lv }}</option>{% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="race-field-row">
+          <label class="race-field">
+            <span>Lieu</span>
+            <input type="text" name="location" maxlength="80" placeholder="Piste / ville">
+          </label>
+          <label class="race-field">
+            <span>Athlète</span>
+            <select name="athlete_id">
+              <option value="">— Aucun —</option>
+              {% for a in athletes_list %}
+              <option value="{{ a.id }}" {% if a.id == current_athlete %}selected{% endif %}>{{ a.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <label class="race-field">
+          <span>Notes</span>
+          <textarea name="notes" rows="2" maxlength="1000" placeholder="Objectif, infos pratiques…"></textarea>
+        </label>
+        <div class="race-form-error" id="race-form-error" hidden></div>
+        <div class="race-form-actions">
+          <button type="button" class="ds-btn ds-btn-ghost" id="race-cancel">Annuler</button>
+          <button type="submit" class="ds-btn ds-btn-primary">Enregistrer la course</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script id="races-data" type="application/json">{{ all_races_json|safe }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  var RACES = [];
+  try { RACES = JSON.parse(document.getElementById('races-data').textContent || '[]'); }
+  catch (e) { RACES = []; }
+
+  /* ── Filtre athlète : recharge avec ?athlete= ── */
+  var af = document.getElementById('athlete-filter');
+  if (af) af.addEventListener('change', function () {
+    var v = af.value;
+    window.location.href = '/prepa' + (v ? '?athlete=' + encodeURIComponent(v) : '');
+  });
+
+  /* ── Modale d'ajout ── */
+  var modal = document.getElementById('race-modal');
+  function openModal()  { modal.hidden = false; }
+  function closeModal() { modal.hidden = true; }
+  ['btn-add-race', 'btn-add-race-2'].forEach(function (id) {
+    var b = document.getElementById(id);
+    if (b) b.addEventListener('click', openModal);
+  });
+  document.getElementById('race-modal-close').addEventListener('click', closeModal);
+  document.getElementById('race-cancel').addEventListener('click', closeModal);
+  modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+
+  document.getElementById('race-form').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var err = document.getElementById('race-form-error');
+    err.hidden = true;
+    var fd = new FormData(e.target);
+    try {
+      var res = await fetch('/races', { method: 'POST', body: fd });
+      var data = await res.json();
+      if (!res.ok) { err.textContent = data.error || 'Erreur.'; err.hidden = false; return; }
+      window.location.reload();
+    } catch (_) { err.textContent = 'Erreur réseau.'; err.hidden = false; }
+  });
+
+  /* ── Suppression ── */
+  document.querySelectorAll('.race-del').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      if (!confirm('Supprimer cette course ?')) return;
+      var res = await fetch('/races/' + btn.dataset.id, { method: 'DELETE' });
+      if (res.ok) window.location.reload();
+    });
+  });
+
+  /* ── Calendrier mensuel ── */
+  var MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août',
+                'Septembre','Octobre','Novembre','Décembre'];
+  var DOW = ['L','M','M','J','V','S','D'];
+  var grid = document.getElementById('cal-grid');
+  var title = document.getElementById('cal-title');
+  var view = new Date(); view.setDate(1);
+
+  var racesByDate = {};
+  RACES.forEach(function (r) {
+    if (!r.date) return;
+    (racesByDate[r.date] = racesByDate[r.date] || []).push(r);
+  });
+
+  function ymd(y, m, d) {
+    return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  }
+
+  function render() {
+    var y = view.getFullYear(), m = view.getMonth();
+    title.textContent = MONTHS[m] + ' ' + y;
+    var first = new Date(y, m, 1);
+    var startDow = (first.getDay() + 6) % 7;   // Lundi = 0
+    var nDays = new Date(y, m + 1, 0).getDate();
+    var todayStr = (function () { var t = new Date(); return ymd(t.getFullYear(), t.getMonth(), t.getDate()); })();
+    var html = DOW.map(function (d) { return '<div class="cal-dow">' + d + '</div>'; }).join('');
+    for (var i = 0; i < startDow; i++) html += '<div class="cal-cell cal-empty"></div>';
+    for (var day = 1; day <= nDays; day++) {
+      var ds = ymd(y, m, day);
+      var rs = racesByDate[ds] || [];
+      var cls = 'cal-cell' + (ds === todayStr ? ' cal-today' : '') + (rs.length ? ' cal-has' : '');
+      var chips = rs.map(function (r) {
+        return '<span class="cal-chip" title="' + (r.name || '').replace(/"/g,'') + '">' +
+               (r.name || '').slice(0, 14) + '</span>';
+      }).join('');
+      html += '<div class="' + cls + '"><span class="cal-num">' + day + '</span>' + chips + '</div>';
+    }
+    grid.innerHTML = html;
+  }
+  document.getElementById('cal-prev').addEventListener('click', function () { view.setMonth(view.getMonth() - 1); render(); });
+  document.getElementById('cal-next').addEventListener('click', function () { view.setMonth(view.getMonth() + 1); render(); });
+  render();
+})();
+</script>
+{% endblock %}

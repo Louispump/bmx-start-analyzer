@@ -48,19 +48,13 @@
     </div>
   </section>
 
-  {% if stats.history|length >= 2 %}
-  <!-- Mini graphique évolution -->
-  <section class="section">
-    <h2>Évolution du temps de réaction</h2>
-    <div class="mini-chart-wrap">
-      <svg id="mini-chart" viewBox="0 0 600 160" preserveAspectRatio="none"></svg>
-      <div class="mini-chart-legend">
-        <span>← plus ancien</span>
-        <span>plus récent →</span>
-      </div>
-    </div>
+  <!-- Dashboard de progression (chargé via /progression) -->
+  <section class="section" id="progression-section" data-athlete="{{ athlete.id }}" hidden>
+    <h2>Progression <span class="section-tag">dans le temps</span></h2>
+    <div class="prog-kpis" id="prog-kpis"></div>
+    <div class="prog-charts" id="prog-charts"></div>
+    <p class="prog-note section-note">Essais exclus retirés. La régularité est l'écart-type des 5 derniers temps de réaction — plus c'est bas, plus tu es constant.</p>
   </section>
-  {% endif %}
 
   <!-- Liste des vidéos -->
   <section class="section">
@@ -174,8 +168,6 @@
     {% endif %}
   </section>
 
-  <!-- Données pour le graphique (chronologique : plus ancien à gauche) -->
-  <script id="history-data" type="application/json">{{ stats.history|tojson }}</script>
 {% endblock %}
 
 {% block scripts %}
@@ -214,43 +206,106 @@
       else { alert('Erreur lors de la suppression.'); }
     }
 
-    // Mini graphique : évolution du temps de réaction
-    const dataEl = document.getElementById('history-data');
-    if (dataEl) {
-      const raw = JSON.parse(dataEl.textContent || "[]");
-      // Inverser : on veut le plus ancien à gauche
-      const data = raw.slice().reverse();
-      const svg  = document.getElementById('mini-chart');
-      if (svg && data.length >= 2) {
-        const W = 600, H = 160, P = 20;
-        const max = Math.max(...data) * 1.05;
-        const min = Math.min(...data) * 0.95;
+    // ── Dashboard de progression ───────────────────────────────────
+    (function () {
+      const sec = document.getElementById('progression-section');
+      if (!sec) return;
+      const aid = sec.dataset.athlete;
+
+      // Trace une courbe SVG. opts: {color, lowerBetter, unit, fmt}
+      function lineChart(title, points, opts) {
+        const vals = points.map(p => p.v).filter(v => v != null);
+        if (vals.length < 2) return '';
+        const W = 640, H = 180, PL = 44, PR = 16, PT = 22, PB = 28;
+        let max = Math.max(...vals), min = Math.min(...vals);
+        const pad = (max - min) * 0.15 || Math.abs(max) * 0.1 || 1;
+        max += pad; min -= pad;
         const range = (max - min) || 1;
-        const xStep = (W - 2*P) / (data.length - 1);
-        const pts = data.map((v, i) => {
-          const x = P + i * xStep;
-          const y = H - P - ((v - min) / range) * (H - 2*P);
-          return [x, y, v];
+        const valid = points.map((p, i) => ({ ...p, i })).filter(p => p.v != null);
+        const xStep = (W - PL - PR) / Math.max(points.length - 1, 1);
+        const xy = p => [PL + p.i * xStep, PT + (1 - (p.v - min) / range) * (H - PT - PB)];
+        const pts = valid.map(xy);
+        const path = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+        const col = opts.color;
+        const gid = 'pg_' + title.replace(/\W/g, '');
+        // lignes de grille (min / milieu / max)
+        let grid = '';
+        [0, 0.5, 1].forEach(f => {
+          const y = PT + f * (H - PT - PB);
+          const val = max - f * range;
+          grid += `<line x1="${PL}" y1="${y}" x2="${W - PR}" y2="${y}" stroke="var(--border)" stroke-width="1"/>
+                   <text x="${PL - 6}" y="${y + 3}" text-anchor="end" font-size="9"
+                         font-family="JetBrains Mono, monospace" fill="var(--subtle)">${opts.fmt(val)}</text>`;
         });
-        const path = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
-        let svgInner = `
-          <defs>
-            <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.35"/>
-              <stop offset="100%" stop-color="#00d4ff" stop-opacity="0"/>
-            </linearGradient>
-          </defs>
-          <path d="${path} L${pts[pts.length-1][0]},${H-P} L${pts[0][0]},${H-P} Z" fill="url(#g)"/>
-          <path d="${path}" fill="none" stroke="#00d4ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-        `;
-        for (const [x, y, v] of pts) {
-          svgInner += `<circle cx="${x}" cy="${y}" r="4" fill="#00d4ff"/>
-                       <text x="${x}" y="${y - 10}" text-anchor="middle"
-                             font-size="10" font-family="JetBrains Mono, monospace"
-                             fill="#d8e0ee">${v}ms</text>`;
-        }
-        svg.innerHTML = svgInner;
+        let dots = '';
+        valid.forEach((p, i) => {
+          const [x, y] = pts[i];
+          dots += `<circle cx="${x}" cy="${y}" r="3.5" fill="${col}"/>`;
+        });
+        // dernier point mis en valeur
+        const last = valid[valid.length - 1];
+        const [lx, ly] = pts[pts.length - 1];
+        dots += `<circle cx="${lx}" cy="${ly}" r="5.5" fill="${col}" stroke="var(--surface)" stroke-width="2"/>
+                 <text x="${lx}" y="${ly - 11}" text-anchor="middle" font-size="11" font-weight="700"
+                       font-family="JetBrains Mono, monospace" fill="var(--text-strong)">${opts.fmt(last.v)}</text>`;
+        return `
+          <div class="prog-chart">
+            <div class="prog-chart-title">${title}</div>
+            <svg viewBox="0 0 ${W} ${H}" class="prog-svg">
+              <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="${col}" stop-opacity="0.28"/>
+                <stop offset="100%" stop-color="${col}" stop-opacity="0"/>
+              </linearGradient></defs>
+              ${grid}
+              <path d="${path} L${pts[pts.length-1][0]},${H-PB} L${pts[0][0]},${H-PB} Z" fill="url(#${gid})"/>
+              <path d="${path}" fill="none" stroke="${col}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              ${dots}
+            </svg>
+          </div>`;
       }
-    }
+
+      function trendChip(trend, lowerBetter) {
+        if (!trend || trend.direction === 'flat')
+          return '<span class="prog-trend flat">→ stable</span>';
+        const improving = lowerBetter ? trend.direction === 'down' : trend.direction === 'up';
+        const arrow = trend.direction === 'down' ? '↓' : '↑';
+        return `<span class="prog-trend ${improving ? 'good' : 'bad'}">${arrow} ${improving ? 'en progrès' : 'en recul'}</span>`;
+      }
+
+      function kpi(label, value, unit, extra) {
+        return `<div class="prog-kpi">
+          <div class="prog-kpi-label">${label}</div>
+          <div class="prog-kpi-value ds-num">${value}${unit ? `<span class="ds-unit">${unit}</span>` : ''}</div>
+          ${extra || ''}
+        </div>`;
+      }
+
+      fetch(`/athletes/${aid}/progression`)
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(d => {
+          if (!d.series || d.series.length < 1) return;  // rien à montrer
+          sec.hidden = false;
+          const kpis = document.getElementById('prog-kpis');
+          const grade = d.series.filter(s => s.grade).slice(-1)[0]?.grade || '—';
+          kpis.innerHTML =
+            kpi('Note du jour', grade, '', `<div class="prog-kpi-sub">dernier essai</div>`) +
+            kpi('Meilleure note', d.best_overall ?? '—', d.best_overall != null ? '/100' : '',
+                trendChip(d.trend_overall, false)) +
+            kpi('Meilleure réaction', d.best_reaction ?? '—', d.best_reaction != null ? 'ms' : '',
+                trendChip(d.trend_reaction, true)) +
+            kpi('Régularité', d.consistency_ms ?? '—', d.consistency_ms != null ? 'ms' : '',
+                `<div class="prog-kpi-sub">écart-type · 5 derniers</div>`);
+
+          const charts = document.getElementById('prog-charts');
+          charts.innerHTML =
+            lineChart('Note globale', d.series.map(s => ({ v: s.overall })),
+                      { color: 'var(--green)', lowerBetter: false, fmt: v => Math.round(v) }) +
+            lineChart('Temps de réaction (ms)', d.series.map(s => ({ v: s.reaction_ms })),
+                      { color: 'var(--accent)', lowerBetter: true, fmt: v => Math.round(v) }) +
+            lineChart('Explosivité — ω genou (°/s)', d.series.map(s => ({ v: s.knee_omega })),
+                      { color: 'var(--phase-push1)', lowerBetter: false, fmt: v => Math.round(v) });
+        })
+        .catch(() => { /* silencieux : on garde la page utilisable */ });
+    })();
   </script>
 {% endblock %}

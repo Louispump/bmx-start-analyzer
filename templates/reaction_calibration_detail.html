@@ -1,0 +1,146 @@
+{% extends "_base.html" %}
+
+{% block title %}{{ row.display_name }} — Calibration réaction — HOLESHOT{% endblock %}
+{% set active = "settings" %}
+
+{% block content %}
+  <header>
+    <a href="/reaction_calibration" class="back-link">← Calibration réaction</a>
+    <h1>{{ row.display_name }}</h1>
+    <p class="subtitle">
+      Saute sur chaque instant et vérifie-le image par image (◀ ▶).
+      Le bon ordre : 1<sup>er</sup> bip → (360 ms) → grille → 1<sup>er</sup> mouvement
+      au plus tôt ~{{ 170 }} ms après le bip.
+    </p>
+  </header>
+
+  {% if row.flags %}
+  <div class="rcal-banner">
+    {% for lvl, txt in row.flags %}
+      <span class="rcal-flag rcal-flag-{{ lvl }}">{{ txt }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="rcal-detail">
+    <!-- ── Vidéo ── -->
+    <div class="rcal-video-col">
+      <div class="gate-video-wrap">
+        <video id="rcal-video" playsinline preload="auto" src="{{ video_url }}" controls></video>
+      </div>
+      <div class="gate-controls">
+        <button class="btn-frame btn-frame-dark" onclick="step(-1)">&#9664;</button>
+        <span class="frame-counter-dark" id="rcal-counter">t = 0.000 s · frame 0</span>
+        <button class="btn-frame btn-frame-dark" onclick="step(+1)">&#9654;</button>
+      </div>
+      <div class="rcal-actions">
+        <button type="button" class="ds-btn ds-btn-ghost" id="btn-rerun-audio">🔊 Re-détecter l'audio</button>
+        <a href="/result/{{ job_id }}" class="ds-btn ds-btn-ghost">✎ Corriger la grille</a>
+      </div>
+    </div>
+
+    <!-- ── Marqueurs ── -->
+    <div class="rcal-markers">
+
+      <div class="cal-marker">
+        <div class="cal-marker-head"><span class="cal-marker-label">1<sup>er</sup> bip (audio)</span></div>
+        {% if row.bip1_audio is not none %}
+        <div class="cal-marker-value ds-num">{{ "%.3f"|format(row.bip1_audio) }} s</div>
+        <div class="cal-marker-meta">
+          4 bips : {{ audio.beeps_t | map("round", 3) | join(" · ") if audio.beeps_t else "—" }} s<br>
+          intervalle moyen {{ audio.mean_interval_ms|round(0)|int if audio.mean_interval_ms else "—" }} ms
+          (attendu : 120 ms)
+        </div>
+        <button class="btn btn-sm" onclick="jumpTo({{ row.bip1_audio }})">⏵ Aller au bip 1</button>
+        {% else %}
+        <div class="cal-marker-value cal-marker-fail">non détecté
+          <span class="cal-marker-sub">({{ audio.reason or "—" }})</span></div>
+        {% endif %}
+      </div>
+
+      <div class="cal-marker">
+        <div class="cal-marker-head"><span class="cal-marker-label">1<sup>er</sup> bip (théorique)</span></div>
+        <div class="cal-marker-value ds-num">{{ "%.3f"|format(row.bip1_theo) }} s</div>
+        <div class="cal-marker-meta">= grille marquée − 360 ms (cadence UCI fixe)</div>
+        <button class="btn btn-sm" onclick="jumpTo({{ row.bip1_theo }})">⏵ Aller au bip théorique</button>
+      </div>
+
+      <div class="cal-marker cal-marker-stored">
+        <div class="cal-marker-head"><span class="cal-marker-label">Grille (marquée)</span></div>
+        <div class="cal-marker-value ds-num">{{ "%.3f"|format(row.gate_t) }} s</div>
+        <div class="cal-marker-meta">l'instant t=0 de la réaction — vérifie que la grille bouge ICI</div>
+        <button class="btn btn-sm" onclick="jumpTo({{ row.gate_t }})">⏵ Aller à la grille</button>
+      </div>
+
+      <div class="cal-marker {% if row.reaction_ms is not none and row.reaction_ms < 170 %}cal-marker-bad{% endif %}">
+        <div class="cal-marker-head"><span class="cal-marker-label">1<sup>er</sup> mouvement (raffiné)</span></div>
+        {% if row.move_refined is not none %}
+        <div class="cal-marker-value ds-num">{{ "%.3f"|format(row.move_refined) }} s</div>
+        <div class="cal-marker-meta">
+          confiance {{ (row.move_conf * 100)|round(0)|int }} % · signaux : {{ row.move_signals|join(" + ") }}<br>
+          → réaction <strong>{{ row.reaction_ms }} ms</strong> après le bip théorique
+          {% if row.reaction_ms < 170 %}<br><strong>⚠ impossible de réagir si vite : vérifie la grille et le bip ci-dessus</strong>{% endif %}
+        </div>
+        <button class="btn btn-sm" onclick="jumpTo({{ row.move_refined }})">⏵ Aller au 1<sup>er</sup> mouvement</button>
+        {% else %}
+        <div class="cal-marker-value cal-marker-fail">non capté</div>
+        {% endif %}
+      </div>
+
+      {% if row.move_pipeline is not none and row.move_refined is not none
+            and (row.move_pipeline - row.move_refined)|abs > 0.05 %}
+      <div class="cal-marker">
+        <div class="cal-marker-head"><span class="cal-marker-label">1<sup>er</sup> mouvement (analyse initiale)</span></div>
+        <div class="cal-marker-value ds-num">{{ "%.3f"|format(row.move_pipeline) }} s</div>
+        <div class="cal-marker-meta">l'ancienne détection (genou seul) — comparer à l'œil</div>
+        <button class="btn btn-sm" onclick="jumpTo({{ row.move_pipeline }})">⏵ Aller à ce point</button>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  var fps = {{ fps }};
+  var v = document.getElementById('rcal-video');
+  var counter = document.getElementById('rcal-counter');
+
+  function refresh() {
+    var f = Math.round(v.currentTime * fps);
+    counter.textContent = 't = ' + v.currentTime.toFixed(3) + ' s · frame ' + f;
+  }
+  v.addEventListener('timeupdate', refresh);
+  v.addEventListener('seeked', refresh);
+
+  window.jumpTo = function (t) {
+    v.pause();
+    v.currentTime = Math.max(0, t);
+    refresh();
+  };
+  window.step = function (dir) {
+    v.pause();
+    var f = Math.max(0, Math.round(v.currentTime * fps) + dir);
+    v.currentTime = f / fps;
+    refresh();
+  };
+  document.addEventListener('keydown', function (e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === 'ArrowRight') { e.preventDefault(); step(+1); }
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); step(-1); }
+    if (e.key === ' ')          { e.preventDefault(); v.paused ? v.play() : v.pause(); }
+  });
+
+  document.getElementById('btn-rerun-audio').addEventListener('click', async function () {
+    this.disabled = true; this.textContent = 'Détection en cours…';
+    try {
+      await fetch('/jobs/{{ job_id }}/rerun_audio', { method: 'POST' });
+      window.location.reload();
+    } catch (_) { this.textContent = 'Erreur — réessaie'; this.disabled = false; }
+  });
+})();
+</script>
+{% endblock %}

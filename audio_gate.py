@@ -33,6 +33,14 @@ MAX_REGULARITY = 0.35
 # À recalibrer si on accumule des calibrations divergentes.
 GATE_VISUAL_OFFSET_S = 0.095
 
+# Cadence UCI réelle : 120 ms entre les 4 bips, la grille tombe sur le 4e —
+# soit 360 ms (3 × 120) après le 1er bip (voir SCIENCE.md §1). On s'en sert
+# comme contrôle de qualité : un quadruplet détecté dont l'intervalle moyen
+# s'éloigne de 120 ms est suspect (échos, faux pics), même s'il est régulier.
+UCI_INTERVAL_S       = 0.120
+UCI_BIP1_TO_GATE_S   = 0.360
+CADENCE_TOL_MS       = 55.0   # écart toléré à 120 ms avant de déclasser
+
 
 def _extract_audio(video_path: Path) -> np.ndarray | None:
     """Extrait l'audio en mono float32 normalisé via ffmpeg. None si échec."""
@@ -147,16 +155,43 @@ def detect_gate_drop(video_path: Path) -> dict:
     if best is None:
         return {"detected": False, "reason": "no_4_beep_pattern"}
 
+    # ── Contrôle qualité par la cadence UCI réelle (120 ms) ──────────────
+    # Un quadruplet régulier mais à ~180 ms d'intervalle trahit des échos ou
+    # de faux pics : on déclasse la confiance et on le signale.
+    bip1          = best["beeps_t"][0]
+    cadence_dev   = abs(best["mean_interval_ms"] - UCI_INTERVAL_S * 1000.0)
+    cadence_ok    = cadence_dev <= CADENCE_TOL_MS
+    base_conf     = min(1.0, best["score"] / 5.0)
+    # Pénalité douce et bornée si la cadence dévie du 120 ms attendu.
+    cadence_factor = max(0.4, 1.0 - cadence_dev / 240.0)
+    confidence     = round(base_conf * cadence_factor, 3)
+
+    # Gate alternatif ancré sur le 1er bip (souvent plus propre que le 4e, qui
+    # est masqué par le bruit de la grille). Sert de croisement / repli.
+    gate_from_bip1 = bip1 + UCI_BIP1_TO_GATE_S + GATE_VISUAL_OFFSET_S
+    gate_beep4     = best["gate_t"] + GATE_VISUAL_OFFSET_S
+
+    if confidence >= 0.5 and cadence_ok:
+        quality = "high"
+    elif confidence >= 0.3:
+        quality = "medium"
+    else:
+        quality = "low"
+
     # Applique la correction visuelle : on retourne le moment où le gate est
     # visuellement tombé, pas le moment où le micro entend le clic.
     # beeps_t reste l'audio brut (bip1 sert d'ancrage du temps de réaction).
     return {
         "detected": True,
-        "gate_t": best["gate_t"] + GATE_VISUAL_OFFSET_S,
+        "gate_t": gate_beep4,
+        "gate_t_from_bip1": round(gate_from_bip1, 3),
         "beeps_t": best["beeps_t"],
         "mean_interval_ms": best["mean_interval_ms"],
         "regularity": best["regularity"],
-        "confidence": min(1.0, best["score"] / 5.0),
+        "cadence_dev_ms": round(cadence_dev, 1),
+        "cadence_ok": cadence_ok,
+        "confidence": confidence,
+        "quality": quality,
         "method": best["method"],
         "gate_t_audio_raw": best["gate_t"],  # avant correction (debug)
     }

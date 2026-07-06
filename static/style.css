@@ -171,9 +171,10 @@ body {
   line-height: 1;
 }
 .brand-name {
-  font-size: .92rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
+  font-family: var(--font-display, var(--font));
+  font-size: .98rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
   color: var(--text-strong);
 }
 .brand-sub {
@@ -251,6 +252,10 @@ body {
   margin-top: auto;
   padding: 14px 8px 2px;
   border-top: 1px solid var(--border);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
 }
 .version-tag {
   font-family: var(--font-mono);
@@ -258,6 +263,13 @@ body {
   color: var(--subtle);
   letter-spacing: 0.06em;
 }
+.footer-link {
+  font-size: .67rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: none;
+}
+.footer-link:hover { color: var(--text); }
 
 /* ══════════════════════════════════════════════════════════════════════
    CONTENT
@@ -1420,7 +1432,8 @@ input[type="text"].rider-name-input {
 .tl-label {
   font-size: .65rem;
   font-weight: 700;
-  color: rgba(0,0,0,0.65);
+  color: rgba(0,0,0,0.78);
+  text-shadow: 0 1px 1px rgba(255,255,255,0.22);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1606,6 +1619,21 @@ input[type="text"].rider-name-input {
   color: var(--orange);
   border-color: rgba(245,156,24,0.3);
   background: var(--orange-soft);
+}
+.detect-warn {
+  color: var(--orange);
+  border-color: rgba(245,156,24,0.35);
+  background: var(--orange-soft);
+}
+.detect-warn strong { color: var(--orange); }
+.gate-divergence {
+  margin: 8px 0 0;
+  padding: 9px 13px;
+  border-radius: var(--radius-sm);
+  font-size: .8rem;
+  color: var(--orange);
+  background: var(--orange-soft);
+  border: 1px solid rgba(245,156,24,0.3);
 }
 
 /* Save form */

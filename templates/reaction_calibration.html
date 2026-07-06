@@ -1,0 +1,90 @@
+{% extends "_base.html" %}
+
+{% block title %}Calibration réaction — HOLESHOT{% endblock %}
+{% set active = "settings" %}
+
+{% block content %}
+  <header>
+    <a href="/settings" class="back-link">← Paramètres</a>
+    <h1>Calibration de la réaction</h1>
+    <p class="subtitle">
+      Pour chaque essai : le 1<sup>er</sup> bip, la grille et le 1<sup>er</sup> mouvement détecté.
+      Ouvre un essai pour vérifier chaque instant sur la vidéo, image par image.
+      Rappel : un humain ne peut pas réagir en moins de ~{{ floor_ms|int }} ms après le bip —
+      tout temps en dessous signale un problème (grille mal marquée, bip mal détecté, ou départ deviné).
+    </p>
+  </header>
+
+  <section class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-label">Essais</div>
+      <div class="metric-value">{{ n_total }}</div>
+      <div class="metric-sub">analyses terminées</div>
+    </div>
+    <div class="metric-card {% if n_impossible == 0 %}card-green{% else %}card-red{% endif %}">
+      <div class="metric-label">Temps impossibles</div>
+      <div class="metric-value">{{ n_impossible }}</div>
+      <div class="metric-sub">réaction &lt; {{ floor_ms|int }} ms — à vérifier</div>
+    </div>
+    <div class="metric-card {% if n_undetected == 0 %}card-green{% else %}card-orange{% endif %}">
+      <div class="metric-label">Non captés</div>
+      <div class="metric-value">{{ n_undetected }}</div>
+      <div class="metric-sub">pose trop faible / gate suspect</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Avec drapeau</div>
+      <div class="metric-value">{{ n_flagged }}</div>
+      <div class="metric-sub">au moins une anomalie signalée</div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Tous les essais <span class="section-tag">clique pour inspecter</span></h2>
+    <div class="rcal-table-wrap">
+      <table class="rcal-table">
+        <thead>
+          <tr>
+            <th>Essai</th>
+            <th>1<sup>er</sup> bip (audio)</th>
+            <th>1<sup>er</sup> bip (théorique)</th>
+            <th>Grille</th>
+            <th>1<sup>er</sup> mouvement</th>
+            <th>Réaction</th>
+            <th>Drapeaux</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr class="rcal-row {% for lvl, _ in r.flags %}{% if lvl == 'bad' %}rcal-row-bad{% endif %}{% endfor %}"
+              onclick="window.location='/reaction_calibration/{{ r.job_id }}'">
+            <td>
+              <span class="rcal-name">{{ r.display_name }}</span>
+              <span class="rcal-sub">{{ r.fps|round(0)|int }} fps</span>
+            </td>
+            <td class="ds-num">{% if r.bip1_audio is not none %}{{ "%.3f"|format(r.bip1_audio) }} s{% else %}<span class="rcal-dim">— (ouvrir)</span>{% endif %}</td>
+            <td class="ds-num">{% if r.bip1_theo is not none %}{{ "%.3f"|format(r.bip1_theo) }} s{% else %}—{% endif %}</td>
+            <td class="ds-num">{% if r.gate_t is not none %}{{ "%.3f"|format(r.gate_t) }} s{% else %}—{% endif %}</td>
+            <td class="ds-num">
+              {% if r.move_refined is not none %}
+                {{ "%.3f"|format(r.move_refined) }} s
+                <span class="rcal-sub">conf {{ (r.move_conf * 100)|round(0)|int }}% · {{ r.move_signals|join('+') }}</span>
+              {% elif r.false_start %}<span class="rcal-dim">faux départ</span>
+              {% else %}<span class="rcal-dim">non capté</span>{% endif %}
+            </td>
+            <td class="ds-num">
+              {% if r.reaction_ms is not none %}
+                <strong class="{% if r.reaction_ms < floor_ms %}rcal-bad{% endif %}">{{ r.reaction_ms }} ms</strong>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% for lvl, txt in r.flags %}
+                <span class="rcal-flag rcal-flag-{{ lvl }}">{{ txt }}</span>
+              {% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

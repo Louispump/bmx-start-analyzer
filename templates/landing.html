@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#03060a">
+  <title>HOLESHOT — Analyse biomécanique du départ BMX</title>
+  <meta name="description" content="Filme un départ BMX, l'app détecte le gate au son, reconstruit le squelette du rider et mesure réaction, explosivité et posture. En langage de coach.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/design-system.css">
+  <link rel="stylesheet" href="/static/landing.css">
+</head>
+<body class="landing">
+
+  <!-- ── Nav ─────────────────────────────────────────────────────── -->
+  <nav class="lp-nav">
+    <a href="/landing" class="lp-brand">
+      <svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="18" cy="5" r="3" fill="currentColor" opacity="0.9"/>
+        <line x1="18" y1="8" x2="15" y2="18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        <line x1="17" y1="11" x2="25" y2="15" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        <line x1="25" y1="15" x2="30" y2="12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        <line x1="15" y1="18" x2="20" y2="26" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        <line x1="20" y1="26" x2="26" y2="30" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        <circle cx="17" cy="11" r="2.2" fill="currentColor"/>
+        <circle cx="25" cy="15" r="2.2" fill="currentColor"/>
+        <circle cx="15" cy="18" r="2.2" fill="currentColor"/>
+        <circle cx="20" cy="26" r="2.2" fill="currentColor"/>
+        <circle cx="26" cy="30" r="2.2" fill="currentColor"/>
+      </svg>
+      <span>
+        <span class="lp-brand-name">HOLESHOT</span>
+        <span class="lp-brand-sub">BMX Start Analyzer</span>
+      </span>
+    </a>
+    <div class="lp-nav-links">
+      <a href="#methode">La méthode</a>
+      <a href="#mesures">Mesures</a>
+      <a href="#science">La science</a>
+      <a href="/" class="ds-btn ds-btn-primary">Ouvrir l'app</a>
+    </div>
+  </nav>
+
+  <!-- ── Hero ────────────────────────────────────────────────────── -->
+  <header class="lp-hero">
+    <div class="lp-eyebrow">Analyse biomécanique du départ BMX</div>
+    <h1>Le départ se joue en <span class="grad">300&nbsp;millisecondes</span>.<br>Vois enfin ce qui s'y passe.</h1>
+    <p class="lp-hero-sub">
+      Filme un départ au bord de la piste. HOLESHOT détecte le gate au son des bips,
+      reconstruit le squelette du rider image par image et mesure ce que l'œil ne peut pas voir —
+      <strong>réaction, explosivité, posture</strong>. Puis il te le dit en langage de coach.
+    </p>
+    <div class="lp-hero-ctas">
+      <a href="/" class="ds-btn ds-btn-primary">Analyser un départ</a>
+      <a href="#methode" class="ds-btn ds-btn-ghost">Voir la méthode</a>
+    </div>
+    <div class="lp-hero-proof">
+      <span>Aucun capteur, aucun marqueur</span>
+      <span>iPad au bord de la piste</span>
+      <span>6 phases · 17 points · gate audio UCI</span>
+    </div>
+  </header>
+
+  <!-- ── Scène telemetry ─────────────────────────────────────────── -->
+  <div class="lp-stage-wrap">
+    <div class="lp-stage">
+      <div class="lp-scene">
+        <div class="lp-scene-status"><span class="dot"></span> Analyse en direct — démo</div>
+        <svg id="lpScene" viewBox="0 0 860 480" xmlns="http://www.w3.org/2000/svg" aria-label="Animation d'un départ BMX analysé : squelette du rider, phases et métriques">
+          <defs>
+            <linearGradient id="trailGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#00d4ff" stop-opacity="0"/>
+              <stop offset="1" stop-color="#00d4ff" stop-opacity="0.7"/>
+            </linearGradient>
+          </defs>
+
+          <!-- grille telemetry -->
+          <g stroke="#141d2e" stroke-width="1">
+            <line x1="80"  y1="50" x2="80"  y2="430"/><line x1="160" y1="50" x2="160" y2="430"/>
+            <line x1="240" y1="50" x2="240" y2="430"/><line x1="320" y1="50" x2="320" y2="430"/>
+            <line x1="400" y1="50" x2="400" y2="430"/><line x1="480" y1="50" x2="480" y2="430"/>
+            <line x1="560" y1="50" x2="560" y2="430"/><line x1="640" y1="50" x2="640" y2="430"/>
+            <line x1="720" y1="50" x2="720" y2="430"/><line x1="800" y1="50" x2="800" y2="430"/>
+          </g>
+
+          <!-- sol + repères distance -->
+          <line x1="0" y1="430" x2="860" y2="430" stroke="#253047" stroke-width="2"/>
+          <g font-family="JetBrains Mono, monospace" font-size="10" fill="#3a4560">
+            <text x="160" y="448">0 m</text>
+            <text x="320" y="448">1 m</text>
+            <text x="480" y="448">2 m</text>
+            <text x="640" y="448">3 m</text>
+            <text x="800" y="448">4 m</text>
+          </g>
+
+          <!-- système de départ (4 bips) -->
+          <text id="lpCallout" x="46" y="84" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="1" fill="#6b7a9c" opacity="0">OK RIDERS — RANDOM START</text>
+          <g>
+            <rect x="46" y="96" width="96" height="26" rx="7" fill="#0e1420" stroke="#1c2538"/>
+            <circle id="bp1" cx="64"  cy="109" r="5" fill="#1c2538"/>
+            <circle id="bp2" cx="86"  cy="109" r="5" fill="#1c2538"/>
+            <circle id="bp3" cx="108" cy="109" r="5" fill="#1c2538"/>
+            <circle id="bp4" cx="130" cy="109" r="5" fill="#1c2538"/>
+          </g>
+
+          <!-- gate (juste devant la roue avant au set) -->
+          <g id="lpGate">
+            <rect x="278" y="352" width="8" height="78" rx="2" fill="#253047"/>
+            <rect x="274" y="350" width="16" height="9" rx="2" fill="#3a4560"/>
+          </g>
+
+          <!-- trace du moyeu avant (Grigg 2020) -->
+          <polyline id="lpTrail" fill="none" stroke="url(#trailGrad)" stroke-width="2" points=""/>
+
+          <!-- rider + vélo (positions calculées en JS) -->
+          <g id="lpRider" opacity="0">
+            <g stroke="#3a4560" stroke-width="3" stroke-linecap="round" fill="none">
+              <circle id="whR" r="34"/><circle id="whF" r="34"/>
+              <line id="spR0" stroke-width="1.5" opacity="0.6"/><line id="spR1" stroke-width="1.5" opacity="0.6"/><line id="spR2" stroke-width="1.5" opacity="0.6"/>
+              <line id="spF0" stroke-width="1.5" opacity="0.6"/><line id="spF1" stroke-width="1.5" opacity="0.6"/><line id="spF2" stroke-width="1.5" opacity="0.6"/>
+              <line id="bl1"/><line id="bl2"/><line id="bl3"/><line id="bl4"/><line id="bl5"/><line id="bl6"/><line id="bl7"/>
+              <line id="ck1" stroke-width="2.5"/><line id="ck2" stroke-width="2.5"/>
+            </g>
+            <!-- jambe arrière (plan éloigné) -->
+            <g stroke="#0093b3" stroke-width="4" stroke-linecap="round" opacity="0.5">
+              <line id="bnThR"/><line id="bnShR"/>
+            </g>
+            <!-- squelette principal -->
+            <g stroke="#00d4ff" stroke-width="4.5" stroke-linecap="round" style="filter: drop-shadow(0 0 6px rgba(0,212,255,0.45))">
+              <line id="bnThF"/><line id="bnShF"/><line id="bnTorso"/><line id="bnArmU"/><line id="bnArmL"/>
+            </g>
+            <circle id="jHead" r="12" fill="none" stroke="#00d4ff" stroke-width="4.5" style="filter: drop-shadow(0 0 6px rgba(0,212,255,0.45))"/>
+            <g fill="#7df9ff">
+              <circle id="jHip" r="4.5"/><circle id="jKneeF" r="4.5"/><circle id="jAnkF" r="4.5"/>
+              <circle id="jShoulder" r="4.5"/><circle id="jElbow" r="4.5"/><circle id="jWrist" r="4.5"/>
+              <circle id="jKneeR" r="3.5" opacity="0.55"/><circle id="jAnkR" r="3.5" opacity="0.55"/>
+            </g>
+          </g>
+
+          <!-- étiquette de phase -->
+          <text id="lpPhaseLabel" x="430" y="64" text-anchor="middle"
+                font-family="Archivo, sans-serif" font-size="19" font-weight="800"
+                letter-spacing="3" fill="#f0f4ff" opacity="0"></text>
+        </svg>
+        <div class="lp-phasebar" id="lpPhasebar">
+          <span class="ds-phase" style="--phase-color: var(--phase-set)"      data-t0="0"    data-t1="2.19">Set</span>
+          <span class="ds-phase" style="--phase-color: var(--phase-reaction)" data-t0="2.19" data-t1="2.45">Réaction</span>
+          <span class="ds-phase" style="--phase-color: var(--phase-push1)"    data-t0="2.45" data-t1="3.40">Push 1</span>
+          <span class="ds-phase" style="--phase-color: var(--phase-pull)"     data-t0="3.40" data-t1="4.10">Pull</span>
+          <span class="ds-phase" style="--phase-color: var(--phase-push2)"    data-t0="4.10" data-t1="4.90">Push 2</span>
+          <span class="ds-phase" style="--phase-color: var(--phase-post)"     data-t0="4.90" data-t1="6.60">Post</span>
+        </div>
+      </div>
+
+      <div class="lp-feed">
+        <div class="lp-feed-title">Telemetry</div>
+        <div class="lp-feed-item" id="fdReact" style="--feed-color: var(--phase-reaction)">
+          <span class="lp-feed-label">Réaction</span>
+          <span class="lp-feed-value"><span id="fdReactVal">0</span> ms</span>
+        </div>
+        <div class="lp-feed-item" id="fdHip" style="--feed-color: var(--phase-push1)">
+          <span class="lp-feed-label">ω hanche max</span>
+          <span class="lp-feed-value"><span id="fdHipVal">0</span> °/s</span>
+        </div>
+        <div class="lp-feed-item" id="fdKnee" style="--feed-color: var(--phase-push1)">
+          <span class="lp-feed-label">ω genou max</span>
+          <span class="lp-feed-value"><span id="fdKneeVal">0</span> °/s <span class="ok">✓</span></span>
+        </div>
+        <div class="lp-feed-item" id="fdSeq" style="--feed-color: var(--phase-push2)">
+          <span class="lp-feed-label">Séquence</span>
+          <span class="lp-feed-value">H → G → C <span class="ok">✓</span></span>
+        </div>
+        <div class="lp-feed-verdict" id="fdVerdict">
+          <span class="ds-verdict ok">Départ explosif — séquence propre</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── La méthode ──────────────────────────────────────────────── -->
+  <section class="lp-section" id="methode">
+    <div class="lp-section-head ds-reveal">
+      <div class="lp-kicker">La méthode</div>
+      <h2>Du téléphone au verdict, en trois temps.</h2>
+      <p>Pas de laboratoire, pas de capteurs à 10&nbsp;000&nbsp;$. La piste, un iPad, et de la science.</p>
+    </div>
+    <div class="lp-steps">
+      <div class="lp-step ds-reveal">
+        <div class="lp-step-num">01 — FILME</div>
+        <h3>Un iPad au bord de la piste</h3>
+        <p>Vue de profil, 60 fps si possible. C'est tout : aucun capteur, aucun marqueur sur le rider, aucune installation.</p>
+      </div>
+      <div class="lp-step ds-reveal" style="transition-delay: 80ms">
+        <div class="lp-step-num">02 — L'APP MESURE</div>
+        <h3>Le squelette, image par image</h3>
+        <p>Détection du gate au son des 4 bips UCI, pose 17 points, segmentation automatique en 6 phases (Kalichová), vitesses angulaires hanche-genou-cheville.</p>
+      </div>
+      <div class="lp-step ds-reveal" style="transition-delay: 160ms">
+        <div class="lp-step-num">03 — LE COACH TRANCHE</div>
+        <h3>Des consignes, pas des chiffres</h3>
+        <p>Verdicts en trois couleurs et consignes concrètes — «&nbsp;recule tes hanches&nbsp;», «&nbsp;bloque ton buste&nbsp;». Comparables d'un essai à l'autre, et face à un pro.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Ce qu'on mesure ─────────────────────────────────────────── -->
+  <section class="lp-section" id="mesures">
+    <div class="lp-section-head ds-reveal">
+      <div class="lp-kicker">Ce qu'on mesure</div>
+      <h2>Six lectures d'un même départ.</h2>
+      <p>Chaque métrique est ancrée dans la littérature — et étiquetée avec sa source.</p>
+    </div>
+    <div class="lp-metrics">
+      <div class="lp-metric ds-reveal">
+        <div class="lp-metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg></div>
+        <h3>Temps de réaction</h3>
+        <div class="lp-metric-sample">142<span class="ds-unit">ms</span></div>
+        <p>Mesuré entre la chute de la grille et le premier mouvement du rider, ancré sur les bips UCI — calibration audio à ±1 frame.</p>
+        <span class="ds-source">Gate audio calibré</span>
+      </div>
+      <div class="lp-metric ds-reveal" style="transition-delay: 60ms">
+        <div class="lp-metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg></div>
+        <h3>Explosivité articulaire</h3>
+        <div class="lp-metric-sample">624<span class="ds-unit">°/s</span></div>
+        <p>Vitesses angulaires de la hanche, du genou et de la cheville. L'extension balistique du genou des élites se situe entre 400 et 700&nbsp;°/s.</p>
+        <span class="ds-source">Gross 2017</span>
+      </div>
+      <div class="lp-metric ds-reveal" style="transition-delay: 120ms">
+        <div class="lp-metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17h4l3-10 4 14 3-8h4"/></svg></div>
+        <h3>Séquence proximale-distale</h3>
+        <div class="lp-metric-sample">H → G → C</div>
+        <p>L'ordre d'allumage hanche → genou → cheville, signature des départs les plus puissants. L'app vérifie l'ordre et les délais.</p>
+        <span class="ds-source">Gross 2017</span>
+      </div>
+      <div class="lp-metric ds-reveal">
+        <div class="lp-metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6l5 9H7l5-9z"/><circle cx="12" cy="3" r="1.6" fill="currentColor"/></svg></div>
+        <h3>Posture par phase</h3>
+        <p>Angles du tronc, des hanches et des genoux comparés aux amplitudes observées chez les élites — avec des consignes par phase, du set au premier coup de pédale.</p>
+        <span class="ds-source">Grigg 2018 · n=10 élites</span>
+      </div>
+      <div class="lp-metric ds-reveal" style="transition-delay: 60ms">
+        <div class="lp-metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="8" height="14" rx="1.5"/><rect x="13" y="5" width="8" height="14" rx="1.5"/></svg></div>
+        <h3>Comparaison synchronisée</h3>
+        <p>Côte-à-côte rider vs pro, alignés sur le gate à la frame près, ralenti jusqu'à 0,1×. Le feedback audiovisuel accélère mesurablement les départs.</p>
+        <span class="ds-source">Zabala 2009</span>
+      </div>
+      <div class="lp-metric ds-reveal" style="transition-delay: 120ms">
+        <div class="lp-metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-5 4 3 7-8M16 7h3v3"/></svg></div>
+        <h3>Progression dans le temps</h3>
+        <p>Chaque essai enrichit le référentiel personnel de l'athlète : tendances, records, régularité inter-essais, historique par piste et par condition.</p>
+        <span class="ds-source">Référentiel perso</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Teaser comparaison ──────────────────────────────────────── -->
+  <section class="lp-section">
+    <div class="lp-section-head center ds-reveal">
+      <div class="lp-kicker">Côte-à-côte</div>
+      <h2>Ton rider, face au meilleur.</h2>
+    </div>
+    <div class="lp-compare ds-reveal">
+      <div class="lp-compare-panel">
+        <span class="lp-compare-tag">RIDER</span>
+        <svg viewBox="0 0 200 120" fill="none">
+          <g stroke="#00d4ff" stroke-width="3" stroke-linecap="round" opacity="0.9">
+            <circle cx="118" cy="38" r="8"/>
+            <line x1="112" y1="46" x2="86" y2="66"/>
+            <line x1="86" y1="66" x2="104" y2="84"/><line x1="104" y1="84" x2="98" y2="104"/>
+            <line x1="110" y1="52" x2="128" y2="68"/><line x1="128" y1="68" x2="142" y2="80"/>
+          </g>
+          <g fill="#7df9ff"><circle cx="86" cy="66" r="3"/><circle cx="104" cy="84" r="3"/><circle cx="110" cy="52" r="3"/><circle cx="128" cy="68" r="3"/><circle cx="142" cy="80" r="3"/></g>
+        </svg>
+      </div>
+      <div class="lp-compare-panel pro">
+        <span class="lp-compare-tag">PRO</span>
+        <svg viewBox="0 0 200 120" fill="none">
+          <g stroke="#ff3b9b" stroke-width="3" stroke-linecap="round" opacity="0.9">
+            <circle cx="122" cy="34" r="8"/>
+            <line x1="116" y1="42" x2="88" y2="64"/>
+            <line x1="88" y1="64" x2="108" y2="80"/><line x1="108" y1="80" x2="104" y2="102"/>
+            <line x1="114" y1="48" x2="132" y2="64"/><line x1="132" y1="64" x2="146" y2="76"/>
+          </g>
+          <g fill="#ff9ecb"><circle cx="88" cy="64" r="3"/><circle cx="108" cy="80" r="3"/><circle cx="114" cy="48" r="3"/><circle cx="132" cy="64" r="3"/><circle cx="146" cy="76" r="3"/></g>
+        </svg>
+      </div>
+      <div class="lp-compare-sync">
+        <span>SYNC GATE</span>
+        <div class="bar"></div>
+        <span>0,25×</span>
+      </div>
+    </div>
+    <p class="lp-compare-caption">Lecture synchronisée sur la chute de la grille — chaque écart de timing devient visible.</p>
+  </section>
+
+  <!-- ── Science ─────────────────────────────────────────────────── -->
+  <section class="lp-section" id="science">
+    <div class="lp-section-head ds-reveal">
+      <div class="lp-kicker">La science</div>
+      <h2>Pas une opinion. Une littérature.</h2>
+      <p>HOLESHOT implémente les déterminants du départ identifiés par la recherche en biomécanique du BMX.</p>
+    </div>
+    <div class="lp-science">
+      <div class="lp-paper ds-reveal">
+        <div class="lp-paper-ref">GRIGG 2018</div>
+        <h3>Les amplitudes articulaires des élites</h3>
+        <p>Analyse markerless (±2°) de 10 athlètes Supercross : tronc 39°, hanche 62°, genou 93°, cheville 58° d'amplitude pendant le départ. Nos référentiels posturaux.</p>
+      </div>
+      <div class="lp-paper ds-reveal" style="transition-delay: 60ms">
+        <div class="lp-paper-ref">GRIGG 2020</div>
+        <h3>Position de set &amp; trajectoire du moyeu</h3>
+        <p>La position de set «&nbsp;back&nbsp;» et la forme de la trajectoire du moyeu avant (hairpin, up-and-over) distinguent les meilleurs départs.</p>
+      </div>
+      <div class="lp-paper ds-reveal" style="transition-delay: 120ms">
+        <div class="lp-paper-ref">GROSS 2017</div>
+        <h3>Countermovement &amp; séquence d'extension</h3>
+        <p>Le countermovement précoce est le déterminant n°1 de la performance au gate ; l'extension suit une séquence proximale-distale, avec un genou à 400–700&nbsp;°/s.</p>
+      </div>
+      <div class="lp-paper ds-reveal" style="transition-delay: 180ms">
+        <div class="lp-paper-ref">ZABALA 2009</div>
+        <h3>Le feedback fonctionne</h3>
+        <p>Le feedback audiovisuel sur le départ améliore le temps de gate d'environ 200&nbsp;ms — exactement ce que cet outil industrialise pour les clubs.</p>
+      </div>
+    </div>
+    <div class="lp-honesty ds-reveal">
+      <div>
+        <strong>Honnêteté scientifique.</strong>
+        Ces référentiels viennent d'études à petits échantillons (n=10, élites masculins).
+        HOLESHOT les présente comme des repères calibrables — jamais comme des vérités absolues.
+        Chaque seuil est étiqueté avec sa source et ajustable à ton contexte.
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Témoignage ──────────────────────────────────────────────── -->
+  <section class="lp-section">
+    <div class="lp-quote ds-reveal">
+      <blockquote>
+        «&nbsp;Avant, je disais “pousse plus fort”. Maintenant je dis “ta hanche part 80&nbsp;millisecondes trop tard” —
+        <span class="grad">et on le corrige à la session suivante.</span>&nbsp;»
+      </blockquote>
+      <cite>— Coach de club, programme pilote</cite>
+    </div>
+  </section>
+
+  <!-- ── CTA final ───────────────────────────────────────────────── -->
+  <section class="lp-cta">
+    <h2>Le prochain holeshot se gagne à l'entraînement.</h2>
+    <p>Filme. Analyse. Corrige. Recommence.</p>
+    <a href="/" class="ds-btn ds-btn-primary">Analyser un départ</a>
+  </section>
+
+  <footer class="lp-footer">
+    <span>© 2026 HOLESHOT — BMX Start Analyzer · v0.2</span>
+    <span>
+      <a href="https://github.com/Louispump/bmx-start-analyzer">GitHub</a>
+      &nbsp;·&nbsp; Construit avec une obsession : le gate.
+    </span>
+  </footer>
+
+  <script>
+  (function () {
+    "use strict";
+
+    /* ════ Reveal au scroll ════ */
+    var reveals = document.querySelectorAll('.ds-reveal');
+    if ('IntersectionObserver' in window) {
+      var ro = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) { e.target.classList.add('in'); ro.unobserve(e.target); }
+        });
+      }, { threshold: 0.15 });
+      reveals.forEach(function (el) { ro.observe(el); });
+    } else {
+      reveals.forEach(function (el) { el.classList.add('in'); });
+    }
+
+    /* ════ Scène : départ BMX animé ════ */
+    var svg = document.getElementById('lpScene');
+    if (!svg) return;
+    var $ = function (id) { return document.getElementById(id); };
+
+    var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    /* — Géométrie du vélo (coordonnées locales, translatées de bx) — */
+    var BIKE = {
+      rearHub:  { x: 90,  y: 396 },
+      frontHub: { x: 240, y: 396 },
+      bb:       { x: 152, y: 380 },
+      saddle:   { x: 128, y: 332 },
+      headTop:  { x: 228, y: 322 },
+      bars:     { x: 240, y: 314 }
+    };
+    var WHEEL_R = 34, CRANK_R = 30;
+
+    /* — Poses clés. crank en degrés (0 = avant, sens horaire écran).
+         lift = rotation du vélo autour du moyeu arrière (manual léger). — */
+    var POSES = {
+      set:      { bx: 0,   lift: 0,   crank: -35, hip: [132, 296], kneeF: [186, 322], kneeR: [138, 352], shoulder: [194, 246], head: [215, 230], elbow: [213, 282] },
+      reaction: { bx: 4,   lift: 0,   crank: -30, hip: [140, 288], kneeF: [188, 320], kneeR: [142, 348], shoulder: [200, 240], head: [221, 224], elbow: [214, 278] },
+      push1:    { bx: 70,  lift: 0.6, crank: 70,  hip: [156, 260], kneeF: [176, 336], kneeR: [148, 310], shoulder: [212, 224], head: [233, 208], elbow: [224, 270] },
+      pull:     { bx: 135, lift: 3.4, crank: 160, hip: [150, 266], kneeF: [134, 330], kneeR: [182, 322], shoulder: [204, 230], head: [225, 214], elbow: [218, 272] },
+      push2:    { bx: 215, lift: 0,   crank: 250, hip: [160, 254], kneeF: [152, 304], kneeR: [176, 348], shoulder: [214, 220], head: [235, 204], elbow: [226, 266] },
+      post:     { bx: 320, lift: 0,   crank: 340, hip: [158, 258], kneeF: [184, 322], kneeR: [134, 332], shoulder: [212, 222], head: [233, 206], elbow: [224, 268] },
+      exit:     { bx: 580, lift: 0,   crank: 480, hip: [158, 258], kneeF: [184, 322], kneeR: [134, 332], shoulder: [212, 222], head: [233, 206], elbow: [224, 268] }
+    };
+
+    var SEGS = [
+      { t0: 0.00, t1: 2.19, a: 'set',      b: 'set' },
+      { t0: 2.19, t1: 2.45, a: 'set',      b: 'reaction' },
+      { t0: 2.45, t1: 3.40, a: 'reaction', b: 'push1' },
+      { t0: 3.40, t1: 4.10, a: 'push1',    b: 'pull' },
+      { t0: 4.10, t1: 4.90, a: 'pull',     b: 'push2' },
+      { t0: 4.90, t1: 5.60, a: 'push2',    b: 'post' },
+      { t0: 5.60, t1: 6.60, a: 'post',     b: 'exit' },
+      { t0: 6.60, t1: 7.20, a: 'exit',     b: 'exit' }
+    ];
+    var LOOP = 7.2;
+    var BEEPS = [1.0, 1.35, 1.7, 2.05];
+    var GATE_T = 2.05;
+
+    var PHASE_NAMES = [
+      { t0: 0.00, t1: 2.19, label: 'SET' },
+      { t0: 2.19, t1: 2.45, label: 'RÉACTION' },
+      { t0: 2.45, t1: 3.40, label: 'PUSH 1' },
+      { t0: 3.40, t1: 4.10, label: 'PULL' },
+      { t0: 4.10, t1: 4.90, label: 'PUSH 2' },
+      { t0: 4.90, t1: 6.60, label: 'POST' }
+    ];
+
+    function easeOutCubic(u) { return 1 - Math.pow(1 - u, 3); }
+    function lerp(a, b, u) { return a + (b - a) * u; }
+
+    function poseAt(t) {
+      var seg = SEGS[SEGS.length - 1];
+      for (var i = 0; i < SEGS.length; i++) {
+        if (t >= SEGS[i].t0 && t < SEGS[i].t1) { seg = SEGS[i]; break; }
+      }
+      var u = (t - seg.t0) / Math.max(seg.t1 - seg.t0, 1e-6);
+      u = easeOutCubic(Math.min(Math.max(u, 0), 1));
+      var A = POSES[seg.a], B = POSES[seg.b];
+      var p = { bx: lerp(A.bx, B.bx, u), lift: lerp(A.lift, B.lift, u), crank: lerp(A.crank, B.crank, u) };
+      ['hip', 'kneeF', 'kneeR', 'shoulder', 'head', 'elbow'].forEach(function (k) {
+        p[k] = [lerp(A[k][0], B[k][0], u), lerp(A[k][1], B[k][1], u)];
+      });
+      // respiration subtile pendant le set
+      if (t < 2.05) { p.hip[1] += Math.sin(t * 3.1) * 1.2; p.shoulder[1] += Math.sin(t * 3.1) * 1.0; }
+      return p;
+    }
+
+    function rot(p, c, ang) {
+      var s = Math.sin(ang), co = Math.cos(ang);
+      var dx = p.x - c.x, dy = p.y - c.y;
+      return { x: c.x + dx * co - dy * s, y: c.y + dx * s + dy * co };
+    }
+
+    function setLine(id, p1, p2, bx) {
+      var el = $(id);
+      el.setAttribute('x1', p1.x + bx); el.setAttribute('y1', p1.y);
+      el.setAttribute('x2', p2.x + bx); el.setAttribute('y2', p2.y);
+    }
+    function setLineA(id, a, b, bx) {
+      setLine(id, { x: a[0], y: a[1] }, { x: b[0], y: b[1] }, bx);
+    }
+    function setDot(id, p, bx) {
+      var el = $(id);
+      el.setAttribute('cx', (p.x !== undefined ? p.x : p[0]) + bx);
+      el.setAttribute('cy', (p.y !== undefined ? p.y : p[1]));
+    }
+
+    var trailPts = [];
+    var trailEl = $('lpTrail');
+
+    function draw(t, p) {
+      var ang = -p.lift * Math.PI / 180;
+      var c = BIKE.rearHub;
+      var frontHub = rot(BIKE.frontHub, c, ang);
+      var bb       = rot(BIKE.bb, c, ang);
+      var saddle   = rot(BIKE.saddle, c, ang);
+      var headTop  = rot(BIKE.headTop, c, ang);
+      var bars     = rot(BIKE.bars, c, ang);
+
+      var ca = p.crank * Math.PI / 180;
+      var pedalF = rot({ x: BIKE.bb.x + CRANK_R * Math.cos(ca), y: BIKE.bb.y + CRANK_R * Math.sin(ca) }, c, ang);
+      var pedalR = rot({ x: BIKE.bb.x - CRANK_R * Math.cos(ca), y: BIKE.bb.y - CRANK_R * Math.sin(ca) }, c, ang);
+
+      var bx = p.bx;
+
+      // roues + rayons
+      setDot('whR', c, bx); setDot('whF', frontHub, bx);
+      var spin = bx / WHEEL_R;
+      for (var k = 0; k < 3; k++) {
+        var a2 = spin + k * (Math.PI * 2 / 3);
+        var dx = Math.cos(a2) * (WHEEL_R - 5), dy = Math.sin(a2) * (WHEEL_R - 5);
+        setLine('spR' + k, { x: c.x - dx, y: c.y - dy }, { x: c.x + dx, y: c.y + dy }, bx);
+        setLine('spF' + k, { x: frontHub.x - dx, y: frontHub.y - dy }, { x: frontHub.x + dx, y: frontHub.y + dy }, bx);
+      }
+      // cadre
+      setLine('bl1', c, bb, bx);
+      setLine('bl2', bb, saddle, bx);
+      setLine('bl3', c, saddle, bx);
+      setLine('bl4', saddle, headTop, bx);
+      setLine('bl5', bb, headTop, bx);
+      setLine('bl6', headTop, frontHub, bx);
+      setLine('bl7', headTop, bars, bx);
+      setLine('ck1', bb, pedalF, bx);
+      setLine('ck2', bb, pedalR, bx);
+
+      // squelette
+      var wrist = bars;
+      setLineA('bnThF', p.hip, p.kneeF, bx);
+      setLine('bnShF', { x: p.kneeF[0], y: p.kneeF[1] }, pedalF, bx);
+      setLineA('bnThR', p.hip, p.kneeR, bx);
+      setLine('bnShR', { x: p.kneeR[0], y: p.kneeR[1] }, pedalR, bx);
+      setLineA('bnTorso', p.hip, p.shoulder, bx);
+      setLineA('bnArmU', p.shoulder, p.elbow, bx);
+      setLine('bnArmL', { x: p.elbow[0], y: p.elbow[1] }, wrist, bx);
+      setDot('jHip', p.hip, bx); setDot('jKneeF', p.kneeF, bx); setDot('jAnkF', pedalF, bx);
+      setDot('jKneeR', p.kneeR, bx); setDot('jAnkR', pedalR, bx);
+      setDot('jShoulder', p.shoulder, bx); setDot('jElbow', p.elbow, bx); setDot('jWrist', wrist, bx);
+      setDot('jHead', p.head, bx);
+
+      // opacité du rider : fade-in au départ, fade-out à la sortie
+      var op = 1;
+      if (t < 0.4) op = t / 0.4;
+      if (t > 5.9) op = Math.max(0, 1 - (t - 5.9) / 0.6);
+      $('lpRider').setAttribute('opacity', op.toFixed(2));
+
+      // trace du moyeu avant
+      if (t > 2.19 && t < 5.9) {
+        trailPts.push((frontHub.x + bx).toFixed(1) + ',' + frontHub.y.toFixed(1));
+        if (trailPts.length > 90) trailPts.shift();
+        trailEl.setAttribute('points', trailPts.join(' '));
+      }
+    }
+
+    function drawGate(t) {
+      var u = Math.min(Math.max((t - GATE_T) / 0.30, 0), 1);
+      var a = u * u * 88; // chute accélérée (gravité)
+      $('lpGate').setAttribute('transform', 'rotate(' + a.toFixed(1) + ' 282 430)');
+    }
+
+    function drawBeeps(t) {
+      for (var i = 0; i < 4; i++) {
+        var on = t >= BEEPS[i];
+        var el = $('bp' + (i + 1));
+        el.setAttribute('fill', on ? (i === 3 ? '#2dcd6e' : '#00d4ff') : '#1c2538');
+      }
+      $('lpCallout').setAttribute('opacity', (t > 0.35 && t < 2.3) ? '0.9' : '0');
+    }
+
+    function drawPhaseLabel(t) {
+      var lbl = $('lpPhaseLabel');
+      for (var i = 0; i < PHASE_NAMES.length; i++) {
+        if (t >= PHASE_NAMES[i].t0 && t < PHASE_NAMES[i].t1) {
+          lbl.textContent = PHASE_NAMES[i].label;
+          lbl.setAttribute('opacity', '0.85');
+          return;
+        }
+      }
+      lbl.setAttribute('opacity', '0');
+    }
+
+    var chips = document.querySelectorAll('#lpPhasebar .ds-phase');
+    function drawChips(t) {
+      chips.forEach(function (ch) {
+        var on = t >= parseFloat(ch.dataset.t0) && t < parseFloat(ch.dataset.t1);
+        ch.classList.toggle('active', on);
+      });
+    }
+
+    /* — Feed telemetry : items + compteurs — */
+    var FEED = [
+      { t: 2.35, el: 'fdReact', counter: { el: 'fdReactVal', to: 142, dur: 0.45 } },
+      { t: 3.20, el: 'fdHip',   counter: { el: 'fdHipVal',   to: 318, dur: 0.50 } },
+      { t: 3.80, el: 'fdKnee',  counter: { el: 'fdKneeVal',  to: 624, dur: 0.50 } },
+      { t: 4.50, el: 'fdSeq' },
+      { t: 5.10, el: 'fdVerdict' }
+    ];
+    function drawFeed(t) {
+      FEED.forEach(function (f) {
+        var el = $(f.el);
+        if (t >= f.t) {
+          el.classList.add('in');
+          if (f.counter) {
+            var u = Math.min((t - f.t) / f.counter.dur, 1);
+            $(f.counter.el).textContent = Math.round(f.counter.to * easeOutCubic(u));
+          }
+        } else {
+          el.classList.remove('in');
+          if (f.counter) $(f.counter.el).textContent = '0';
+        }
+      });
+    }
+
+    function resetLoop() {
+      trailPts = [];
+      trailEl.setAttribute('points', '');
+    }
+
+    /* — Boucle — */
+    if (reduced) {
+      // Pose statique parlante : fin de push 1, gate au sol, metrics affichées.
+      draw(3.4, poseAt(3.39));
+      $('lpRider').setAttribute('opacity', '1');
+      drawGate(99); drawBeeps(99); drawChips(3.0); drawPhaseLabel(3.0); drawFeed(99);
+      return;
+    }
+
+    var running = false, rafId = null, startTime = null, lastT = 0;
+    function frame(now) {
+      if (!running) return;
+      if (startTime === null) startTime = now;
+      var t = ((now - startTime) / 1000) % LOOP;
+      if (t < lastT) resetLoop();
+      lastT = t;
+      draw(t, poseAt(t));
+      drawGate(t);
+      drawBeeps(t);
+      drawChips(t);
+      drawPhaseLabel(t);
+      drawFeed(t);
+      rafId = requestAnimationFrame(frame);
+    }
+
+    // N'anime que quand la scène est visible (perf iPad).
+    var vo = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting && !running) {
+          running = true;
+          startTime = null; lastT = 0; resetLoop();
+          rafId = requestAnimationFrame(frame);
+        } else if (!e.isIntersecting && running) {
+          running = false;
+          if (rafId) cancelAnimationFrame(rafId);
+        }
+      });
+    }, { threshold: 0.2 });
+    vo.observe(svg);
+  })();
+  </script>
+</body>
+</html>

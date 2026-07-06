@@ -21,7 +21,7 @@ import cv2
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, RedirectResponse
 from jinja2 import Environment, FileSystemLoader
 
 import numpy as np
@@ -49,6 +49,7 @@ PROS_DB       = OUTPUT_DIR / "pros_db.json"
 JOBS_DB       = OUTPUT_DIR / "jobs_db.json"
 ATHLETES_DB   = OUTPUT_DIR / "athletes_db.json"
 TRACKS_DB     = OUTPUT_DIR / "tracks_db.json"
+RACES_DB      = OUTPUT_DIR / "races_db.json"
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -189,10 +190,22 @@ def load_tracks() -> dict:
 def save_tracks(tracks: dict):
     _save_db_with_backup(TRACKS_DB, json.dumps(tracks, indent=2, ensure_ascii=False))
 
+def load_races() -> dict:
+    if RACES_DB.exists():
+        try:
+            return json.loads(RACES_DB.read_text())
+        except Exception:
+            pass
+    return {}
+
+def save_races(races: dict):
+    _save_db_with_backup(RACES_DB, json.dumps(races, indent=2, ensure_ascii=False))
+
 pros:     dict = load_pros()
 jobs:     dict = load_jobs()
 athletes: dict = load_athletes()
 tracks:   dict = load_tracks()
+races:    dict = load_races()
 
 
 # ── Nettoyage des jobs orphelins (sans athlète) ──────────────────────────────
@@ -388,6 +401,8 @@ def _athlete_jobs(athlete_id: str,
             "duration_s":   j.get("results", {}).get("duration_s"),
             "reaction":     j.get("results", {}).get("reaction", {}),
             "gate_drop_t":  j.get("results", {}).get("gate_drop_t"),
+            "files":        j.get("results", {}).get("files", {}),
+            "front_foot":   j.get("results", {}).get("front_foot"),
             "excluded":     bool(j.get("excluded_from_stats", False)),
             "tag":          j.get("tag"),
             "tag_label":    TAG_LABELS.get(j.get("tag") or "", ""),
@@ -442,24 +457,40 @@ def _track_usage_counts() -> dict:
     return out
 
 
+def _reaction_ms(results: dict | None) -> int | None:
+    """Temps de réaction recalé (1er bip → 1er mouvement) = from_gate_ms + 360.
+    On dérive le 1er bip de la grille via la cadence UCI fixe (la grille tombe
+    360 ms après le 1er bip) plutôt que d'utiliser le bip audio brut, souvent
+    faussé par un écho. Voir _analyze_reaction / SCIENCE.md §2.
+    None si N/A, faux départ, OU si le mouvement n'a pas été capté (pose trop
+    faible) — pour ne pas polluer les stats/graphes avec un chiffre inventé.
+    `results` doit contenir `reaction` (+ `files`/`gate_drop_t`/`front_foot`
+    pour le contrôle de fiabilité)."""
+    if not results:
+        return None
+    reaction = results.get("reaction") or {}
+    # SEULES les réactions confirmées par le coach (grille + 1er mouvement
+    # vérifiés à l'œil) comptent dans les stats et la progression. Les
+    # estimations logicielles ne sont jamais comptées.
+    v = reaction.get("verified")
+    if not v or v.get("from_gate_ms") is None:
+        return None
+    return round(float(v["from_gate_ms"]) + GATE_FROM_BIP1_MS)
+
+
 def _athlete_stats(athlete_jobs: list[dict]) -> dict:
     """Mini dashboard : nb de vidéos, meilleur / moyen temps de réaction (excluant
     les faux départs ET les sessions cochées comme exclues par l'utilisateur).
-    Métrique = `from_bip1_ms` (bip 1 → premier mouvement) si l'audio a été détecté,
-    sinon fallback sur `from_gate_ms`."""
+    Métrique = réaction recalée (1er bip → 1er mouvement, ancrée sur la grille)."""
     reactions_ms = []
     n_excluded   = 0
     for j in athlete_jobs:
         if j.get("excluded"):
             n_excluded += 1
             continue
-        r = j.get("reaction") or {}
-        if r.get("type") == "false_start":
-            continue
-        if r.get("from_bip1_ms") is not None:
-            reactions_ms.append(r["from_bip1_ms"])
-        elif r.get("from_gate_ms") is not None:
-            reactions_ms.append(r["from_gate_ms"])
+        rms = _reaction_ms(j)   # j contient reaction + files + gate_drop_t + front_foot
+        if rms is not None:
+            reactions_ms.append(rms)
     return {
         "n_videos":  len(athlete_jobs),
         "n_excluded": n_excluded,
@@ -479,8 +510,41 @@ def get_video_info(video_path: Path) -> dict:
     fps      = cap.get(cv2.CAP_PROP_FPS) or 30.0
     n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     cap.release()
-    return {"fps": round(fps, 3), "n_frames": n_frames,
+    info = {"fps": round(fps, 3), "n_frames": n_frames,
             "duration_s": round(n_frames / fps, 2)}
+    info["precision"] = precision_tier(fps)
+    return info
+
+
+def precision_tier(fps: float) -> dict:
+    """Classe la précision temporelle d'une vidéo selon sa cadence.
+
+    Le pas de temps = 1000/fps ms est le plancher de précision : on ne peut pas
+    situer un événement (gate, 1er mouvement, pic d'extension) plus finement
+    qu'une image. Honnêteté scientifique : on AFFICHE cette limite, on ne
+    prétend jamais une précision qu'on n'a pas. Voir SCIENCE.md.
+
+    Retour : {fps, frame_ms, tier (excellent/good/fair/limited), label, verdict
+    (ok/warn/bad), note}.
+    """
+    fps = float(fps or 30.0)
+    frame_ms = round(1000.0 / fps) if fps > 0 else 33
+    if fps >= 119:
+        tier, label, verdict = "excellent", "Précision excellente", "ok"
+        note = f"~{frame_ms} ms par image : timing et vitesses très fiables."
+    elif fps >= 59:
+        tier, label, verdict = "good", "Bonne précision", "ok"
+        note = f"~{frame_ms} ms par image : bon compromis pour le départ."
+    elif fps >= 48:
+        tier, label, verdict = "fair", "Précision correcte", "warn"
+        note = f"~{frame_ms} ms par image. Filme en 120 fps pour doubler la finesse."
+    else:
+        tier, label, verdict = "limited", "Précision limitée", "warn"
+        note = (f"~{frame_ms} ms par image : c'est le plancher de précision du timing "
+                f"et des vitesses. Filme en 60 ou 120 fps (mode ralenti) pour des "
+                f"mesures nettement plus fines.")
+    return {"fps": round(fps, 1), "frame_ms": frame_ms, "tier": tier,
+            "label": label, "verdict": verdict, "note": note}
 
 
 # ── Analyse en arrière-plan ───────────────────────────────────────────────────
@@ -676,6 +740,12 @@ async def index(request: Request):
                                       {"athletes_list": athletes_list})
 
 
+@app.get("/landing")
+async def landing(request: Request):
+    """Page vitrine — démo animée, méthode, science. L'app de travail reste sur /."""
+    return templates.TemplateResponse(request, "landing.html", {})
+
+
 @app.post("/upload")
 async def upload(file: UploadFile = File(...),
                  athlete_id: str = Form("")):
@@ -704,6 +774,7 @@ async def upload(file: UploadFile = File(...),
         "video_url": jobs[job_id]["video_url"],
         "fps":       info["fps"],
         "n_frames":  info["n_frames"],
+        "precision": info.get("precision"),
     }
 
 
@@ -721,9 +792,13 @@ async def detect_gate(job_id: str):
             "detected":         True,
             "gate_frame":       gate_frame,
             "gate_time":        res["gate_t"],
+            "gate_time_from_bip1": res.get("gate_t_from_bip1"),
             "beeps_t":          res["beeps_t"],
             "mean_interval_ms": res["mean_interval_ms"],
+            "cadence_dev_ms":   res.get("cadence_dev_ms"),
+            "cadence_ok":       res.get("cadence_ok"),
             "confidence":       res["confidence"],
+            "quality":          res.get("quality", "medium"),
         }
     return {"detected": False, "reason": res.get("reason", "unknown")}
 
@@ -759,21 +834,17 @@ async def start_analysis(background_tasks: BackgroundTasks,
     return {"ok": True}
 
 
-@app.post("/result/{job_id}/adjust_gate")
-async def adjust_gate(job_id: str, gate_frame: int = Form(...)):
-    """Recalcule les phases / temps de réaction avec un nouveau gate drop,
-    sans repasser par la pose detection. Utilise le CSV landmarks déjà
-    généré. < 1 seconde au lieu de 1-3 min pour une ré-analyse complète."""
-    job = get_job_or_recover(job_id)
-    if not job or job.get("status") != "done":
-        return JSONResponse({"error": "Job introuvable ou non terminé."}, status_code=404)
+def _recompute_from_gate(job: dict, gate_frame: int) -> dict:
+    """Recalcule phases + réaction depuis le CSV avec un nouveau gate drop
+    (< 1 s, sans re-pose-detection). Mute job['results'] en place.
+    Retourne {ok: True, ...} ou {ok: False, error: str}."""
     results  = job.get("results", {})
     csv_name = results.get("files", {}).get("landmarks_csv")
     if not csv_name:
-        return JSONResponse({"error": "CSV landmarks introuvable."}, status_code=500)
+        return {"ok": False, "error": "CSV landmarks introuvable."}
     csv_path = OUTPUT_DIR / csv_name
     if not csv_path.exists():
-        return JSONResponse({"error": f"Fichier CSV manquant : {csv_name}"}, status_code=500)
+        return {"ok": False, "error": f"Fichier CSV manquant : {csv_name}"}
 
     fps      = float(results.get("fps") or job.get("fps") or 30)
     new_gate = gate_frame / fps
@@ -796,7 +867,7 @@ async def adjust_gate(job_id: str, gate_frame: int = Form(...)):
             df, new_gate, ankle_col, bip1_time=new_bip1
         )
     except Exception as e:
-        return JSONResponse({"error": f"Erreur recalcul phases : {e}"}, status_code=500)
+        return {"ok": False, "error": f"Erreur recalcul phases : {e}"}
 
     t_move          = float(df.loc[first_move_idx, "time"])
     react_from_gate = t_move - new_gate
@@ -814,7 +885,6 @@ async def adjust_gate(job_id: str, gate_frame: int = Form(...)):
             "color":       PHASE_COLORS.get(phase_name, "#eeeeee"),
         })
 
-    # MAJ du job
     results["gate_drop_t"] = round(float(new_gate), 3)
     results["reaction"]    = {
         "type":         reaction_type,
@@ -825,8 +895,107 @@ async def adjust_gate(job_id: str, gate_frame: int = Form(...)):
     results["phases"]   = phases_list
     job["gate_drop"]    = new_gate
     job["bip1_time"]    = new_bip1
-    save_jobs(jobs)
     return {"ok": True, "gate_drop_t": new_gate, "first_move_t": t_move}
+
+
+def _persist_results(job_id: str, job: dict):
+    """Réécrit le fichier {job_id}_results.json pour que la récupération
+    (get_job_or_recover) conserve les modifications faites après l'analyse."""
+    try:
+        results_path = OUTPUT_DIR / f"{job_id}_results.json"
+        results_path.write_text(json.dumps(job.get("results", {}),
+                                           indent=2, ensure_ascii=False))
+    except Exception:
+        pass   # non bloquant : jobs_db.json reste la source primaire
+
+
+@app.post("/result/{job_id}/adjust_gate")
+async def adjust_gate(job_id: str, gate_frame: int = Form(...)):
+    """Recalcule les phases / temps de réaction avec un nouveau gate drop,
+    sans repasser par la pose detection."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return JSONResponse({"error": "Job introuvable ou non terminé."}, status_code=404)
+    res = _recompute_from_gate(job, gate_frame)
+    if not res.get("ok"):
+        return JSONResponse({"error": res.get("error", "Erreur.")}, status_code=500)
+    save_jobs(jobs)
+    _persist_results(job_id, job)
+    return {"ok": True, "gate_drop_t": res["gate_drop_t"], "first_move_t": res["first_move_t"]}
+
+
+# ── Confirmation coach de la réaction ─────────────────────────────────────────
+# Philosophie : un temps de réaction n'est ÉVALUÉ (noté, compté dans les stats)
+# que si le coach a confirmé À L'ŒIL les deux instants qui le composent : la
+# chute de la grille ET le premier mouvement. Le logiciel pré-place les
+# marqueurs (détection raffinée) mais ne fait qu'estimer tant que le coach n'a
+# pas validé. « Continuer sans » = l'estimation reste affichée, jamais comptée.
+@app.post("/jobs/{job_id}/reaction_verify")
+async def reaction_verify(job_id: str,
+                          gate_frame: int = Form(...),
+                          move_frame: int = Form(...)):
+    """Le coach confirme la grille + le 1er mouvement. Si la grille diffère du
+    marquage actuel, les phases sont recalculées (cohérence globale)."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return JSONResponse({"error": "Job introuvable ou non terminé."}, status_code=404)
+    results = job.get("results", {})
+    fps = float(results.get("fps") or 30)
+    if move_frame < gate_frame - int(1.0 * fps):
+        return JSONResponse({"error": "Le 1er mouvement est plus d'une seconde avant "
+                                      "la grille — vérifie tes deux marqueurs."},
+                            status_code=400)
+
+    # Grille corrigée → recalcul complet des phases (machinerie adjust_gate).
+    cur_gate_frame = int(round(float(results.get("gate_drop_t", 0)) * fps))
+    if gate_frame != cur_gate_frame:
+        res = _recompute_from_gate(job, gate_frame)
+        if not res.get("ok"):
+            return JSONResponse({"error": res.get("error", "Erreur.")}, status_code=500)
+        results = job.get("results", {})
+
+    gate_t = float(results.get("gate_drop_t", gate_frame / fps))
+    move_t = move_frame / fps
+    rx = results.setdefault("reaction", {})
+    rx["verified"] = {
+        "gate_frame":   int(gate_frame),
+        "move_frame":   int(move_frame),
+        "gate_t":       round(gate_t, 3),
+        "move_t":       round(move_t, 3),
+        "from_gate_ms": round((move_t - gate_t) * 1000),
+        "verified_at":  datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    rx.pop("verify_skipped", None)
+    save_jobs(jobs)
+    _persist_results(job_id, job)
+    return {"ok": True, "verified": rx["verified"]}
+
+
+@app.delete("/jobs/{job_id}/reaction_verify")
+async def reaction_unverify(job_id: str):
+    """Retire la confirmation coach (retour à l'estimation logicielle)."""
+    job = get_job_or_recover(job_id)
+    if not job:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    rx = (job.get("results") or {}).get("reaction") or {}
+    rx.pop("verified", None)
+    save_jobs(jobs)
+    _persist_results(job_id, job)
+    return {"ok": True}
+
+
+@app.post("/jobs/{job_id}/reaction_skip")
+async def reaction_skip(job_id: str):
+    """« Continuer sans confirmer » : l'estimation reste affichée (discrète),
+    jamais notée ni comptée dans les stats."""
+    job = get_job_or_recover(job_id)
+    if not job:
+        return JSONResponse({"error": "Job introuvable."}, status_code=404)
+    rx = (job.get("results") or {}).setdefault("reaction", {})
+    rx["verify_skipped"] = True
+    save_jobs(jobs)
+    _persist_results(job_id, job)
+    return {"ok": True}
 
 
 @app.get("/status/{job_id}")
@@ -879,6 +1048,9 @@ async def result(request: Request, job_id: str):
     return templates.TemplateResponse(request, "result.html", {
         "job_id":              job_id,
         "results":             job["results"],
+        "precision":           precision_tier(job["results"].get("fps", 30)),
+        "reaction":            _analyze_reaction(job["results"]),
+        "raw_video_url":       job.get("video_url"),
         "athlete":             athlete,
         "athletes_options":    athletes_options,
         "display_name":        _display_name(job_id, job),
@@ -1151,6 +1323,302 @@ async def athlete_delete(athlete_id: str):
     return {"ok": True}
 
 
+# ── Courses & préparation (module « aide au coureur ») ───────────────────────
+# Beta : un calendrier de courses (rattachées à un athlète) + une carte
+# « prochaine course » avec compte à rebours. La prépa par course (6 piliers)
+# arrive en Phase 2. Conçu pour qu'une vue coach multi-athlètes s'ajoute ensuite.
+RACE_LEVELS = ["Entraînement", "Régionale", "Provinciale", "Nationale",
+               "Coupe", "Championnat", "International"]
+
+
+def _race_countdown(race: dict) -> dict:
+    """Calcule les infos de compte à rebours d'une course par rapport à
+    aujourd'hui : jours restants (négatif = passée), libellé J-x, statut."""
+    out = {"days": None, "label": "", "status": "unknown", "is_next": False}
+    d = race.get("date")
+    if not d:
+        return out
+    try:
+        race_d = datetime.strptime(d, "%Y-%m-%d").date()
+    except ValueError:
+        return out
+    today = datetime.now().date()
+    days = (race_d - today).days
+    out["days"] = days
+    if days > 1:
+        out["label"], out["status"] = f"J-{days}", "upcoming"
+    elif days == 1:
+        out["label"], out["status"] = "Demain", "imminent"
+    elif days == 0:
+        out["label"], out["status"] = "Aujourd'hui", "today"
+    else:
+        out["label"], out["status"] = f"Il y a {abs(days)} j", "past"
+    return out
+
+
+def _races_sorted(athlete_id: str | None = None) -> list[dict]:
+    """Liste des courses (enrichies du compte à rebours + nom d'athlète),
+    triées par date croissante. Filtre optionnel par athlète."""
+    items = []
+    for rid, r in races.items():
+        if athlete_id and r.get("athlete_id") != athlete_id:
+            continue
+        athlete = athletes.get(r.get("athlete_id") or "")
+        items.append({
+            **r,
+            "countdown":     _race_countdown(r),
+            "athlete_name":  athlete.get("name") if athlete else None,
+        })
+    items.sort(key=lambda x: x.get("date") or "9999")
+    return items
+
+
+def _next_race(race_list: list[dict]) -> dict | None:
+    """La prochaine course (aujourd'hui ou future) la plus proche, sinon None."""
+    upcoming = [r for r in race_list
+                if r["countdown"]["days"] is not None and r["countdown"]["days"] >= 0]
+    return upcoming[0] if upcoming else None
+
+
+@app.get("/prepa")
+async def prepa_page(request: Request, athlete: str = ""):
+    """Page « Préparation » : carte prochaine course + calendrier + liste."""
+    aid = athlete if athlete in athletes else None
+    race_list = _races_sorted(aid)
+    upcoming = [r for r in race_list if r["countdown"]["status"] != "past"]
+    past     = [r for r in race_list if r["countdown"]["status"] == "past"]
+    past.reverse()  # plus récentes d'abord
+    athletes_list = sorted(athletes.values(), key=lambda a: a.get("name", "").lower())
+    cal_json = json.dumps([{"id": r["id"], "name": r["name"], "date": r.get("date")}
+                           for r in race_list], ensure_ascii=False)
+    return templates.TemplateResponse(request, "prepa.html", {
+        "active":         "prepa",
+        "next_race":      _next_race(race_list),
+        "upcoming":       upcoming,
+        "past":           past,
+        "all_races":      race_list,
+        "all_races_json": cal_json,
+        "athletes_list":  athletes_list,
+        "current_athlete": aid,
+        "race_levels":    RACE_LEVELS,
+        "today":          datetime.now().strftime("%Y-%m-%d"),
+    })
+
+
+@app.post("/races")
+async def races_create(name: str = Form(...),
+                       date: str = Form(...),
+                       athlete_id: str = Form(""),
+                       location: str = Form(""),
+                       level: str = Form(""),
+                       notes: str = Form("")):
+    """Crée une course rattachée (optionnellement) à un athlète."""
+    name = (name or "").strip()
+    date = (date or "").strip()
+    if not name:
+        return JSONResponse({"error": "Nom de course requis."}, status_code=400)
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return JSONResponse({"error": "Date invalide (AAAA-MM-JJ)."}, status_code=400)
+    aid = (athlete_id or "").strip() or None
+    if aid and aid not in athletes:
+        aid = None
+    rid = str(uuid.uuid4())[:8]
+    races[rid] = {
+        "id":         rid,
+        "name":       name[:80],
+        "date":       date,
+        "athlete_id": aid,
+        "location":   (location or "").strip()[:80],
+        "level":      level if level in RACE_LEVELS else "",
+        "notes":      (notes or "").strip()[:1000],
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    save_races(races)
+    return {"ok": True, "id": rid}
+
+
+@app.delete("/races/{race_id}")
+async def races_delete(race_id: str):
+    if race_id not in races:
+        return JSONResponse({"error": "Course introuvable."}, status_code=404)
+    del races[race_id]
+    save_races(races)
+    return {"ok": True}
+
+
+# ── Plan de préparation par course (Phase 2) ─────────────────────────────────
+# Contenu basé sur des règles (pas d'IA) : repères sport-science généraux,
+# étiquetés « à ajuster ». Honnêteté : ce n'est pas un avis médical ni un plan
+# nutritionnel personnalisé. Tout est calibrable ici, dans le code.
+PREP_DISCLAIMER = ("Repères généraux de préparation, à adapter à chaque athlète. "
+                   "Ce n'est pas un avis médical ni un plan nutritionnel personnalisé.")
+
+# Phases relatives à la course (par jours restants).
+PREP_PHASES = [
+    {"key": "far",     "label": "Plus d'une semaine"},
+    {"key": "week",    "label": "J-7 → J-4 · Semaine"},
+    {"key": "taper",   "label": "J-3 → J-2 · Affûtage"},
+    {"key": "eve",     "label": "J-1 · Veille"},
+    {"key": "raceday", "label": "Jour J"},
+    {"key": "after",   "label": "J+1 · Récupération"},
+]
+PREP_FOCUS = {
+    "far":     {"head": "La course est encore loin.",
+                "actions": ["Continue ton plan normal.",
+                            "Place tes grosses séances de départs maintenant, pas la dernière semaine."]},
+    "week":    {"head": "Dernières séances de qualité.",
+                "actions": ["Travaille le défaut vu à l'analyse, à haute intensité.",
+                            "Aucune nouveauté (braquet, technique) à partir d'ici.",
+                            "Soigne ton sommeil dès cette semaine."]},
+    "taper":   {"head": "Affûtage — on cherche la fraîcheur.",
+                "actions": ["Réduis le volume (~40–50 %), garde l'intensité : départs courts et explosifs.",
+                            "Emphase glucides, repas que tu digères bien.",
+                            "La nuit la plus importante, c'est l'avant-veille (J-2)."]},
+    "eve":     {"head": "Veille — tout est prêt, on se calme.",
+                "actions": ["Activation légère seulement, quelques départs à vide.",
+                            "Repas du soir riche en glucides, tôt. Sac prêt.",
+                            "Couche-toi tôt, écran coupé."]},
+    "raceday": {"head": "Jour J — suis ta routine.",
+                "actions": ["Échauffement progressif + 2–3 départs d'essai.",
+                            "Entre les manches : boire + petite collation, rester au chaud.",
+                            "Une moto à la fois."]},
+    "after":   {"head": "Récupération.",
+                "actions": ["Recharge dans les 1–2 h (glucides + protéines), réhydrate.",
+                            "Upload tes départs du jour pour les analyser à froid."]},
+}
+
+# 5 piliers phasés (le 6e, « Jour J heure par heure », est la timeline ci-dessous).
+PREP_PILLARS = [
+    {"key": "charge", "label": "Charge & entraînement", "phases": {
+        "far":  ["Entraînement normal. Tes plus grosses séances de départs, c'est maintenant."],
+        "week": ["Dernières séances de qualité : départs à haute intensité, volume normal.",
+                 "C'est le moment de corriger le défaut détecté à l'analyse.",
+                 "Plus aucune nouveauté de matériel ou de technique."],
+        "taper":["Affûtage : volume −40 à −50 %, intensité conservée.",
+                 "Des départs courts, explosifs, peu nombreux. Pas de séance qui fatigue."],
+        "eve":  ["Activation légère : quelques départs à vide pour rester affûté, sans forcer.",
+                 "Jambes légères, repos relatif."],
+        "raceday":["Tes départs d'essai font partie de l'échauffement, pas de l'entraînement."],
+        "after":["Récup active légère (vélo souple, mobilité). Pas de grosse séance."],
+    }},
+    {"key": "nutrition", "label": "Nutrition & hydratation", "phases": {
+        "far":  ["Alimentation équilibrée habituelle. Rien de radical avant une course."],
+        "week": ["Assez de glucides pour soutenir l'entraînement, hydratation régulière.",
+                 "Teste ton repas d'avant-course à l'entraînement — jamais de nouveauté le jour J."],
+        "taper":["Légère emphase glucides (pâtes, riz, patate) pour faire le plein.",
+                 "Garde des repas que tu digères bien."],
+        "eve":  ["Repas du soir riche en glucides, pauvre en gras/fibres lourdes, pas trop tard.",
+                 "Bois bien dans la journée. Évite l'alcool et les plats inhabituels."],
+        "raceday":["Petit-déj 3 h avant la 1re moto : glucides + un peu de protéines, faible en gras.",
+                   "Entre les manches : collation facile (banane, barre, compote) + boire avec électrolytes.",
+                   "Ne pars jamais à jeun sur une moto."],
+        "after":["Recharge dans les 1–2 h : glucides + protéines. Réhydrate."],
+    }},
+    {"key": "mental", "label": "Mental & échauffement", "phases": {
+        "far":  ["Ajoute 5 min de visualisation de départ à tes séances : le bip, la grille, ta 1re pédale."],
+        "week": ["Travaille ta routine de départ (respiration, point de fixation, déclencheur) jusqu'à l'automatisme."],
+        "taper":["Visualisation quotidienne : revois un départ parfait avec le défaut corrigé.",
+                 "Prépare ton plan anti-stress (respiration, mots-clés)."],
+        "eve":  ["Répétition mentale calme le soir. Visualise la piste si tu la connais.",
+                 "Sac prêt pour ne penser à rien le matin."],
+        "raceday":["Échauffement progressif + 2–3 départs d'essai. Active ta routine à chaque moto.",
+                   "Reste dans l'instant : une moto à la fois."],
+        "after":["Note à chaud ce qui a marché sur tes départs (pour la prochaine analyse)."],
+    }},
+    {"key": "recup", "label": "Récupération & sommeil", "phases": {
+        "far":  ["Sommeil régulier. Ça se construit sur des semaines, pas la veille."],
+        "week": ["Priorité au sommeil (7–9 h), heures régulières."],
+        "taper":["La nuit la plus importante est l'avant-veille (J-2) — celle d'avant peut être agitée, c'est normal.",
+                 "Sieste courte possible, pas trop tard."],
+        "eve":  ["Couche-toi tôt, écran coupé. Mal dormir de stress n'enlève pas ta forme."],
+        "raceday":["Entre les manches : au chaud, jambes surélevées si possible, récupère entre les efforts.",
+                   "Garde de l'énergie pour la finale."],
+        "after":["Sommeil de récupération, hydratation, mobilité douce."],
+    }},
+    {"key": "strategie", "label": "Stratégie de course", "phases": {
+        "far":  ["Renseigne-toi sur la piste (profil, 1er virage, sauts clés) si tu ne la connais pas."],
+        "week": ["Définis ton objectif réaliste et ton plan : c'est quoi un bon run pour toi ?"],
+        "taper":["Étudie le tracé : lignes, endroits pour doubler, pièges. Mentalise ton 1er droit."],
+        "eve":  ["Repère les horaires (motos, quarts, demies, finale), ta plaque, le check-in."],
+        "raceday":["Reconnaissance à pied : teste tes lignes, le 1er virage, les sauts.",
+                   "Plan par phase : motos = se placer · quarts/demies = qualifier · finale = tout donner."],
+        "after":["Débrief : départs, virages, ce qui a changé le résultat."],
+    }},
+]
+
+# Timeline du Jour J (le 6e pilier). Générique, à ajuster selon l'horaire réel.
+RACE_DAY_TIMELINE = [
+    {"when": "3–4 h avant", "title": "Réveil", "text": "Assez tôt pour être réveillé et avoir digéré."},
+    {"when": "3 h avant",   "title": "Petit-déjeuner", "text": "Glucides + un peu de protéines, faible en gras. Ce que tu as déjà testé."},
+    {"when": "trajet",      "title": "Départ vers la piste", "text": "Pars large pour arriver sans stress."},
+    {"when": "90 min+ avant","title": "Arrivée & check-in", "text": "Inscription, plaque, repère le paddock et la grille."},
+    {"when": "60–75 min avant","title": "Reconnaissance", "text": "Marche la piste : lignes, 1er virage, sauts."},
+    {"when": "45 min avant","title": "Échauffement", "text": "Activation progressive + 2–3 départs d'essai. Active ta routine."},
+    {"when": "10 min avant","title": "Dernière prépa", "text": "Hydrate, respiration, point de fixation. Dans ta bulle."},
+    {"when": "moto",        "title": "1re manche", "text": "Routine de départ. Une moto à la fois."},
+    {"when": "entre les manches","title": "Récup active", "text": "Collation facile + boire. Reste au chaud, reset mental."},
+    {"when": "finale",      "title": "Finale", "text": "Réchauffe-toi à nouveau, départ d'essai, focus maximal. Tout donner."},
+]
+
+
+def _prep_phase_key(days: int | None) -> str:
+    """Bucket de phase selon les jours restants avant la course."""
+    if days is None:
+        return "week"
+    if days > 7:   return "far"
+    if days >= 4:  return "week"
+    if days >= 2:  return "taper"
+    if days == 1:  return "eve"
+    if days == 0:  return "raceday"
+    return "after"
+
+
+def _race_prep_plan(race: dict) -> dict:
+    """Construit le plan de prépa d'une course : phase courante, focus du jour,
+    piliers phasés (avec la phase courante mise en avant), timeline Jour J."""
+    cd = race.get("countdown") or _race_countdown(race)
+    days = cd.get("days")
+    phase = _prep_phase_key(days)
+    pillars = []
+    for p in PREP_PILLARS:
+        pillars.append({
+            "key":     p["key"],
+            "label":   p["label"],
+            "current": p["phases"].get(phase, []),
+            "phases":  [{"key": ph["key"], "label": ph["label"],
+                         "items": p["phases"].get(ph["key"], []),
+                         "is_current": ph["key"] == phase}
+                        for ph in PREP_PHASES if p["phases"].get(ph["key"])],
+        })
+    return {
+        "days":        days,
+        "phase":       phase,
+        "phase_label": next((ph["label"] for ph in PREP_PHASES if ph["key"] == phase), ""),
+        "focus":       PREP_FOCUS.get(phase, PREP_FOCUS["week"]),
+        "pillars":     pillars,
+        "timeline":    RACE_DAY_TIMELINE,
+        "disclaimer":  PREP_DISCLAIMER,
+    }
+
+
+@app.get("/prepa/race/{race_id}")
+async def race_detail(request: Request, race_id: str):
+    """Page détail d'une course : compte à rebours + plan de préparation."""
+    r = races.get(race_id)
+    if not r:
+        return RedirectResponse("/prepa", status_code=302)
+    race = {**r, "countdown": _race_countdown(r),
+            "athlete_name": athletes.get(r.get("athlete_id") or "", {}).get("name")}
+    plan = _race_prep_plan(race)
+    return templates.TemplateResponse(request, "race_detail.html", {
+        "active": "prepa",
+        "race":   race,
+        "plan":   plan,
+    })
+
+
 # ── Mesure manuelle du temps de réaction ─────────────────────────────────────
 @app.get("/manual_reaction")
 async def manual_reaction_page(request: Request):
@@ -1370,6 +1838,119 @@ async def jobs_delete_gate_calibration(job_id: str):
     return {"ok": True}
 
 
+# ── Calibration de la réaction (bip 1 + 1er mouvement, par essai) ─────────────
+# Outil d'inspection : pour chaque essai, TOUS les instants de la chaîne de
+# mesure (bip 1 audio, bip 1 théorique = grille − 360 ms, grille marquée,
+# 1er mouvement pipeline, 1er mouvement raffiné) + drapeaux d'incohérence.
+# Objectif : vérifier à l'œil, sur la vidéo, d'où viennent les temps impossibles
+# (< ~170 ms = plancher de réaction humaine → deviné, gate mal marqué, ou
+# détection trop sensible).
+REACT_IMPOSSIBLE_MS = 170.0   # sous ce délai bip→mvt, un humain n'a pas pu réagir
+
+
+def _reaction_cal_row(jid: str, j: dict) -> dict:
+    """Ligne de calibration pour un job (audio = cache seulement, pas de run)."""
+    r  = j.get("results") or {}
+    rx = r.get("reaction") or {}
+    gate_t = r.get("gate_drop_t")
+    fps    = r.get("fps") or 30.0
+    audio  = j.get("audio_detection") or {}
+    bip1_audio = (audio.get("beeps_t") or [None])[0] if audio.get("detected") else None
+    bip1_theo  = round(gate_t - UCI_BIP1_TO_GATE_S, 3) if gate_t is not None else None
+
+    fm = _detect_first_move(r)
+    move_t   = fm.get("t")
+    verified = rx.get("verified")
+    if verified:
+        # La confirmation coach prime sur la détection logicielle.
+        move_t   = verified.get("move_t")
+        reaction = round(float(verified["from_gate_ms"]) + GATE_FROM_BIP1_MS)
+    else:
+        reaction = None
+        if fm.get("detected") and fm.get("from_gate_ms") is not None:
+            reaction = round(fm["from_gate_ms"] + GATE_FROM_BIP1_MS)
+
+    # Drapeaux
+    flags = []
+    if verified:
+        flags.append(("ok", "confirmé coach"))
+    elif rx.get("type") == "false_start":
+        flags.append(("bad", "faux départ"))
+    elif not fm.get("detected"):
+        flags.append(("warn", "mouvement non capté"))
+        if fm.get("late_move_ms"):
+            flags.append(("warn", f"mvt net à +{fm['late_move_ms']:.0f} ms → grille mal placée ?"))
+    elif reaction is not None and reaction < REACT_IMPOSSIBLE_MS:
+        flags.append(("bad", f"< {REACT_IMPOSSIBLE_MS:.0f} ms : impossible de réagir si vite"))
+    if not verified and bip1_audio is not None and gate_t is not None:
+        dev = (gate_t - bip1_audio) * 1000 - GATE_FROM_BIP1_MS
+        if abs(dev) > 160:
+            flags.append(("warn", f"bip audio vs grille : écart {dev:+.0f} ms vs cadence UCI"))
+
+    return {
+        "job_id":        jid,
+        "display_name":  _display_name(jid, j),
+        "athlete_name":  athletes.get(j.get("athlete_id") or "", {}).get("name"),
+        "added_at":      j.get("added_at", ""),
+        "fps":           fps,
+        "gate_t":        gate_t,
+        "bip1_theo":     bip1_theo,
+        "bip1_audio":    round(bip1_audio, 3) if bip1_audio is not None else None,
+        "audio_cached":  bool(audio),
+        "move_pipeline": rx.get("first_move_t"),
+        "move_refined":  move_t,
+        "move_conf":     fm.get("confidence"),
+        "move_signals":  fm.get("signals") or [],
+        "reaction_ms":   reaction,
+        "false_start":   rx.get("type") == "false_start",
+        "detected":      bool(fm.get("detected")),
+        "flags":         flags,
+    }
+
+
+@app.get("/reaction_calibration")
+async def reaction_calibration_list(request: Request):
+    """Table de calibration : tous les essais avec bips, grille, 1er mouvement
+    et drapeaux. Audio depuis le cache (le détail lance la détection)."""
+    rows = [_reaction_cal_row(jid, j) for jid, j in jobs.items()
+            if j.get("status") == "done"]
+    rows.sort(key=lambda r: r["added_at"], reverse=True)
+    n_impossible = sum(1 for r in rows
+                       if r["reaction_ms"] is not None and r["reaction_ms"] < REACT_IMPOSSIBLE_MS)
+    n_undetected = sum(1 for r in rows if not r["detected"] and not r["false_start"])
+    n_flagged    = sum(1 for r in rows if r["flags"])
+    return templates.TemplateResponse(request, "reaction_calibration.html", {
+        "active": "settings",
+        "rows": rows,
+        "n_total": len(rows),
+        "n_impossible": n_impossible,
+        "n_undetected": n_undetected,
+        "n_flagged": n_flagged,
+        "floor_ms": REACT_IMPOSSIBLE_MS,
+    })
+
+
+@app.get("/reaction_calibration/{job_id}")
+async def reaction_calibration_detail(request: Request, job_id: str):
+    """Détail : vidéo + marqueurs sautables (bips, grille, 1ers mouvements)."""
+    j = jobs.get(job_id)
+    if not j or j.get("status") != "done":
+        return RedirectResponse("/reaction_calibration", status_code=302)
+    audio = _get_or_run_audio_detection(job_id, j)   # run + cache si nécessaire
+    if audio:
+        save_jobs(jobs)
+    row = _reaction_cal_row(job_id, j)
+    r = j.get("results") or {}
+    return templates.TemplateResponse(request, "reaction_calibration_detail.html", {
+        "active":    "settings",
+        "row":       row,
+        "audio":     audio,
+        "video_url": j.get("video_url"),
+        "fps":       r.get("fps") or 30.0,
+        "job_id":    job_id,
+    })
+
+
 @app.post("/jobs/purge_orphans")
 async def jobs_purge_orphans():
     """Supprime tous les jobs en mémoire sans athlète + les fichiers orphelins
@@ -1386,7 +1967,7 @@ async def settings_backup_zip():
     import io, zipfile
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in (PROS_DB, JOBS_DB, ATHLETES_DB, TRACKS_DB):
+        for p in (PROS_DB, JOBS_DB, ATHLETES_DB, TRACKS_DB, RACES_DB):
             if p.exists():
                 zf.write(p, arcname=f"current/{p.name}")
         if BACKUP_DIR.exists():
@@ -1405,7 +1986,7 @@ async def settings_backup_zip():
 async def settings_backup_snapshot():
     """Force un snapshot immédiat des DBs (utile avant une opération risquée)."""
     try:
-        for p in (PROS_DB, JOBS_DB, ATHLETES_DB, TRACKS_DB):
+        for p in (PROS_DB, JOBS_DB, ATHLETES_DB, TRACKS_DB, RACES_DB):
             _snapshot_db(p)
         _prune_old_backups()
         return {"ok": True, "status": _backup_status()}
@@ -3018,6 +3599,979 @@ async def posture(job_id: str):
         return JSONResponse({"error": "Lecture des positions impossible."},
                             status_code=422)
     return post
+
+
+# ── Classification de la position de set (Grigg 2020, variable #1) ────────────
+# Grigg 2020 identifie la position de SET comme la variable la plus prédictive
+# du départ, avec trois archétypes : « back » (poids/bassin reculé, la plus
+# performante en moyenne), « upright » (buste vertical), « angled » (buste
+# penché vers l'avant). On classe à partir de la géométrie CORPS pure (pas de
+# pièce de vélo) mesurée à l'instant du set : inclinaison du buste (trunk_lean)
+# et position du bassin vs pied avant (hip_foot_offset). Honnêteté : Grigg
+# travaille sur n=10 élites masculins → « back » est une tendance, pas une loi ;
+# les seuils sont calibrables.
+SETPOS_BACK_OFFSET   = -0.30   # hip_foot_offset ≤ ce seuil = bassin reculé (back)
+SETPOS_UPRIGHT_TRUNK =  25.0   # trunk_lean < ce seuil (et pas back) = upright
+
+
+def _compute_set_position(csv_path: Path, gate_t: float, side: str) -> dict | None:
+    """Classe la position de set en back / upright / angled depuis la géométrie
+    du corps à l'instant du set (gate − 0.05s)."""
+    if not csv_path.exists():
+        return None
+    try:
+        df = pd.read_csv(csv_path)
+    except Exception:
+        return None
+    if "time" not in df.columns or len(df) == 0:
+        return None
+
+    t_set = gate_t - 0.05
+    idx = int((df["time"] - t_set).abs().idxmin())
+    row = df.loc[idx]
+    geo = _posture_at_frame(row, side, _frame_direction(row))
+    if geo is None:
+        return None
+
+    offset = geo["hip_foot_offset"]
+    trunk  = geo["trunk_lean"]
+
+    if offset <= SETPOS_BACK_OFFSET:
+        set_type, vclass = "back", "ok"
+        label = "Position « back » (bassin reculé)"
+        headline = ("Tu te places avec le bassin reculé et le poids en arrière — "
+                    "c'est la position de set la plus performante en moyenne chez "
+                    "les élites.")
+        cue = "Garde cette base : c'est un bon point d'appui pour charger et exploser."
+    elif trunk < SETPOS_UPRIGHT_TRUNK:
+        set_type, vclass = "upright", "warn"
+        label = "Position « upright » (buste vertical)"
+        headline = ("Ton buste est plutôt vertical en set. C'est une position "
+                    "valable, mais elle remonte ton centre de gravité.")
+        cue = ("À tester : recule un peu le bassin et baisse le buste pour aller "
+               "vers une position « back », associée aux meilleurs départs.")
+    else:
+        set_type, vclass = "angled", "warn"
+        label = "Position « angled » (buste penché)"
+        headline = ("Tu pars buste penché vers l'avant. Position dynamique, mais "
+                    "le poids est déjà engagé devant.")
+        cue = ("À tester : ramène le bassin vers l'arrière pour charger l'appui "
+               "avant d'exploser — la position « back » de Grigg.")
+
+    return {
+        "type":      set_type,
+        "label":     label,
+        "vclass":    vclass,
+        "headline":  headline,
+        "cue":       cue,
+        "trunk_lean":      trunk,
+        "hip_foot_offset": offset,
+        "source":    "Grigg 2020",
+        "caveat":    "Tendance issue d'un petit échantillon d'élites (n=10) ; seuils calibrables.",
+    }
+
+
+@app.get("/set_position/{job_id}")
+async def set_position(job_id: str):
+    """Classe la position de set (back / upright / angled) — variable #1 du
+    départ selon Grigg 2020. Voir _compute_set_position."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return JSONResponse({"error": "Job introuvable ou non terminé."},
+                            status_code=404)
+    results  = job["results"]
+    csv_path = OUTPUT_DIR / results["files"]["landmarks_csv"]
+    side     = results.get("front_foot") or "L"
+    gate_t   = float(results.get("gate_drop_t", 0.0))
+    sp = _compute_set_position(csv_path, gate_t, side)
+    if sp is None:
+        return JSONResponse({"error": "Lecture de la position de set impossible."},
+                            status_code=422)
+    return sp
+
+
+# ── Scorecard du départ ──────────────────────────────────────────────────────
+# Synthétise un départ en 4 notes (0–100) + une note globale. Toute la logique
+# est un moteur de règles transparent (pas de ML), avec des seuils CALIBRABLES
+# regroupés ici et étiquetés par source. Honnêteté scientifique : les bandes de
+# réaction n'ont pas de benchmark universel publié pour l'amateur → marquées
+# « indicatif ». Les bandes d'explosivité s'appuient sur Gross 2017.
+SCORECARD_VERSION = "2.0"
+
+# Pondérations des 5 dimensions (renormalisées sur celles disponibles).
+# Réaction et contre-mouvement en tête : timing au gate (déterminant en course)
+# et countermovement (déterminant biomécanique n°1, Gross 2017). Voir SCIENCE.md.
+SCORE_WEIGHTS = {
+    "reaction":        0.24,
+    "countermovement": 0.22,
+    "explosivity":     0.20,
+    "sequence":        0.17,
+    "posture":         0.17,
+}
+
+# Notes par régime de contre-mouvement (déterminant n°1).
+CMV_SCORES = {"early": 100, "late": 58, "absent": 30}
+
+# Réaction = délai entre le 1er bip et le 1er mouvement (définition coach :
+# « dès qu'il y a un peu de mouvement »). On l'ANCRE sur la grille : la cadence
+# UCI étant fixe (la grille tombe 360 ms après le 1er bip, cf. SCIENCE.md §1),
+# le 1er bip = grille − 360 ms. On ne se sert PAS du bip détecté à l'audio comme
+# ancre du chiffre : il attrape souvent un écho ou la voix « watch the gate »,
+# ce qui gonflait la réaction à 800–1700 ms (incohérent). En recalant sur la
+# cadence, réaction = from_gate_ms + 360, toujours cohérente et plausible.
+#
+# IMPORTANT (rappel terrain) : le 1er bip arrive après un délai ALÉATOIRE
+# (0,1–2,7 s) → on ne peut PAS l'anticiper, on y RÉAGIT. Seule la grille est
+# anticipable, car fixe à +360 ms une fois le bip entendu. Donc un mouvement
+# sous ~170 ms après le bip = sous le plancher de réaction humaine = le rider a
+# deviné le départ (coup de poker), pas réagi.
+#
+# Repères (réaction = bip1 → 1er mouvement, en ms ; la grille tombe à 360 ms) :
+#   < 230  → parti bien avant la grille : anticipation risquée / coup de poker
+#   230–300 → anticipation franche (parti 60–130 ms avant la grille) : bon
+#   300–385 → IDÉAL : parti avec la grille
+#   385–470 → un peu réactif (parti après la grille)
+#   > 470   → réagi, pas anticipé (lent)
+# Plancher de réaction humaine ~170 ms (auditif) : sous ce seuil ce n'est plus
+# une réaction mais une anticipation pure du rythme. Bandes indicatives/calibrables.
+GATE_FROM_BIP1_MS  = 360.0    # cadence UCI : grille = bip1 + 360 ms
+REACT_HUMAN_FLOOR  = 170.0    # plancher réaction auditive humaine (ms)
+REACT_GAMBLE_MAX   = 230.0    # en-deçà = coup de poker
+REACT_EARLY_MAX    = 300.0    # 230–300 = anticipation franche
+REACT_OPTIMAL_MAX  = 385.0    # 300–385 = idéal (autour de la grille à 360)
+REACT_REACTIVE_MAX = 470.0    # 385–470 = un peu réactif ; au-delà = lent
+
+# ── Détecteur de 1er mouvement multi-articulaire ─────────────────────────────
+# Remplace le check binaire genou-seul (8°) par une détection fine sur 3 signaux
+# (genou, hanche, inclinaison du tronc) calculés depuis le CSV DÉJÀ stocké
+# (aucun re-passage YOLO). Baseline robuste (médiane/MAD sur la fenêtre AVANT le
+# 1er bip), seuil adaptatif par signal, onset = 1re excursion soutenue 2 frames.
+# « Dès qu'il y a un peu de mouvement » = le plus précoce des 3 signaux.
+FIRSTMOVE_VERSION = "1.0"
+FM_Z_THRESH  = 6.0                     # z-score robuste (× MAD) minimal
+FM_MIN_DEG   = {"knee": 5.0, "hip": 5.0, "trunk": 4.0}   # plancher absolu (°)
+FM_NOISE_FLOOR_DEG = 0.8               # bruit minimal supposé (°) si MAD ~ 0
+FM_SUSTAIN   = 2                       # frames consécutives au-dessus du seuil
+FM_BASE_LO, FM_BASE_HI = -1.5, -0.6    # baseline (s, rel. grille) — avant bip 1
+FM_SCAN_LO,  FM_SCAN_HI = -0.55, 0.8   # scan (s, rel. grille) — bip 1 → post
+FM_LATE_HI   = 2.5                     # scan étendu pour l'indice « gate mal marqué »
+
+_FIRSTMOVE_CACHE: dict = {}            # {csv_path: (mtime, result)}
+
+
+def _detect_first_move(results: dict) -> dict:
+    """Détection raffinée du 1er mouvement autour de la grille.
+
+    Retour : {detected: bool, from_gate_ms, t, confidence (0–1),
+              signals: [noms], late_move_ms (si non détecté mais gros mouvement
+              plus tard — indice de gate mal marqué), reason}.
+    Mise en cache par (chemin CSV, mtime)."""
+    out = {"detected": False, "from_gate_ms": None, "t": None,
+           "confidence": 0.0, "signals": [], "late_move_ms": None, "reason": ""}
+    try:
+        files = results.get("files") or {}
+        csv_path = OUTPUT_DIR / files["landmarks_csv"]
+        if not csv_path.exists():
+            out["reason"] = "csv_missing"
+            return out
+        mtime = csv_path.stat().st_mtime
+        cached = _FIRSTMOVE_CACHE.get(str(csv_path))
+        if cached and cached[0] == mtime:
+            return cached[1]
+
+        df = pd.read_csv(csv_path)
+        if "time" not in df.columns or len(df) < 10:
+            out["reason"] = "csv_unreadable"
+            return out
+        gate_t = float(results.get("gate_drop_t", 0.0))
+        side = results.get("front_foot") or "R"
+
+        def col(part, axis):
+            c = f"{side}_{part}_{axis}"
+            return df[c].to_numpy(dtype=float) if c in df.columns else np.full(len(df), np.nan)
+
+        t = df["time"].to_numpy(dtype=float)
+        sh_x, sh_y = col("shoulder", "x"), col("shoulder", "y")
+        hi_x, hi_y = col("hip", "x"),      col("hip", "y")
+        kn_x, kn_y = col("knee", "x"),     col("knee", "y")
+        an_x, an_y = col("ankle", "x"),    col("ankle", "y")
+
+        def angle(p1x, p1y, p2x, p2y, p3x, p3y):
+            v1x, v1y = p1x - p2x, p1y - p2y
+            v2x, v2y = p3x - p2x, p3y - p2y
+            dot = v1x * v2x + v1y * v2y
+            n1 = np.sqrt(v1x**2 + v1y**2); n2 = np.sqrt(v2x**2 + v2y**2)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                cos = np.clip(dot / (n1 * n2), -1.0, 1.0)
+            return np.degrees(np.arccos(cos))
+
+        signals = {
+            "knee":  angle(hi_x, hi_y, kn_x, kn_y, an_x, an_y),
+            "hip":   angle(sh_x, sh_y, hi_x, hi_y, kn_x, kn_y),
+            # Inclinaison du tronc vs verticale — capte le rock-back/lean même
+            # quand les jambes ne bougent pas encore.
+            "trunk": np.degrees(np.arctan2(np.abs(sh_x - hi_x), np.abs(hi_y - sh_y) + 1e-9)),
+        }
+
+        base_m = (t >= gate_t + FM_BASE_LO) & (t <= gate_t + FM_BASE_HI)
+        scan_m = (t >= gate_t + FM_SCAN_LO) & (t <= gate_t + FM_SCAN_HI)
+        if base_m.sum() < 5 or scan_m.sum() < 3:
+            out["reason"] = "window_too_short"
+            _FIRSTMOVE_CACHE[str(csv_path)] = (mtime, out)
+            return out
+
+        def find_onset(x, name, mask):
+            """1er instant (dans mask) où |x−baseline| dépasse le seuil adaptatif
+            pendant FM_SUSTAIN frames valides consécutives. None sinon."""
+            base = x[base_m]
+            base = base[~np.isnan(base)]
+            if len(base) < 5:
+                return None, None
+            med = float(np.median(base))
+            mad = float(np.median(np.abs(base - med)))
+            sigma = max(1.4826 * mad, FM_NOISE_FLOOR_DEG)
+            thresh = max(FM_Z_THRESH * sigma, FM_MIN_DEG[name])
+            idxs = np.where(mask)[0]
+            run = 0; first = None
+            for i in idxs:
+                if np.isnan(x[i]):
+                    run = 0; first = None
+                    continue
+                if abs(x[i] - med) > thresh:
+                    if first is None:
+                        first = i
+                    run += 1
+                    if run >= FM_SUSTAIN:
+                        return float(t[first]), float(abs(x[first] - med) / thresh)
+                else:
+                    run = 0; first = None
+            return None, None
+
+        onsets = {}
+        for name, x in signals.items():
+            ot, strength = find_onset(x, name, scan_m)
+            if ot is not None:
+                onsets[name] = (ot, strength)
+
+        if onsets:
+            first_t = min(ot for ot, _ in onsets.values())
+            # Confiance : nb de signaux qui confirment dans les 150 ms + force.
+            confirming = [n for n, (ot, _) in onsets.items() if ot - first_t <= 0.15]
+            conf = min(1.0, 0.4 + 0.25 * len(confirming))
+            out.update({
+                "detected": True,
+                "t": round(first_t, 3),
+                "from_gate_ms": round((first_t - gate_t) * 1000),
+                "confidence": round(conf, 2),
+                "signals": confirming,
+                "reason": "ok",
+            })
+        else:
+            # Rien dans la fenêtre : cherche un gros mouvement plus tard → indice
+            # que la grille est peut-être mal marquée sur cette vidéo.
+            late_m = (t > gate_t + FM_SCAN_HI) & (t <= gate_t + FM_LATE_HI)
+            for name, x in signals.items():
+                ot, _ = find_onset(x, name, late_m)
+                if ot is not None:
+                    prev = out["late_move_ms"]
+                    ms = round((ot - gate_t) * 1000)
+                    out["late_move_ms"] = ms if prev is None else min(prev, ms)
+            out["reason"] = "no_movement_in_window"
+
+        _FIRSTMOVE_CACHE[str(csv_path)] = (mtime, out)
+        return out
+    except Exception:
+        out["reason"] = "error"
+        return out
+
+
+def _reaction_reliable(results: dict) -> bool:
+    """Compat : la réaction est mesurable si le détecteur raffiné a trouvé un
+    vrai mouvement autour de la grille."""
+    return bool(_detect_first_move(results).get("detected"))
+
+
+def _analyze_reaction(results: dict) -> dict | None:
+    """Réaction = 1er bip → 1er mouvement (ms), recalée sur la cadence UCI.
+
+    Retourne {score, verdict, label, value_text, reaction_ms, from_gate_ms,
+    regime, detail, audio_note, source} ou None si non mesurable.
+    `regime` ∈ false_start / undetected / gamble / early / optimal / reactive / late.
+    """
+    rx = results.get("reaction") or {}
+    g = rx.get("from_gate_ms")
+    b_audio = rx.get("from_bip1_ms")   # bip détecté à l'audio (souvent bruité)
+    verified_info = rx.get("verified")   # confirmation coach (grille + 1er mvt)
+    is_verified = bool(verified_info)
+    skipped = bool(rx.get("verify_skipped"))
+
+    if rx.get("type") == "false_start" and not is_verified:
+        return {
+            "score": 0, "verdict": "bad", "label": "Réaction", "regime": "false_start",
+            "value_text": "Faux départ", "reaction_ms": None, "from_gate_ms": g,
+            "detail": "Premier mouvement AVANT le 1er bip — départ annulé en course.",
+            "verified": False, "skipped": skipped,
+            "audio_note": None, "source": "spec UCI"}
+
+    refine_note = None
+    if is_verified:
+        # Le coach a confirmé les deux instants à l'œil : c'est LA référence.
+        g = float(verified_info["from_gate_ms"])
+    else:
+        if g is None:
+            return None
+        # Détection raffinée du 1er mouvement (multi-articulaire, CSV stocké) —
+        # sert d'ESTIMATION et pré-place les marqueurs de vérification.
+        fm = _detect_first_move(results)
+        if fm.get("detected"):
+            g_refined = float(fm["from_gate_ms"])
+            if abs(g_refined - float(g)) > 60:
+                direction = "plus tôt" if g_refined < float(g) else "plus tard"
+                refine_note = (
+                    f"Détection affinée (genou+hanche+tronc) : 1er mouvement repéré "
+                    f"{abs(g_refined - float(g)):.0f} ms {direction} que l'analyse initiale.")
+            g = g_refined
+        elif fm.get("reason") in ("no_movement_in_window", "window_too_short"):
+            # Honnêteté : rien de franc autour de la grille → on n'invente pas.
+            detail = ("La pose n'a pas capté de mouvement franc autour de la grille — "
+                      "souvent parce que le rider est trop petit dans l'image ou que la "
+                      "caméra le suit. Confirme la grille et le 1er mouvement à l'œil "
+                      "pour obtenir un temps fiable.")
+            if fm.get("late_move_ms"):
+                detail += (f" Indice : un mouvement net existe {fm['late_move_ms']:.0f} ms "
+                           f"après la grille marquée — la grille est peut-être mal placée "
+                           f"sur cette vidéo.")
+            return {
+                "score": None, "verdict": "none", "label": "Réaction", "regime": "undetected",
+                "value_text": "Mouvement non capté", "reaction_ms": None,
+                "from_gate_ms": round(float(g)),
+                "detail": detail,
+                "late_move_ms": fm.get("late_move_ms"),
+                "verified": False, "skipped": skipped,
+                "audio_note": None, "source": "non mesurable"}
+        # (csv manquant / erreur de lecture → on garde la valeur du pipeline)
+
+    g = float(g)
+
+    # Réaction recalée : 1er bip = grille − 360 ms (cadence UCI fixe).
+    reaction = g + GATE_FROM_BIP1_MS
+
+    # Note de transparence si l'audio donnait un bip très différent (≥ 160 ms
+    # d'écart avec la cadence) → on explique qu'on s'appuie sur la grille.
+    audio_note = refine_note
+    if b_audio is not None and abs(float(b_audio) - reaction) > 160:
+        note2 = (
+            f"La détection audio plaçait le 1er bip à {b_audio:.0f} ms du mouvement, "
+            f"mais sa cadence était bruitée (écho / voix). Réaction recalée sur la "
+            f"grille + cadence UCI (360 ms).")
+        audio_note = f"{refine_note} {note2}" if refine_note else note2
+
+    if reaction < REACT_GAMBLE_MAX:
+        regime = "gamble"
+        score = _lin_score(reaction, REACT_HUMAN_FLOOR - 60, REACT_GAMBLE_MAX, 52.0, 84.0)
+        detail = ("Parti sous le plancher de réaction humaine (~170 ms). Le 1er bip "
+                  "tombe au hasard : tu ne peux pas le devancer, donc partir si tôt "
+                  "c'est un coup de poker — risque de faux départ ou de déséquilibre.")
+    elif reaction < REACT_EARLY_MAX:
+        regime = "early"
+        score = _lin_score(reaction, REACT_GAMBLE_MAX, REACT_EARLY_MAX, 86.0, 99.0)
+        detail = ("Réaction vive au 1er bip : tu déclenches vite et tu pars un peu "
+                  "avant la grille. Solide.")
+    elif reaction <= REACT_OPTIMAL_MAX:
+        regime = "optimal"
+        score = 100.0
+        detail = ("Timing idéal : tu réagis au 1er bip puis tu pars AVEC la grille "
+                  "(elle tombe 360 ms après le bip). Pile au bon moment.")
+    elif reaction <= REACT_REACTIVE_MAX:
+        regime = "reactive"
+        score = _lin_score(reaction, REACT_OPTIMAL_MAX, REACT_REACTIVE_MAX, 95.0, 70.0)
+        detail = ("Tu pars juste après la grille : un peu tard. Une fois le 1er bip "
+                  "entendu, la grille est à 360 ms — déclenche un cheveu plus tôt.")
+    else:
+        regime = "late"
+        score = _lin_score(reaction, REACT_REACTIVE_MAX, REACT_REACTIVE_MAX + 350, 70.0, 20.0)
+        detail = ("Réaction lente : tu pars nettement après la grille. Le gate tombe "
+                  "360 ms après le 1er bip — gros gain possible en déclenchant plus vite.")
+
+    reaction_i = round(reaction)
+    # Contexte : où ça tombe par rapport à la grille (360 ms).
+    if g < -8:    gate_ctx = f"{abs(g):.0f} ms avant la grille"
+    elif g > 8:   gate_ctx = f"{g:.0f} ms après la grille"
+    else:         gate_ctx = "pile avec la grille"
+
+    if is_verified:
+        # Confirmé coach → évalué : note, stats, progression.
+        return {
+            "score": round(score), "verdict": _score_to_verdict(score),
+            "label": "Réaction", "regime": regime,
+            "reaction_ms": reaction_i, "from_gate_ms": round(g),
+            "value_text": f"{reaction_i} ms — {gate_ctx}",
+            "gate_context": gate_ctx, "detail": detail,
+            "verified": True, "verified_at": verified_info.get("verified_at"),
+            "skipped": False,
+            "audio_note": None, "source": "confirmé coach · cadence UCI"}
+
+    # Estimation logicielle : affichée pour information, JAMAIS notée ni comptée.
+    # Le coach doit confirmer la grille + le 1er mouvement pour évaluer.
+    return {
+        "score": None, "verdict": "none",
+        "label": "Réaction", "regime": regime,
+        "reaction_ms": reaction_i, "from_gate_ms": round(g),
+        "value_text": f"~{reaction_i} ms — {gate_ctx}",
+        "gate_context": gate_ctx, "detail": detail,
+        "verified": False, "skipped": skipped,
+        "audio_note": audio_note, "source": "estimation · à confirmer"}
+
+# Explosivité — pic ω genou (°/s). ATTENTION méthodologique : Gross 2017 mesure
+# 400–700°/s en capture MARQUEURS haute cadence. Nos ω viennent de pose
+# markerless à ~30 fps, systématiquement plus basses (lissage + différentiation).
+# On ne peut donc PAS noter sur l'échelle absolue de Gross sans tout mettre à 0.
+# Bande calibrée pour le régime markerless 30 fps (indicative, à affiner par
+# club via les essais accumulés). Gross reste la référence conceptuelle.
+EXPLO_KNEE_FLOOR  = 110.0   # plancher → 0
+EXPLO_KNEE_TARGET = 360.0   # haut de gamme markerless observé → 100
+# Mélange genou/hanche (le genou domine l'explosivité balistique).
+EXPLO_KNEE_WEIGHT = 0.65
+EXPLO_HIP_FLOOR   = 90.0
+EXPLO_HIP_TARGET  = 300.0
+
+# Notes par verdict de séquence proximale-distale.
+SEQ_SCORES = {
+    "proximal_distal": 100,
+    "simultaneous":     65,
+    "partial":          45,
+    "inverted":         25,
+}
+
+
+def _lin_score(x: float, x0: float, x1: float,
+               y0: float = 0.0, y1: float = 100.0) -> float:
+    """Interpolation linéaire bornée de x∈[x0,x1] vers [y0,y1]."""
+    if x1 == x0:
+        return y1
+    u = (x - x0) / (x1 - x0)
+    u = max(0.0, min(1.0, u))
+    return y0 + (y1 - y0) * u
+
+
+def _score_to_verdict(score: float | None) -> str:
+    """0–100 → ok / warn / bad (les 3 couleurs de jugement du DS)."""
+    if score is None:
+        return "none"
+    if score >= 70:
+        return "ok"
+    if score >= 45:
+        return "warn"
+    return "bad"
+
+
+def _score_reaction(results: dict) -> dict | None:
+    """Dimension réaction pour la scorecard — délègue à _analyze_reaction et ne
+    garde que les clés attendues par la scorecard. None si non notable
+    (non mesurable / non détecté) → la dimension est traitée comme « non mesurée »."""
+    a = _analyze_reaction(results)
+    if a is None or a.get("score") is None:
+        return None
+    out = {k: a[k] for k in ("score", "verdict", "label", "value_text", "detail", "source")}
+    if a.get("audio_note"):
+        out["caveat"] = "Réaction recalée sur la grille (audio du bip bruité)."
+    return out
+
+
+def _score_explosivity(burst: dict | None) -> dict | None:
+    """Note d'explosivité depuis le pic ω genou (+ hanche). Gross 2017."""
+    if not burst:
+        return None
+    knee = burst.get("knee") or {}
+    hip  = burst.get("hip") or {}
+    knee_w = knee.get("omega_max")
+    hip_w  = hip.get("omega_max")
+    if knee_w is None and hip_w is None:
+        return None
+    parts, weight_sum = 0.0, 0.0
+    if knee_w is not None:
+        parts += EXPLO_KNEE_WEIGHT * _lin_score(knee_w, EXPLO_KNEE_FLOOR, EXPLO_KNEE_TARGET)
+        weight_sum += EXPLO_KNEE_WEIGHT
+    if hip_w is not None:
+        parts += (1 - EXPLO_KNEE_WEIGHT) * _lin_score(hip_w, EXPLO_HIP_FLOOR, EXPLO_HIP_TARGET)
+        weight_sum += (1 - EXPLO_KNEE_WEIGHT)
+    score = parts / weight_sum if weight_sum else 0.0
+    kv = f"{knee_w:.0f}°/s" if knee_w is not None else "—"
+    out = {"score": round(score), "verdict": _score_to_verdict(score),
+           "label": "Explosivité",
+           "value_text": f"genou {kv}",
+           "detail": "Vitesse d'extension du genou. Échelle markerless (les °/s vidéo "
+                     "sont plus bas que les 400–700°/s mesurés au labo par Gross 2017).",
+           "source": "markerless · indic."}
+    if burst.get("has_edge_warning"):
+        out["caveat"] = "Pic en bord de fenêtre — mesure possiblement incomplète."
+    return out
+
+
+def _score_sequence(burst: dict | None) -> dict | None:
+    """Note de séquence proximale-distale (ordre hanche→genou→cheville) +
+    délais réels entre les pics d'extension, en ms."""
+    if not burst:
+        return None
+    ci = burst.get("ci_verdict")
+    if ci not in SEQ_SCORES:
+        return None
+    score = SEQ_SCORES[ci]
+    labels = {"proximal_distal": "hanche → genou → cheville",
+              "simultaneous": "poussée simultanée",
+              "partial": "séquence partielle",
+              "inverted": "ordre inversé"}
+    # Délais réels entre pics (t_peak en s → ms).
+    def tp(j):
+        d = burst.get(j)
+        return d.get("t_peak") if d else None
+    hip_t, knee_t, ankle_t = tp("hip"), tp("knee"), tp("ankle")
+    delays = {}
+    if hip_t is not None and knee_t is not None:
+        delays["hip_knee_ms"] = round((knee_t - hip_t) * 1000)
+    if knee_t is not None and ankle_t is not None:
+        delays["knee_ankle_ms"] = round((ankle_t - knee_t) * 1000)
+    detail = "L'ordre d'allumage hanche→genou→cheville signe les départs puissants."
+    if delays:
+        parts = []
+        if "hip_knee_ms" in delays:
+            parts.append(f"hanche→genou {delays['hip_knee_ms']:+d} ms")
+        if "knee_ankle_ms" in delays:
+            parts.append(f"genou→cheville {delays['knee_ankle_ms']:+d} ms")
+        detail = "Délais entre pics d'extension : " + " · ".join(parts) + "."
+    return {"score": score, "verdict": _score_to_verdict(score),
+            "label": "Séquence",
+            "value_text": labels.get(ci, ci),
+            "delays": delays,
+            "detail": detail,
+            "source": "Gross 2017"}
+
+
+def _score_countermovement(cmv: dict | None) -> dict | None:
+    """Note de contre-mouvement (déterminant n°1, Gross 2017) pour la scorecard."""
+    if not cmv:
+        return None
+    verdict_key = cmv.get("verdict")  # early / late / absent
+    if verdict_key not in CMV_SCORES:
+        return None
+    score = CMV_SCORES[verdict_key]
+    knee = cmv.get("knee") or {}
+    depth = knee.get("depth_deg")
+    if cmv.get("verdict") == "early":
+        vt = "load précoce" + (f" · {depth:.0f}° genou" if depth is not None else "")
+    elif cmv.get("verdict") == "late":
+        vt = "load tardif" + (f" · {depth:.0f}° genou" if depth is not None else "")
+    else:
+        vt = "pas de load franc"
+    return {"score": score, "verdict": _score_to_verdict(score),
+            "label": "Contre-mouvement", "value_text": vt,
+            "detail": "Charger les jambes juste avant la grille — déterminant n°1 du départ.",
+            "source": "Gross 2017",
+            "caveat": cmv.get("caveat")}
+
+
+def _score_posture(posture: dict | None) -> dict | None:
+    """Note de posture depuis le ratio de consignes OK / à corriger."""
+    if not posture:
+        return None
+    cues = (posture.get("cues") or {})
+    flat = (cues.get("set") or []) + (cues.get("push1") or [])
+    ok  = sum(1 for c in flat if c.get("type") == "ok")
+    fix = sum(1 for c in flat if c.get("type") == "fix")
+    if ok + fix == 0:
+        return None
+    score = 100.0 * ok / (ok + fix)
+    return {"score": round(score), "verdict": _score_to_verdict(score),
+            "label": "Posture",
+            "value_text": f"{ok}/{ok + fix} repères OK",
+            "detail": "Position en set et extension au push 1 vs repères élites.",
+            "source": "Grigg 2018"}
+
+
+def _compute_scorecard(job_id: str, job: dict) -> dict:
+    """Assemble la scorecard : 5 dimensions notées + note globale pondérée +
+    note lettre. Les dimensions non mesurables sont marquées et exclues du
+    calcul global (renormalisation des poids)."""
+    results = job.get("results") or {}
+    burst = _get_or_compute_burst(job_id, job)
+
+    posture = None
+    cmv = None
+    try:
+        csv_path = OUTPUT_DIR / results["files"]["landmarks_csv"]
+        side   = results.get("front_foot") or "L"
+        gate_t = float(results.get("gate_drop_t", 0.0))
+        posture = _compute_posture(csv_path, gate_t, side, results.get("phases"))
+        cmv     = _compute_countermovement(csv_path, gate_t, side)
+    except Exception:
+        posture = None
+
+    dims = {
+        "reaction":        _score_reaction(results),
+        "countermovement": _score_countermovement(cmv),
+        "explosivity":     _score_explosivity(burst),
+        "sequence":        _score_sequence(burst),
+        "posture":         _score_posture(posture),
+    }
+
+    # Note globale : moyenne pondérée sur les dimensions disponibles.
+    num, den = 0.0, 0.0
+    for key, dim in dims.items():
+        if dim is not None and dim.get("score") is not None:
+            w = SCORE_WEIGHTS.get(key, 0.0)
+            num += w * dim["score"]
+            den += w
+    overall = round(num / den) if den > 0 else None
+
+    if overall is None:
+        grade, grade_label = "—", "Mesure insuffisante"
+    elif overall >= 85:
+        grade, grade_label = "A", "Départ d'élite"
+    elif overall >= 70:
+        grade, grade_label = "B", "Solide"
+    elif overall >= 55:
+        grade, grade_label = "C", "À structurer"
+    elif overall >= 40:
+        grade, grade_label = "D", "Beaucoup de marge"
+    else:
+        grade, grade_label = "E", "Départ à reconstruire"
+
+    return {
+        "_version":   SCORECARD_VERSION,
+        "overall":    overall,
+        "grade":      grade,
+        "grade_label": grade_label,
+        "verdict":    _score_to_verdict(overall),
+        "dimensions": dims,
+        "weights":    SCORE_WEIGHTS,
+    }
+
+
+@app.get("/scorecard/{job_id}")
+async def scorecard(job_id: str):
+    """Scorecard synthétique d'un départ : réaction, explosivité, séquence,
+    posture → 4 notes + note globale. Voir _compute_scorecard."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return JSONResponse({"error": "Job introuvable ou non terminé."},
+                            status_code=404)
+    return _compute_scorecard(job_id, job)
+
+
+@app.get("/reaction/{job_id}")
+async def reaction(job_id: str):
+    """Analyse détaillée du temps de réaction (modèle « anticipation » ancré sur
+    la grille, cadence UCI). Voir _analyze_reaction et SCIENCE.md §2."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return JSONResponse({"error": "Job introuvable ou non terminé."},
+                            status_code=404)
+    a = _analyze_reaction(job["results"])
+    if a is None:
+        return JSONResponse({"error": "Réaction non mesurable (audio manquant)."},
+                            status_code=422)
+    return a
+
+
+@app.get("/report/{job_id}")
+async def report(request: Request, job_id: str):
+    """Rapport imprimable d'un départ (print-to-PDF depuis Safari iPad).
+    Tout est assemblé côté serveur → page statique, aucune dépendance JS,
+    impression fiable. Réutilise scorecard + posture + diagnostic explosivité."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return templates.TemplateResponse(request, "index.html",
+                                          {"error": "Rapport indisponible : job introuvable."})
+
+    results = job["results"]
+    sc = _compute_scorecard(job_id, job)
+
+    # Diagnostic explosivité (langage coach) + posture + contre-mouvement.
+    burst = _get_or_compute_burst(job_id, job)
+    diag = _burst_diagnose(burst) if burst else None
+    posture = None
+    cmv = None
+    setpos = None
+    try:
+        csv_path = OUTPUT_DIR / results["files"]["landmarks_csv"]
+        side   = results.get("front_foot") or "L"
+        gate_t = float(results.get("gate_drop_t", 0.0))
+        posture = _compute_posture(csv_path, gate_t, side, results.get("phases"))
+        cmv     = _compute_countermovement(csv_path, gate_t, side)
+        setpos  = _compute_set_position(csv_path, gate_t, side)
+    except Exception:
+        posture = None
+
+    # Les 2 consignes prioritaires (à corriger) toutes phases confondues.
+    top_fixes: list[dict] = []
+    if posture:
+        cues = posture.get("cues") or {}
+        for phase_key in ("set", "push1"):
+            for c in (cues.get(phase_key) or []):
+                if c.get("type") == "fix":
+                    top_fixes.append({**c, "phase": phase_key})
+    if diag and diag.get("cue"):
+        top_fixes.append({"type": "fix", "text": diag["cue"].get("text", ""),
+                          "why": diag["cue"].get("why", ""), "phase": "explosivité"})
+
+    aid = job.get("athlete_id")
+    athlete = athletes.get(aid) if aid else None
+
+    return templates.TemplateResponse(request, "report.html", {
+        "job_id":       job_id,
+        "results":      results,
+        "scorecard":    sc,
+        "diagnosis":    diag,
+        "posture":      posture,
+        "countermovement": cmv,
+        "set_position": setpos,
+        "top_fixes":    top_fixes[:3],
+        "athlete":      athlete,
+        "display_name": _display_name(job_id, job),
+        "track_name":   tracks.get(job.get("track_id"), {}).get("name", "") if job.get("track_id") else "",
+        "generated_at": datetime.now().strftime("%d/%m/%Y à %H:%M"),
+    })
+
+
+def _trend(values: list[float]) -> dict | None:
+    """Tendance d'une série chronologique (ancien→récent) par régression
+    linéaire simple. Retourne {slope_per_trial, direction}. None si < 3 points."""
+    n = len(values)
+    if n < 3:
+        return None
+    xs = list(range(n))
+    mx = sum(xs) / n
+    my = sum(values) / n
+    denom = sum((x - mx) ** 2 for x in xs)
+    if denom == 0:
+        return None
+    slope = sum((xs[i] - mx) * (values[i] - my) for i in range(n)) / denom
+    direction = "flat"
+    if slope > 0.5:
+        direction = "up"
+    elif slope < -0.5:
+        direction = "down"
+    return {"slope": round(slope, 2), "direction": direction}
+
+
+@app.get("/athletes/{athlete_id}/progression")
+async def athlete_progression(athlete_id: str):
+    """Séries temporelles de progression : par essai (ancien→récent) la
+    réaction, la note globale, le pic ω genou et la séquence. Plus des
+    agrégats : records, tendance, régularité (écart-type des 5 derniers).
+    Sert le dashboard de progression de la fiche athlète."""
+    if athlete_id not in athletes:
+        return JSONResponse({"error": "Athlète introuvable."}, status_code=404)
+
+    # Jobs de l'athlète, du plus ancien au plus récent, hors exclus.
+    aj = [(jid, j) for jid, j in jobs.items()
+          if j.get("status") == "done"
+          and j.get("athlete_id") == athlete_id
+          and not j.get("excluded_from_stats")]
+    aj.sort(key=lambda x: x[1].get("added_at", ""))
+
+    series: list[dict] = []
+    for jid, j in aj:
+        r = (j.get("results") or {}).get("reaction") or {}
+        reaction_ms = _reaction_ms(j.get("results") or {})  # recalé + fiabilité (SCIENCE.md §2)
+        sc = _compute_scorecard(jid, j)
+        burst = _get_or_compute_burst(jid, j)
+        knee_omega = None
+        if burst and burst.get("knee"):
+            knee_omega = burst["knee"].get("omega_max")
+        series.append({
+            "job_id":      jid,
+            "label":       _display_name(jid, j),
+            "date":        j.get("added_at", ""),
+            "reaction_ms": reaction_ms,
+            "overall":     sc.get("overall"),
+            "grade":       sc.get("grade"),
+            "knee_omega":  round(knee_omega, 0) if knee_omega is not None else None,
+            "false_start": r.get("type") == "false_start",
+        })
+
+    # Agrégats
+    reactions = [s["reaction_ms"] for s in series if s["reaction_ms"] is not None]
+    overalls  = [s["overall"] for s in series if s["overall"] is not None]
+    last5     = reactions[-5:]
+    consistency = round(float(np.std(last5)), 1) if len(last5) >= 2 else None
+
+    return {
+        "athlete_id":   athlete_id,
+        "athlete_name": athletes[athlete_id].get("name", ""),
+        "n":            len(series),
+        "series":       series,
+        "best_reaction": min(reactions) if reactions else None,
+        "best_overall":  max(overalls) if overalls else None,
+        "consistency_ms": consistency,
+        "trend_reaction": _trend(reactions),
+        "trend_overall":  _trend([float(o) for o in overalls]),
+    }
+
+
+# ── Détection du countermovement (Gross 2017, déterminant #1) ─────────────────
+# Le contre-mouvement précoce — charger en fléchissant juste avant/au moment de
+# la chute de la grille, puis exploser — est le déterminant n°1 de la perf au
+# gate selon Gross 2017. On le détecte sur la série d'angle du genou (et de la
+# hanche) autour du gate : une flexion supplémentaire (dip sous la position de
+# set) suivie de l'extension. Honnêteté : à 30 fps markerless, la profondeur en
+# degrés est indicative (bruit de pose + lissage), le TIMING est plus robuste.
+CMV_PRE  = 0.55     # fenêtre avant le gate (s)
+CMV_POST = 0.50     # fenêtre après le gate (s)
+CMV_MIN_DEPTH = 10.0    # flexion mini (°) sous le set pour parler de contre-mouv.
+CMV_EARLY_T   = 0.06    # début du load ≤ ce seuil (s, rel. gate) = précoce
+CMV_RECOVER   = 0.30    # part de la profondeur qui doit être ré-étendue après le load
+
+
+def _angle_series_for(df, side: str, joint: str):
+    """Série d'angle (°) frame par frame pour 'knee' (hanche-genou-cheville) ou
+    'hip' (épaule-hanche-genou), côté `side`. Retourne (t_array, angle_array)."""
+    def col(part, axis):
+        c = f"{side}_{part}_{axis}"
+        return df[c].to_numpy(dtype=float) if c in df.columns else np.full(len(df), np.nan)
+    t = df["time"].to_numpy(dtype=float)
+    if joint == "knee":
+        p1 = (col("hip", "x"), col("hip", "y"))
+        p2 = (col("knee", "x"), col("knee", "y"))
+        p3 = (col("ankle", "x"), col("ankle", "y"))
+    else:  # hip
+        p1 = (col("shoulder", "x"), col("shoulder", "y"))
+        p2 = (col("hip", "x"), col("hip", "y"))
+        p3 = (col("knee", "x"), col("knee", "y"))
+    v1x, v1y = p1[0] - p2[0], p1[1] - p2[1]
+    v2x, v2y = p3[0] - p2[0], p3[1] - p2[1]
+    dot = v1x * v2x + v1y * v2y
+    n1 = np.sqrt(v1x * v1x + v1y * v1y)
+    n2 = np.sqrt(v2x * v2x + v2y * v2y)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        cos = np.clip(dot / (n1 * n2), -1.0, 1.0)
+    return t, np.degrees(np.arccos(cos))
+
+
+def _countermovement_one(t_arr, ang, gate_t: float) -> dict | None:
+    """Détecte le contre-mouvement (load → extension) sur une articulation.
+
+    Méthode : le « load » est le minimum d'angle (flexion maximale) dans la
+    fenêtre autour du gate. On mesure sa profondeur depuis le sommet qui le
+    précède (position chargée vs set), l'instant où la descente commence
+    (timing du load) et on confirme qu'une ré-extension suit (sinon ce n'est
+    pas un contre-mouvement mais un affaissement).
+
+    Retour {present, depth_deg, t_min, t_load_start, set_angle, min_angle,
+    recover_deg} ou None."""
+    mask = (t_arr >= gate_t - CMV_PRE) & (t_arr <= gate_t + CMV_POST)
+    t = t_arr[mask]
+    a = ang[mask]
+    valid = ~np.isnan(a)
+    if valid.sum() < 8:
+        return None
+    t = t[valid]; a = a[valid]
+    if len(a) >= 5:
+        win = min(7, len(a) if len(a) % 2 == 1 else len(a) - 1)
+        if win >= 5:
+            try:
+                a = savgol_filter(a, window_length=win, polyorder=2, mode='interp')
+            except Exception:
+                pass
+    min_idx   = int(np.argmin(a))                       # bas du load
+    min_angle = float(a[min_idx])
+    # Sommet AVANT le load (position de set / chargée la plus haute).
+    set_angle = float(np.max(a[:min_idx + 1]))
+    depth     = set_angle - min_angle
+    # Ré-extension après le load (pour distinguer load réel d'un affaissement).
+    recover   = float(np.max(a[min_idx:]) - min_angle) if min_idx < len(a) - 1 else 0.0
+    # Début de la descente : 1re frame où l'angle passe sous (set − 30% depth).
+    thresh = set_angle - 0.30 * depth
+    t_load_start = float(t[min_idx] - gate_t)
+    for i in range(min_idx + 1):
+        if a[i] <= thresh:
+            t_load_start = float(t[i] - gate_t)
+            break
+    present = depth >= CMV_MIN_DEPTH and recover >= CMV_RECOVER * depth
+    return {
+        "present":      bool(present),
+        "depth_deg":    round(depth, 1),
+        "t_min":        round(float(t[min_idx] - gate_t), 3),
+        "t_load_start": round(t_load_start, 3),
+        "set_angle":    round(set_angle, 1),
+        "min_angle":    round(min_angle, 1),
+        "recover_deg":  round(recover, 1),
+    }
+
+
+def _compute_countermovement(csv_path: Path, gate_t: float, side: str) -> dict | None:
+    """Analyse le contre-mouvement (genou + hanche) et produit un verdict coach."""
+    if not csv_path.exists():
+        return None
+    try:
+        df = pd.read_csv(csv_path)
+    except Exception:
+        return None
+    if "time" not in df.columns or len(df) == 0:
+        return None
+
+    t_arr, knee_ang = _angle_series_for(df, side, "knee")
+    _,     hip_ang  = _angle_series_for(df, side, "hip")
+    knee = _countermovement_one(t_arr, knee_ang, gate_t)
+    hip  = _countermovement_one(t_arr, hip_ang,  gate_t)
+    if knee is None and hip is None:
+        return None
+
+    # Verdict : on se fie d'abord au genou (signal le plus net), hanche en appui.
+    primary = knee or hip
+    present = (knee and knee["present"]) or (hip and hip["present"])
+    t_load_start = primary["t_load_start"]
+    early = present and t_load_start <= CMV_EARLY_T
+
+    if not present:
+        verdict, vclass = "absent", "warn"
+        headline = ("Pas de vrai contre-mouvement détecté : tu sembles partir "
+                    "depuis ta position de set sans recharger.")
+        cue = ("Travaille le « load » : juste avant la grille, fléchis légèrement "
+               "pour armer tes jambes, puis explose. C'est le geste n°1 des "
+               "meilleurs départs.")
+    elif early:
+        verdict, vclass = "early", "ok"
+        headline = ("Bon contre-mouvement précoce : tu charges tes jambes au bon "
+                    "moment avant d'exploser.")
+        cue = ("Continue — un load juste avant/au moment de la grille te donne le "
+               "ressort. Garde ce timing.")
+    else:
+        verdict, vclass = "late", "warn"
+        headline = ("Tu charges tes jambes, mais un peu tard (après la grille) : "
+                    "tu perds une partie du ressort.")
+        cue = ("Anticipe ton load : amorce la flexion juste AVANT que la grille "
+               "tombe pour être déjà en train d'exploser quand elle part.")
+
+    return {
+        "knee":     knee,
+        "hip":      hip,
+        "verdict":  verdict,
+        "vclass":   vclass,
+        "headline": headline,
+        "cue":      cue,
+        "source":   "Gross 2017",
+        "caveat":   "Profondeur indicative (markerless 30 fps) ; le timing est plus fiable.",
+    }
+
+
+@app.get("/countermovement/{job_id}")
+async def countermovement(job_id: str):
+    """Détection du contre-mouvement (charge avant extension) — déterminant #1
+    du départ selon Gross 2017. Voir _compute_countermovement."""
+    job = get_job_or_recover(job_id)
+    if not job or job.get("status") != "done":
+        return JSONResponse({"error": "Job introuvable ou non terminé."},
+                            status_code=404)
+    results = job["results"]
+    csv_path = OUTPUT_DIR / results["files"]["landmarks_csv"]
+    side   = results.get("front_foot") or "L"
+    gate_t = float(results.get("gate_drop_t", 0.0))
+    cm = _compute_countermovement(csv_path, gate_t, side)
+    if cm is None:
+        return JSONResponse({"error": "Données insuffisantes autour du gate."},
+                            status_code=422)
+    return cm
 
 
 def _is_burst_significant(burst: dict, min_omega: float = 50.0) -> bool:
